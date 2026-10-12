@@ -281,7 +281,11 @@ class BoundVision:
         began = clock.now()
         # Looked up on every attempt, so a wait follows a window that moves.
         area = run.search_area(search.region, search.window)
-        frame = toolkit.capturer.grab(area)
+        try:
+            frame = toolkit.capturer.grab(area)
+        except ValueError as exc:  # e.g. a region entirely outside the virtual desktop
+            raise StepError(ErrorCode.VALIDATION_FAILED, f"cannot search there: {exc}",
+                            {"param": "region"}) from exc
         match = toolkit.locate(search.template, frame, search.threshold, search.scale)
         elapsed_ms = max(0, round((clock.now() - began) * 1000))
         failing = (final_miss_fails and not match.found
