@@ -150,6 +150,14 @@ class Machine:
             return
         self._pause(reason, depth)
 
+    def first_step(self) -> Step | None:
+        """The script's first top-level step, None for an empty script."""
+        return self._script.steps[0] if self._script.steps else None
+
+    def place_at(self, step: Step) -> None:
+        """Record ``step`` (top level) as the current position before the run starts."""
+        self._set_position(step, None)
+
     def _set_position(self, step: Step, its: Iterations) -> None:
         with self._control.lock:
             self.position = step

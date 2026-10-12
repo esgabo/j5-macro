@@ -69,6 +69,11 @@ class Interpreter:
 
     def run(self) -> RunOutcome:
         if self._mode == "step":
+            # Record where the run is paused before saying so, so a client reacting to
+            # this state_changed already gets the first step from get_state.
+            first = self._machine.first_step()
+            if first is not None:
+                self._machine.place_at(first)
             self._events.state("paused", "step")
         else:
             self._events.state("running")

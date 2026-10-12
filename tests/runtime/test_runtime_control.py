@@ -412,3 +412,33 @@ def test_get_state_during_a_paused_wait_inside_a_loop():
     assert (state["step_id"], state["path"], state["iterations"]) == ("nap", [0, 0, 0], [1])
     bg.controller.stop()
     bg.join()
+
+
+def test_step_mode_reports_the_first_step_as_soon_as_it_pauses():
+    """A client asking get_state right when the first paused arrives gets the step."""
+    from runtime_helpers import REGISTRY, Recorder, ScaledClock, load
+
+    from j5_macro.runtime import RunOptions, create_run
+
+    seen: list[dict] = []
+    holder: dict = {}
+
+    class Probe(Recorder):
+        def __call__(self, type_, payload):
+            super().__call__(type_, payload)
+            if type_ == "state_changed" and payload["state"] == "paused" and not seen:
+                seen.append(holder["controller"].state())
+
+    script = load("steps:\n  - id: a\n    log: one\n  - id: b\n    log: two\n")
+    holder["controller"] = create_run(script, REGISTRY, Probe(),
+                                      RunOptions(mode="step", seed=1), clock=ScaledClock())
+    import threading
+
+    thread = threading.Thread(target=holder["controller"].run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while not seen and time.monotonic() < deadline:
+        time.sleep(0.01)
+    holder["controller"].stop()
+    thread.join(5)
+    assert seen and (seen[0]["step_id"], seen[0]["path"]) == ("a", [0])
