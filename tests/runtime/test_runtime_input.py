@@ -8,8 +8,8 @@ import time
 from typing import Any
 
 import pytest
-from input_helpers import FakeSession, InputRun, SessionFactory, backend, run_input
 from runtime_helpers import Recorder, run
+from runtime_input_helpers import FakeSession, InputRun, SessionFactory, backend, run_input
 
 import j5_macro.runtime.input as run_input_module
 from j5_macro.input.api import InputProfile, KeyboardProfile, MouseProfile

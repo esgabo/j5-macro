@@ -82,7 +82,7 @@ Rules:
 - **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
 - **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
 - **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
-- **The client supervises the engine.** If the engine process dies, the client that started it releases the keys and buttons the last `input_state` event reported as held, newest first, with a backend of its own process (`button:<name>` with `button_up`, a single character with `char_up`, any other key name with `key_up`), and says so.
+- **The client supervises the engine.** If the engine process dies, the client that started it releases the keys and buttons the last `input_state` event reported as held, newest first, with a backend of its own process (`button:<name>` with `button_up`, `char:<c>` with `char_up`, any other entry, a physical key name, with `key_up`), and says so.
 - **Ctrl+C.** In a terminal, Ctrl+C reaches every process of the console. The engine ignores SIGINT when serving stdio: the client decides what Ctrl+C means (the CLI sends `stop`), and the engine ends when its stdin closes. On end of input with a run active, the engine stops the run, waits up to 5 s for `run_finished`, and exits with code 0.
 - **Channels.** v1: stdio, with the client starting the engine as a subprocess (`python -m j5_macro.engine [--runs-dir DIR] [--stop-key COMBO]`). Later: a Unix socket or a Windows named pipe for a long-lived engine, and WebSocket if a web GUI needs it. Since those channels can inject input, they only accept the same user (socket permissions) and require a token handed over when the engine starts.
 
@@ -135,11 +135,11 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | `loop_iteration` | At the start of each iteration | `step_id`, `index`, `total?` |
 | `variable_changed` | A variable changes | `name`, `old` (`null` for a new variable), `new`, `step_id?` (absent when set by `set_variable`) |
 | `image_search` | Each image search attempt | `template`, `threshold`, `found`, `best_score`, `bbox?`, `region`, `attempt`, `elapsed_ms`, `screenshot?` (path; by default only on the last failed attempt) |
-| `input_planned` | An input master finished planning | `device` (`mouse` or `keyboard`), `strategy`, `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref?` (path to the JSON with the points or key events, once runs have a directory for artifacts) |
+| `input_planned` | An input master finished planning; clicks, drags and scrolls report their movement (a scroll has no `from`/`to`) | `device` (`mouse` or `keyboard`), `strategy` (the one actually used: `human` reports `linear` until milestone M5), `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref?` (path to the JSON with the points or key events, once runs have a directory for artifacts) |
 | `input_executed` | Input finished | `device`, `actual_duration_ms`, `aborted` |
-| `input_state` | The set of held keys or buttons changed | `held` (list in press order: key names, single characters, and buttons as `button:<name>`); used by the client to release them if the engine dies |
+| `input_state` | The set of held keys or buttons changed | `held` (list in press order: physical key names such as `ctrl` or the `a` of `ctrl+a`, layout-independent characters as `char:<c>`, and buttons as `button:<name>`); used by the client to release them if the engine dies |
 | `user_interference` | The user moved the mouse during a planned movement (mouse only in v1) | `expected`, `actual`, `action` (`pause` or `stop`) |
-| `keys_released` | Pending keys or buttons were released | `keys`, `reason` |
+| `keys_released` | Pending keys or buttons were released | `keys` (in release order), `reason` (`aborted`: an interrupted action; `failsafe`: the corner failsafe; `run_ended`: the end of a run) |
 | `log` | Free text, including the script's `log:` step | `level`, `message`, `step_id?` |
 | `trigger_fired` | Reserved for the triggers milestone | `trigger_id`, `kind` |
 
@@ -208,6 +208,8 @@ A run starts in `running` (normal and dry modes) or `paused` (step mode) and alw
 
 There is one master per device, and it decides *how* the mouse moves or the text is typed; the backend only knows how to execute primitives. All human-like behaviour lives in the master and is identical on every operating system.
 
+**Backend selection.** The engine picks one backend at startup and reports it in `ready`, `hello` and `run_started`. `J5_BACKEND` overrides the choice: `auto` (default), `x11`, `windows`, `fake` (records input and touches nothing, for tests and demos) or `none`. With `auto` on Linux, a Wayland session (`XDG_SESSION_TYPE=wayland` or `WAYLAND_DISPLAY` set) gets no backend, even if `DISPLAY` is set, since XWayland only reaches X11 applications: log in with an X11 session instead, or set `J5_BACKEND=x11` explicitly. Otherwise `DISPLAY` selects X11 (it needs the `x11` extra: `pip install j5-macro[x11]`). Windows gets its backend in milestone M6. Without a backend, dry runs still work and input steps fail with `capability_missing` giving the reason.
+
 **Backend interface** (the only part that changes per platform):
 
 | Primitive | Notes |
@@ -218,9 +220,9 @@ There is one master per device, and it decides *how* the mouse moves or the text
 | `key_down(k)`, `key_up(k)` | Physical keys, for shortcuts and modifiers |
 | `char_down(c)`, `char_up(c)` | Press and release a character regardless of the keyboard layout (ñ, accents, dead keys, symbols). Separate calls so the `human` profile controls how long each key is held |
 | `screen_bounds()` | The virtual desktop: the bounding box of every screen |
-| `find_window(title)` | Frame of the first visible window whose title contains `title`; for window-relative coordinates |
-| `watch_hotkey(keys, callback)` | Calls back whenever a key combination is pressed, even when another application has the focus; for the emergency stop |
-| `close()` | Releases the display connection and any temporary state, such as key remaps |
+| `find_window(title)` | Client area (without decorations), in desktop coordinates, of the topmost visible window whose title contains `title` (case-sensitive); for window-relative coordinates |
+| `watch_hotkey(keys, callback)` | Calls back whenever a combination (modifiers plus exactly one other key) is pressed, whatever the lock keys and even when another application has the focus; for the emergency stop. Raises if another program already owns the combination: the engine then warns and relies on the corner failsafe |
+| `close()` | Releases anything still held, then the display connection and any temporary state, such as key remaps |
 | `capabilities` | Which of the above exist (`pointer_position`, `move_abs`, `move_rel`, `char_input`, `screen_capture`, `windows`, `hotkey`); the master adapts |
 
 Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`; named keys `enter`, `tab`, `escape`, `backspace`, `delete`, `insert`, `space`, arrows `up`/`down`/`left`/`right`, `home`, `end`, `pageup`, `pagedown`, `capslock`, `menu`, `printscreen`, `f1` to `f24`; and single printable ASCII characters. The input layer resolves aliases in scripts (`esc`, `return`, `control`, `cmd`, `win`, `del`, `pgup`...) before calling the backend.
@@ -256,6 +258,7 @@ Each step's effective profile is the defaults, then the script's `input`, the ru
 **Safety and reproducibility:**
 
 - **Held state.** The master tracks which keys and buttons are held and emits `input_state` on every change. On `stop`, or on an error, it releases them all and emits `keys_released`.
+- **Backends with relative movement only.** If the backend can neither move absolutely nor report the pointer, the first movement of a session pushes the pointer to the top-left corner of the desktop so later movements start from a known place.
 - **If the engine dies.** The client that started it releases whatever the last `input_state` reported as held, so an engine crash never leaves Shift or Ctrl stuck.
 - **Interference detection, mouse only in v1.** During a movement the real position is compared with the planned one; beyond the tolerance, `user_interference` is emitted. It requires `pointer_position`. The keyboard is left out because on X11 injected keys are hard to tell apart from the user's.
 - **Emergency stop.** A global hotkey, `ctrl+alt+shift+q` by default (engine option `--stop-key`, else env `J5_STOP_KEY`; key names and aliases as above, joined with `+`), stops the active run with reason `user` after a `warning` `log` in that run. It needs the backend's `hotkey` capability; without it the engine logs a warning at startup. As a fallback, moving the cursor into a corner of the virtual desktop (within 2 pixels) while the run is moving it stops the run too: masters check the real pointer position between points, release what they hold and raise `EmergencyStop`, and the interpreter stops the run with reason `user` and a `warning` `log`. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
@@ -316,6 +319,8 @@ steps:
 | `scroll` | `dx`, `dy` |
 | `type` | `text`, `keyboard?` |
 | `key` | `press` (e.g. `ctrl+s`), `hold?` |
+
+**Key combinations** (`key` steps and the stop key) are written as modifiers then one key, joined by `+`, case-insensitive: `ctrl+shift+s`, `alt+f4`, `super+e`. A final single ASCII character is the physical key that types it on a US layout. The `+` and `-` keys are written `plus` and `minus` (`ctrl+plus`). Aliases: `esc`, `return`, `control`/`ctl`, `cmd`/`win`/`meta`, `option`, `del`, `ins`, `pgup`, `pgdn`. To type text, including non-ASCII characters, use `type`, where `\n` and `\r` press Enter, `\t` Tab and `\b` Backspace; other control characters are rejected. Some keymaps lack `f13` to `f24`; using one then fails with `validation_failed`.
 | `wait_image` | `image`, `timeout`, `threshold`, `region?`, `window?` |
 | `sleep` | Duration, with optional variance |
 | `if` | `when` (expression or condition), `then`, `else?` |

@@ -10,15 +10,15 @@ from j5_macro.cli.release import release_held
 
 def test_entries_map_to_primitives_newest_first():
     backend = FakeBackend()
-    report = release_held(["shift", "a", "button:left", "ctrl"],
+    report = release_held(["shift", "char:ñ", "button:left", "ctrl", "a"],
                           select=lambda: BackendChoice("fake", backend, "test"))
     assert [(c.name, c.args) for c in backend.calls] == [
-        ("key_up", ("ctrl",)), ("button_up", (Button.LEFT,)), ("char_up", ("a",)),
-        ("key_up", ("shift",))]
+        ("key_up", ("a",)), ("key_up", ("ctrl",)), ("button_up", (Button.LEFT,)),
+        ("char_up", ("ñ",)), ("key_up", ("shift",))]
     assert backend.closed
-    assert report.released == ["ctrl", "button:left", "a", "shift"]
-    assert report.message() == ("released what the engine held: ctrl, button:left, a, shift "
-                                "(backend fake)")
+    assert report.released == ["a", "ctrl", "button:left", "char:ñ", "shift"]
+    assert report.message() == ("released what the engine held: a, ctrl, button:left, char:ñ, "
+                                "shift (backend fake)")
 
 
 def test_failures_are_reported_and_the_rest_released():

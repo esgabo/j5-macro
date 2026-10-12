@@ -110,4 +110,4 @@ def test_engine_process_rejects_a_bad_stop_key() -> None:
     result = subprocess.run([sys.executable, "-m", "j5_macro.engine", "--stop-key", "ctrl+"],
                             capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
     assert result.returncode == 2
-    assert "invalid key combination" in result.stderr
+    assert "bad key combination" in result.stderr

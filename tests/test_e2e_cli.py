@@ -47,7 +47,8 @@ def test_dry_run_example_end_to_end(capsys, isolated_runs):
     assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["status"] == "completed"
 
 
-def test_real_run_without_backend_fails_cleanly(capsys):
+def test_real_run_without_backend_fails_cleanly(capsys, monkeypatch):
+    monkeypatch.setenv("J5_BACKEND", "none")
     assert main(["run", str(EXAMPLE)]) == 1
     out = capsys.readouterr().out
     assert "capability_missing" in out

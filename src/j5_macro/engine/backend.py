@@ -12,42 +12,20 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 
-from j5_macro.backends.base import MODIFIER_KEYS, NAMED_KEYS, Backend
+from j5_macro.backends.base import MODIFIER_KEYS, Backend
 from j5_macro.backends.select import BackendChoice
+from j5_macro.input.keys import parse_combo as _parse_combo
 
 STOP_KEY_ENV = "J5_STOP_KEY"
 DEFAULT_STOP_KEY = "ctrl+alt+shift+q"
 INPUT_STRATEGIES = ("direct", "linear", "human")
 """Strategies offered when a backend exists (``human`` plans like ``linear`` until M5)."""
 
-KEY_ALIASES = {
-    "control": "ctrl", "ctl": "ctrl", "option": "alt", "opt": "alt",
-    "cmd": "super", "command": "super", "win": "super", "windows": "super", "meta": "super",
-    "esc": "escape", "return": "enter", "del": "delete", "ins": "insert",
-    "pgup": "pageup", "pgdn": "pagedown", "pgdown": "pagedown", "spacebar": "space",
-}
-
-
 def parse_combo(text: str) -> list[str]:
-    """``ctrl+alt+shift+q`` → ``["ctrl", "alt", "shift", "q"]`` in backend key names
-    (aliases resolved, lowercase, order kept). Raises ValueError for a bad combination.
-
-    A small local parser so the engine does not depend on the input layer's; it accepts
-    the same key names (docs/contract.md, "Mouse and keyboard masters").
-    """
-    parts = [part.strip().lower() for part in text.split("+")]
-    if not text.strip() or any(not part for part in parts):
-        raise ValueError(f"invalid key combination {text!r}")
-    keys: list[str] = []
-    for part in parts:
-        key = KEY_ALIASES.get(part, part)
-        named = key in MODIFIER_KEYS or key in NAMED_KEYS
-        printable = len(key) == 1 and key.isascii() and key.isprintable() and key != " "
-        if not (named or printable):
-            raise ValueError(f"unknown key {part!r} in {text!r}")
-        if key in keys:
-            raise ValueError(f"key {key!r} appears twice in {text!r}")
-        keys.append(key)
+    """``ctrl+alt+shift+q`` → ``["ctrl", "alt", "shift", "q"]`` in backend key names,
+    with the same syntax and aliases as the ``key`` step (``j5_macro.input.keys``).
+    Raises ValueError for a bad combination."""
+    keys = list(_parse_combo(text).keys)
     if all(key in MODIFIER_KEYS for key in keys):
         raise ValueError(f"{text!r} has only modifiers; add a key such as q")
     return keys
