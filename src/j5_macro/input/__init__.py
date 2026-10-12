@@ -17,9 +17,12 @@ from j5_macro.input.api import (
     Strategy,
     TimedPoint,
 )
+from j5_macro.input.keys import Combo, normalize_key, parse_combo
+from j5_macro.input.session import MasterSession, create_session
 
 __all__ = [
     "AbortSignal",
+    "Combo",
     "EmergencyStop",
     "InputEventSink",
     "InputProfile",
@@ -27,6 +30,7 @@ __all__ = [
     "KeyAction",
     "KeyPlan",
     "KeyboardProfile",
+    "MasterSession",
     "MousePath",
     "MousePlan",
     "MouseProfile",
@@ -34,4 +38,7 @@ __all__ = [
     "StepInput",
     "Strategy",
     "TimedPoint",
+    "create_session",
+    "normalize_key",
+    "parse_combo",
 ]
