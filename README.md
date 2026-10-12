@@ -65,8 +65,8 @@ examples/
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-ruff check . && mypy && pytest
+pip install -e ".[dev,x11,vision]"
+scripts/check.sh    # lint, types and tests (on Linux under Xvfb: apt install xvfb)
 ```
 
 Platform extras: `pip install -e ".[x11,vision]"` on Linux, `".[windows,vision]"` on Windows.
