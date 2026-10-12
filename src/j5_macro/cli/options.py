@@ -79,12 +79,13 @@ def parse_param_env(text: str) -> tuple[str, str]:
 
 def read_param_file(path: str, stdin: TextIO) -> str:
     """The text of a ``--param-file``: the whole file (or standard input for ``-``) as
-    UTF-8, without one trailing line break. Raises ValueError."""
+    UTF-8, with line breaks as ``\\n`` whatever the platform wrote, without one trailing
+    line break. Raises ValueError."""
     try:
         if path == "-":
             text = stdin.read()
         else:
-            with open(path, encoding="utf-8", newline="") as handle:
+            with open(path, encoding="utf-8") as handle:
                 text = handle.read()
     except (OSError, UnicodeDecodeError) as exc:
         raise ValueError(f"cannot read {path!r}: {exc}") from exc

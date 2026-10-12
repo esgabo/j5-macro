@@ -72,6 +72,7 @@ def test_param_values_are_never_parsed():
 
 def test_param_files_drop_one_final_line_break(tmp_path):
     for content, expected in [("one\n", "one"), ("one\r\n", "one"), ("a\nb\n\n", "a\nb\n"),
+                              ("a\r\nb\r\n", "a\nb"),
                               ("no break", "no break"), ("ñé€ 日本\n", "ñé€ 日本")]:
         path = tmp_path / "p.txt"
         path.write_bytes(content.encode("utf-8"))
