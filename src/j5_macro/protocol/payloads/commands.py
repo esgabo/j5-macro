@@ -266,6 +266,7 @@ class CreateScriptPayload(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CreateScriptResult(Result):
     script_id: str
+    version: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -273,38 +274,59 @@ class GetScriptResult(Result):
     script_id: str
     version: str
     source: str
+    name: str
+    path: str | None
     steps: list[StepNode]
+    params: list[dict[str, Any]] = field(default_factory=list)
+    valid: bool = True
+    errors: list[ErrorInfo] = field(default_factory=list)
+
+
+Block = Literal["then", "else", "do"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Position(Payload):
-    """Where a step goes: after a step, or first in the block at ``parent_path``."""
+    """Where a step goes: right after ``after_step_id``, or at ``index`` (the end by
+    default) of the top-level list (no ``parent_step_id``) or of ``block`` of
+    ``parent_step_id``."""
 
     after_step_id: str | None = None
-    parent_path: list[int] | None = None
+    parent_step_id: str | None = None
+    block: Block | None = None
+    index: int | None = None
 
     def check(self, path: str) -> None:
-        _exactly_one(path, after_step_id=self.after_step_id, parent_path=self.parent_path)
+        if self.after_step_id is not None and (
+                self.parent_step_id is not None or self.block is not None
+                or self.index is not None):
+            raise PayloadError(f"{path}: after_step_id excludes parent_step_id, block "
+                               "and index")
+        if (self.parent_step_id is None) != (self.block is None):
+            raise PayloadError(f"{path}: parent_step_id and block go together")
+        if self.index is not None and self.index < 0:
+            raise PayloadError(f"{path}.index: must be 0 or more")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class InsertEdit(Payload):
-    """Insert ``step`` (a YAML-shaped step mapping); the engine assigns its id."""
+    """Insert ``step`` (a YAML-shaped step mapping) at ``to``; the engine assigns its id
+    unless the step has one."""
 
     op: Literal["insert"] = "insert"
-    after_step_id: str | None = None
-    parent_path: list[int] | None = None
     step: dict[str, Any]
-
-    def check(self, path: str) -> None:
-        _exactly_one(path, after_step_id=self.after_step_id, parent_path=self.parent_path)
+    to: Position
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UpdateEdit(Payload):
+    """Replace the given ``params`` (``None`` removes one) and ``common`` fields
+    (``break``, ``timeout``, ``on_error``, ``input``)."""
+
     op: Literal["update"] = "update"
     step_id: str
-    params: dict[str, Any]
+    params: dict[str, Any] = field(default_factory=dict)
+    common: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -342,6 +364,7 @@ class EditScriptPayload(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EditScriptResult(Result):
     version: str
+    valid: bool = True
     errors: list[ErrorInfo] = field(default_factory=list)
 
 
@@ -359,6 +382,9 @@ class RunInfo(Payload):
     started: str
     """ISO 8601 UTC timestamp."""
     duration_ms: int | None = None
+    script_name: str | None = None
+    script_path: str | None = None
+    mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -375,6 +401,8 @@ class GetRunPayload(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GetRunResult(Result):
     run_id: str
+    run: dict[str, Any]
+    """The run's ``run.json``."""
     events: list[dict[str, Any]]
     captures: list[str] = field(default_factory=list)
     """Paths relative to ``runs/<run_id>/``."""

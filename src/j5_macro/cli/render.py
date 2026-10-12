@@ -11,6 +11,7 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, TextIO
 
 from j5_macro.protocol import ErrorInfo, Event
@@ -354,3 +355,69 @@ class RunRenderer:
         keys = p.get("keys")
         names = ", ".join(str(k) for k in keys) if isinstance(keys, list) else "?"
         return [self.style.paint(f"released {names} ({_text(p.get('reason'))})", "dim")]
+
+
+# -- run history --------------------------------------------------------------------------
+
+RUN_COLUMNS = ("RUN", "STARTED", "SCRIPT", "MODE", "STATUS", "DURATION")
+STATUS_COLORS = {"completed": "green", "failed": "red", "stopped": "yellow"}
+
+
+def local_time(ts: Any) -> str:
+    """``2026-10-12T15:10:51.412Z`` -> ``2026-10-12 17:10:51`` in the local time zone;
+    a value that is not a timestamp is shown as it is."""
+    if not isinstance(ts, str):
+        return "?"
+    try:
+        moment = datetime.fromisoformat(ts)
+    except ValueError:
+        return ts
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def script_label(run: Mapping[str, Any]) -> str:
+    """The script's ``name``, else its file name, else ``-``."""
+    name = _text(run.get("script_name"))
+    if name:
+        return name
+    path = _text(run.get("script_path"))
+    return os.path.basename(path) if path else "-"
+
+
+def format_runs(runs: Sequence[Mapping[str, Any]], style: Style = PLAIN) -> list[str]:
+    """A ``list_runs`` answer as a table, one run per line in the order given. A run
+    without ``status`` never finished (or is the one running now): ``unfinished``."""
+    rows = [(_text(run.get("run_id")), local_time(run.get("started")), script_label(run),
+             _text(run.get("mode")) or "-", _text(run.get("status")) or "unfinished",
+             "-" if run.get("duration_ms") is None else seconds(run.get("duration_ms")))
+            for run in runs]
+    widths = [max([len(title), *(len(row[i]) for row in rows)])
+              for i, title in enumerate(RUN_COLUMNS)]
+
+    def line(cells: Sequence[str], status: str | None = None) -> str:
+        padded = [cell.ljust(width) for cell, width in zip(cells, widths, strict=True)]
+        padded[-1] = cells[-1].rjust(widths[-1])
+        if status is not None:
+            padded[4] = style.paint(padded[4], STATUS_COLORS.get(status, "dim"))
+        return "  ".join(padded)
+
+    return [style.paint(line(RUN_COLUMNS), "bold"), *(line(row, row[4]) for row in rows)]
+
+
+def format_run_summary(run_id: str, run: Mapping[str, Any], captures: Sequence[str],
+                       run_dir: str | None = None, style: Style = PLAIN) -> list[str]:
+    """What ``j5 runs show`` prints before the events: the script's file, when the run
+    started and ended, and the captures it saved (in ``run_dir``)."""
+    lines = [f"{style.paint('saved run', 'dim')} {style.paint(run_id, 'bold')}"]
+    if run.get("script_path"):
+        lines.append(f"  script    {run['script_path']}")
+    lines.append(f"  started   {local_time(run.get('started'))}")
+    if run.get("finished"):
+        lines.append(f"  finished  {local_time(run.get('finished'))}")
+    if captures:
+        where = f" in {run_dir}" if run_dir else ""
+        lines.append(f"  captures  {plural(len(captures), 'file')}{where}")
+        lines.extend(f"    {path}" for path in captures)
+    return lines

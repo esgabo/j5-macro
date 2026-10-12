@@ -42,8 +42,11 @@ class ReadyEvent(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ScriptChangedEvent(Payload):
     script_id: str
-    version: str
-    source: Literal["disk", "edit"]
+    version: str | None
+    """None when the file was deleted."""
+    source: Literal["disk", "edit", "deleted"]
+    valid: bool = True
+    errors: list[ErrorInfo] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

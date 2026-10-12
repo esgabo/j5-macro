@@ -73,6 +73,22 @@ without echo. Secret values show as `***` in the output and the run history; pas
 with `--param-env`, `--param-file` or the prompt rather than `--param`, which leaves them
 in your shell history. `j5 validate` lists a script's params.
 
+### Run history
+
+Every run is saved with all its events and screen captures, and the newest 20 are kept,
+in `~/.local/state/j5-macro/runs` on Linux and `%LOCALAPPDATA%\j5-macro\runs` on Windows
+(`--runs-dir DIR` or `J5_RUNS_DIR` choose another directory):
+
+```console
+$ j5 runs
+RUN                     STARTED              SCRIPT    MODE    STATUS     DURATION
+r-20261012-205233-a083  2026-10-12 17:52:33  Hello j5  dry     completed    0.195s
+r-20261012-202139-f5d2  2026-10-12 17:21:39  Hello j5  step    stopped      0.325s
+$ j5 runs show r-20261012-202139-f5d2          # replays the output of that run
+$ j5 runs show --json r-20261012-202139-f5d2   # its events, one JSON line each
+$ j5 runs delete r-20261012-202139-f5d2
+```
+
 ### Debugging
 
 `j5 run --step` starts a script paused before its first step and gives a pdb-like prompt

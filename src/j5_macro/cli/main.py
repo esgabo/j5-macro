@@ -4,8 +4,10 @@ Exit codes (every command):
 
 - 0: success (``validate``: the script is valid, warnings allowed; ``run``: completed).
 - 1: ``validate``: the script is invalid or cannot be read; ``run``: the run failed;
-  any command: the engine could not be started or died.
-- 2: usage error; ``run``: the script could not be loaded or the run could not start.
+  ``runs show``/``runs delete``: no saved run with that id; any command: the engine
+  could not be started or died.
+- 2: usage error; ``run``: the script could not be loaded or the run could not start;
+  ``runs show``/``runs delete``: a malformed run id.
 - 3: ``run``: the run was stopped (by the engine, e.g. user interference).
 - 130: interrupted with Ctrl+C.
 """
@@ -34,6 +36,7 @@ from j5_macro.cli.options import (
     parse_var,
 )
 from j5_macro.cli.render import Style, symbols_for, use_color
+from j5_macro.engine.persistence import RUNS_DIR_ENV, RUNS_KEPT, resolve_runs_dir
 
 EXIT_CODES = """\
 exit codes:
@@ -85,13 +88,37 @@ or map it to your script files in .vscode/settings.json:
   "yaml.schemas": {"./j5-script.schema.json": ["*.j5.yaml", "scripts/**/*.yaml"]}"""
 
 
+RUNS_HELP = f"""\
+Every run is saved in the runs directory: --runs-dir, else ${RUNS_DIR_ENV}, else the
+platform state directory (~/.local/state/j5-macro/runs on Linux,
+%LOCALAPPDATA%\\j5-macro\\runs on Windows). The newest {RUNS_KEPT} runs are kept.
+
+  j5 runs                       list the saved runs, newest first
+  j5 runs show RUN_ID           replay a run's events as j5 run showed them
+  j5 runs show --json RUN_ID    its events, one JSON line each
+  j5 runs delete RUN_ID...      delete runs
+
+exit codes: 0 done, 1 no saved run with that id (or the engine died), 2 usage error or
+a malformed run id"""
+
+
+def _runs_dir_option() -> argparse.ArgumentParser:
+    """``--runs-dir``, accepted before or after the ``runs`` subcommand's own command."""
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument("--runs-dir", metavar="DIR", default=argparse.SUPPRESS,
+                        help=f"the runs directory (default: ${RUNS_DIR_ENV}, else the "
+                             "platform state directory)")
+    return parent
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="j5", description="Need input! Desktop automation.")
     parser.add_argument("--version", action="version", version=f"j5-macro {__version__}")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
+    runs_dir = _runs_dir_option()
 
     run = sub.add_parser(
-        "run", help="run a script",
+        "run", help="run a script", parents=[runs_dir],
         description="Load a script, run it and show its progress.",
         epilog=DEBUG_HELP + "\n" + PARAMS_HELP + "\n" + EXIT_CODES,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -141,6 +168,21 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("script", help="path to a YAML script")
     validate.add_argument("--json", action="store_true",
                           help="print one JSON object with errors and warnings")
+
+    runs = sub.add_parser(
+        "runs", help="list, show and delete saved runs", parents=[runs_dir],
+        description=RUNS_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    runs.add_argument("-n", "--limit", type=int, default=RUNS_KEPT,
+                      help=f"show at most this many runs (default {RUNS_KEPT})")
+    runs.add_argument("--json", action="store_true", help="print the engine's answer as JSON")
+    runs_sub = runs.add_subparsers(dest="runs_command", metavar="<action>")
+    show = runs_sub.add_parser("show", parents=[runs_dir],
+                               help="show a saved run's details and events")
+    show.add_argument("run_id", metavar="RUN_ID")
+    show.add_argument("--json", dest="show_json", action="store_true",
+                      help="print the run's events as JSON lines instead of text")
+    delete = runs_sub.add_parser("delete", parents=[runs_dir], help="delete saved runs")
+    delete.add_argument("run_ids", metavar="RUN_ID", nargs="+")
 
     steps = sub.add_parser("steps", help="list the step types and their parameters")
     steps.add_argument("--json", action="store_true", help="print the engine's answer as JSON")
@@ -214,6 +256,18 @@ def _schema(output: str | None) -> int:
     return ExitCode.OK
 
 
+def _runs(args: argparse.Namespace, cmd: list[str], runs_dir: str, io: Output) -> int:
+    if args.runs_command == "show":
+        return commands.run_sync(commands.runs_show(cmd, args.run_id, as_json=args.show_json,
+                                                    runs_dir=runs_dir, io=io))
+    if args.runs_command == "delete":
+        return commands.run_sync(commands.runs_delete(cmd, args.run_ids, io=io))
+    if args.limit < 0:
+        raise CliError("--limit must not be negative", ExitCode.USAGE)
+    return commands.run_sync(commands.runs_list(cmd, limit=args.limit, as_json=args.json,
+                                                runs_dir=runs_dir, io=io))
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "schema":
         return _schema(args.output)
@@ -225,8 +279,14 @@ def _dispatch(args: argparse.Namespace) -> int:
         cmd = engine_command()
     except ValueError as exc:
         raise CliError(str(exc), ExitCode.USAGE) from exc
+    runs_dir: str | None = getattr(args, "runs_dir", None)
+    if runs_dir:
+        runs_dir = os.path.abspath(runs_dir)
+        cmd += ["--runs-dir", runs_dir]
     io = Output(out=sys.stdout, err=sys.stderr, style=_style(sys.stdout),
                 err_style=_style(sys.stderr))
+    if args.command == "runs":
+        return _runs(args, cmd, str(resolve_runs_dir(runs_dir)), io)
     if args.command == "validate":
         return commands.run_sync(commands.validate(cmd, args.script, as_json=args.json, io=io))
     if args.command == "steps":
@@ -268,6 +328,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CliError as exc:
         print(f"j5: {exc}", file=sys.stderr)
         return int(exc.exit_code)
+    except BrokenPipeError:
+        # The reader went away (``j5 runs show --json | head``): stop quietly. Point
+        # stdout at devnull so the interpreter's final flush does not fail again.
+        _silence_stdout()
+        return ExitCode.FAILED
+
+
+def _silence_stdout() -> None:
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 if __name__ == "__main__":
