@@ -302,6 +302,7 @@ class RunManager:
                 raise CommandError.from_info(exc.info) from exc
             run_started: JsonObject = {
                 "script_id": entry.script_id,
+                "script_name": entry.script.name,
                 "mode": payload.mode,
                 "seed": seed,
                 "backend": self._backend_name(run.controller),

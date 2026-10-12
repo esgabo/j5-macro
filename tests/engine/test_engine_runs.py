@@ -31,6 +31,7 @@ steps:
   - id: hi
     log: hello
 vars: {n: 1}
+name: Greeter
 """
 STEP = {"step_id": "hi", "path": [0], "line": 5}
 
@@ -78,6 +79,7 @@ def test_run_lifecycle_and_event_order() -> None:
 
     started = RunStartedEvent.from_json(events[0]["payload"])
     assert (started.script_id, started.mode, started.seed) == (script_id, "dry", 42)
+    assert started.script_name == "Greeter"
     assert started.backend == "none"
     assert started.input_profile == {"mouse": {"strategy": "direct", "speed": 1.0},
                                      "keyboard": {"strategy": "human", "wpm": 55}}

@@ -40,7 +40,7 @@ exit codes:
   0    completed
   1    the run failed, or the engine died
   2    usage error, or the script could not be loaded or started
-  3    the run was stopped
+  3    the run was stopped (by the engine, or with q in the debugger)
   130  interrupted with Ctrl+C (the first Ctrl+C stops the run and waits for it,
        the second one quits at once)"""
 
@@ -56,6 +56,17 @@ script params:
   j5 run form.yaml --param 'customer=ACME #42' --param-env password=FORM_PASSWORD
   j5 run letter.yaml --param-file body=letter.txt
   printf %s "$TOKEN" | j5 run login.yaml --param-file token=-
+"""
+
+DEBUG_HELP = """\
+debugging:
+  --step starts paused before the first step; --break STEP_ID pauses before that step.
+  At each pause the debugger reads commands (h lists them): n(ext), s(tep), o(ut),
+  c(ontinue), p(rint) EXPR, v(ars), set NAME = EXPR, b(reak) [ID], clear [ID], w(here),
+  l(ist), q(uit). After a failed step or mouse interference, c retries it and n skips it.
+
+  j5 run --step script.yaml
+  printf 'n\\nvars\\nc\\n' | j5 run --step script.yaml
 """
 
 SCHEMA_HELP = """\
@@ -82,14 +93,21 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser(
         "run", help="run a script",
         description="Load a script, run it and show its progress.",
-        epilog=PARAMS_HELP + "\n" + EXIT_CODES,
+        epilog=DEBUG_HELP + "\n" + PARAMS_HELP + "\n" + EXIT_CODES,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     run.add_argument("script", help="path to a YAML script")
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--step", action="store_true",
-                      help="start paused, step by step (not available yet)")
+                      help="debug the script: start paused before the first step and give a "
+                           "debugger prompt whenever the run pauses (n, s, c, p, vars, h for "
+                           "help); commands are read from standard input, so they can be "
+                           "piped, and the run continues to the end when they run out")
     mode.add_argument("--dry-run", action="store_true",
                       help="send no input; image searches are tried once")
+    run.add_argument("--break", dest="breakpoints", metavar="STEP_ID", action="append",
+                     default=[],
+                     help="pause before the step with this id and give the debugger prompt "
+                          "(with or without --step); repeatable")
     run.add_argument("--seed", type=int, help="seed for human-like input")
     run.add_argument("--fast", action="store_true",
                      help="force the direct input strategy for mouse and keyboard")
@@ -195,11 +213,6 @@ def _schema(output: str | None) -> int:
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "schema":
         return _schema(args.output)
-    if args.command == "run" and args.step:
-        print("j5 run --step: the interactive debugger is not available yet (milestone M4); "
-              "run without --step, or use --dry-run to check a script without input",
-              file=sys.stderr)
-        return ExitCode.USAGE
     try:
         cmd = engine_command()
     except ValueError as exc:
@@ -217,9 +230,13 @@ def _dispatch(args: argparse.Namespace) -> int:
     except ValueError as exc:
         raise CliError(str(exc), ExitCode.USAGE) from exc
     reads_stdin = any(path == "-" for _, path in args.param_files)
-    interactive = _stdin_is_tty() and not reads_stdin
+    stdin_tty = _stdin_is_tty()
+    interactive = stdin_tty and not reads_stdin
     options = RunOptions(
-        mode="dry" if args.dry_run else "normal",
+        mode="dry" if args.dry_run else "step" if args.step else "normal",
+        debug=args.step or bool(args.breakpoints),
+        breakpoints=list(args.breakpoints),
+        echo_commands=not stdin_tty,
         params=params,
         inline_params=frozenset(name for name, _ in args.params),
         ask=_ask if interactive else None,

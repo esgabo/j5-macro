@@ -103,11 +103,6 @@ def test_no_command_prints_help(capsys):
     assert "usage: j5" in capsys.readouterr().out
 
 
-def test_step_mode_is_not_available_yet(capsys):
-    assert main(["run", "script.yaml", "--step"]) == 2
-    assert "not available yet" in capsys.readouterr().err
-
-
 def test_bad_var_is_a_usage_error(capsys):
     with pytest.raises(SystemExit) as exc:
         main(["run", "script.yaml", "--var", "novalue"])
@@ -203,7 +198,7 @@ def test_run_completed(engine, script, record, capsys):
     engine("valid")
     assert main(["run", script, "--seed", "7"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "run s-1 (mode normal, seed 7, backend fake)"
+    assert out[0] == "run r-1  Save report  (mode normal, seed 7, backend fake)"
     body = [line.split("s  ", 1)[1] for line in out[1:-1]]
     assert body == [
         '▶ open_menu  click  {"x": 10, "y": 20}',

@@ -1,6 +1,7 @@
 """The real ``j5`` CLI against the real engine and interpreter (no fakes)."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,13 @@ def test_dry_run_example_end_to_end(capsys, isolated_runs):
     persisted = (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(persisted) == len(run_events)
     assert json.loads((run_dir / "run.json").read_text(encoding="utf-8"))["status"] == "completed"
+
+
+def test_run_header_names_the_run_and_the_script(capsys):
+    assert main(["run", "--dry-run", "--seed", "7", str(EXAMPLE)]) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^run r-\d{8}-\d{6}-[0-9a-f]{4}  Hello j5  \(mode dry, seed 7, "
+                     r"backend \w+\)$", out, re.MULTILINE)
 
 
 def test_real_run_without_backend_fails_cleanly(capsys, monkeypatch):

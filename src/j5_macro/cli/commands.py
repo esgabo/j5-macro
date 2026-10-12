@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, TextIO
 
+from j5_macro.cli.debugger import Debugger, LineSource, StepInfo, flatten_steps, unknown_ids
 from j5_macro.cli.interrupt import Control, Controls
 from j5_macro.cli.release import release_held
 from j5_macro.cli.render import (
@@ -134,6 +135,8 @@ class LoadOutcome:
     warnings: list[dict[str, Any]]
     params: list[dict[str, Any]] = field(default_factory=list)
     """The script's declared params, as ``load`` reports them."""
+    steps: list[StepInfo] = field(default_factory=list)
+    """The step tree of ``load``, flattened in document order."""
 
 
 def _warnings(raw: Any) -> list[dict[str, Any]]:
@@ -164,7 +167,8 @@ async def load(client: EngineClient, script: str) -> LoadOutcome:
     params = result.get("params")
     return LoadOutcome(script_id, [], _warnings(result.get("warnings")),
                        [p for p in params if isinstance(p, dict)]
-                       if isinstance(params, list) else [])
+                       if isinstance(params, list) else [],
+                       flatten_steps(result.get("steps")))
 
 
 # -- validate -----------------------------------------------------------------------------
@@ -248,6 +252,14 @@ class RunOptions:
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
+    debug: bool = False
+    """Run the debugger prompt on every pause (``--step`` or ``--break``)."""
+    breakpoints: list[str] = field(default_factory=list)
+    """Client breakpoints to set before the run starts (``--break``)."""
+    lines: LineSource | None = None
+    """Where debugger commands come from; standard input when None."""
+    echo_commands: bool = False
+    """Echo debugger commands as they are read (standard input is not a terminal)."""
 
     def payload(self, script_id: str) -> dict[str, Any]:
         payload: dict[str, Any] = {"script_id": script_id, "mode": self.mode}
@@ -294,6 +306,49 @@ async def ask_missing(declared: list[dict[str, Any]], options: RunOptions,
     return True
 
 
+async def set_initial_breakpoints(client: EngineClient, script: str, outcome: LoadOutcome,
+                                  options: RunOptions, io: Output) -> bool:
+    """Check the ``--break`` step ids against the loaded script and set them; False
+    (after saying why) when one is unknown."""
+    if not options.breakpoints:
+        return True
+    unknown = unknown_ids(options.breakpoints, outcome.steps)
+    if unknown:
+        known = ", ".join(step.id for step in outcome.steps) or "none"
+        io.note(f"j5: --break: {script} has no step with id "
+                f"{', '.join(repr(step_id) for step_id in unknown)} (its step ids: {known})")
+        return False
+    assert outcome.script_id is not None
+    try:
+        await client.call("set_breakpoints", {"script_id": outcome.script_id,
+                                              "step_ids": list(dict.fromkeys(
+                                                  options.breakpoints))})
+    except EngineError as exc:
+        io.note(f"j5: cannot set breakpoints: [{exc.code}] {exc.error.message}")
+        return False
+    return True
+
+
+def make_debugger(client: EngineClient, run_id: str, script: str, outcome: LoadOutcome,
+                  options: RunOptions, io: Output) -> Debugger:
+    """The debugger of a ``--step`` or ``--break`` run. Its output goes to stdout, or to
+    stderr with ``--json`` so that stdout keeps only events."""
+    stream, style = (io.err, io.err_style) if options.as_json else (io.out, io.style)
+
+    def write(text: str) -> None:
+        print(text, file=stream, flush=True)
+
+    def prompt(text: str) -> None:
+        print(text, end="", file=stream, flush=True)
+
+    assert outcome.script_id is not None
+    return Debugger(client=client, run_id=run_id, script_id=outcome.script_id, script=script,
+                    steps=outcome.steps, write=write, prompt=prompt,
+                    lines=options.lines or LineSource(), echo=options.echo_commands,
+                    as_json=options.as_json, style=style,
+                    breakpoints=list(dict.fromkeys(options.breakpoints)))
+
+
 STATUS_CODES = {"completed": ExitCode.OK, "failed": ExitCode.FAILED,
                 "stopped": ExitCode.STOPPED}
 
@@ -314,6 +369,8 @@ async def run(cmd: Sequence[str], script: str, options: RunOptions, *, io: Outpu
             warn_inline_secrets(outcome.params, options.inline_params, io)
             if not await ask_missing(outcome.params, options, io):
                 return ExitCode.USAGE
+            if not await set_initial_breakpoints(client, script, outcome, options, io):
+                return ExitCode.USAGE
             with controls.handle_sigint():
                 try:
                     started = await client.call("run", options.payload(outcome.script_id))
@@ -327,7 +384,9 @@ async def run(cmd: Sequence[str], script: str, options: RunOptions, *, io: Outpu
                 run_id = started.get("run_id")
                 if not isinstance(run_id, str):
                     raise CliError("the engine answered run without a run_id")
-                follower = RunFollower(client, run_id, options, io, controls)
+                debugger = (make_debugger(client, run_id, script, outcome, options, io)
+                            if options.debug else None)
+                follower = RunFollower(client, run_id, options, io, controls, debugger)
                 try:
                     status = await follower.follow()
                 finally:
@@ -348,8 +407,11 @@ class RunFollower:
     """Renders the events of one run until ``run_finished``, handling Ctrl+C and pauses."""
 
     def __init__(self, client: EngineClient, run_id: str, options: RunOptions, io: Output,
-                 controls: Controls) -> None:
+                 controls: Controls, debugger: Debugger | None = None) -> None:
         self.client = client
+        self.debugger = debugger
+        self._prompt: asyncio.Future[None] | None = None
+        """The debugger prompt of the current pause, if any."""
         self.run_id = run_id
         self.options = options
         self.io = io
@@ -358,6 +420,9 @@ class RunFollower:
         self.aborted = False
         self._step: str | None = None
         """The step last started: the one a pause for an error or interference is about."""
+        self._finished: dict[str, Any] | None = None
+        """The last ``step_finished`` payload, until the next ``step_started``: a pause
+        right after it (a ``pause:`` step) is after that step, not before it."""
         self._skipping = False
         """``step_over`` was sent to skip a step; the next ``step`` pause is resumed."""
         self._background: set[asyncio.Future[Any]] = set()
@@ -387,6 +452,7 @@ class RunFollower:
                         self.aborted = True
                         return None
                     if control is Control.STOP and deadline is None:
+                        self._end_prompt()
                         self.io.note("j5: stopping the run (Ctrl+C again to quit now)")
                         self._send("stop", {"run_id": self.run_id, "reason": "user"})
                         deadline = loop.time() + STOP_WAIT
@@ -431,17 +497,30 @@ class RunFollower:
                 self.io.line(line)
         if event.run_id != self.run_id:
             return None
+        if self.debugger is not None:
+            self.debugger.observe(event)
         if event.type == "step_started":
             self._step = str(event.payload.get("step_id") or "") or None
+            self._finished = None
+        elif event.type == "step_finished":
+            self._finished = dict(event.payload)
         if event.type == "state_changed" and event.payload.get("state") == "paused":
             self._paused(event.payload.get("reason"))
         if event.type == "run_finished":
+            self._end_prompt()
             status = event.payload.get("status")
             return status if isinstance(status, str) else "unknown"
         return None
 
     def _paused(self, reason: Any) -> None:
         if self.controls.interrupts:
+            return
+        if self.debugger is not None:
+            if self._prompt is None or self._prompt.done():
+                self._prompt = asyncio.ensure_future(
+                    self.debugger.paused(reason, self._step, self._finished))
+                self._background.add(self._prompt)
+                self._prompt.add_done_callback(self._background.discard)
             return
         if self._skipping and reason == "step":
             # The pause that follows skipping a step: carry on without asking again.
@@ -464,11 +543,18 @@ class RunFollower:
             return
         if interactive:
             self.io.note("j5: the run is paused; press Enter to resume or Ctrl+C to stop "
-                         "(the interactive debugger arrives with `j5 run --step`)")
+                         "(for the debugger, run with --step or --break)")
             self.controls.wait_for_enter()
         else:
             self.io.note("j5: the run paused; resuming it (no terminal to ask)")
             self._send("resume", {"run_id": self.run_id})
+
+    def _end_prompt(self) -> None:
+        """Cancel a debugger prompt still waiting for a command (the run is ending)."""
+        if self._prompt is not None and not self._prompt.done():
+            self._prompt.cancel()
+            if self.debugger is not None and self.debugger.at_prompt:
+                self.debugger.write("")  # end the prompt's line
 
     def _send(self, command: str, payload: Mapping[str, Any]) -> None:
         """Send a control command without blocking the event loop of :meth:`follow`."""

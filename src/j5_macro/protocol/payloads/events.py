@@ -49,6 +49,8 @@ class ScriptChangedEvent(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RunStartedEvent(Payload):
     script_id: str
+    script_name: str | None = None
+    """The script's ``name``; optional for engines that predate it."""
     mode: RunMode
     seed: int
     backend: str

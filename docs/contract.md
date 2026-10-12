@@ -123,7 +123,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | --- | --- | --- |
 | `ready` | When the engine starts, no `run_id` | `v`, `backend`, `capabilities` |
 | `script_changed` | A script changed on disk or through `edit_script`, no `run_id` | `script_id`, `version`, `source` (`disk` or `edit`) |
-| `run_started` | First event of a run | `script_id`, `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
+| `run_started` | First event of a run | `script_id`, `script_name` (the script's `name`), `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
 | `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
 | `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
 | `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved |
@@ -179,7 +179,7 @@ A run starts in `running` (normal and dry modes) or `paused` (step mode) and alw
 
 - Breakpoints are the client's plus the script's `break: true` steps. The engine emits `breakpoint_hit` and pauses (reason `breakpoint`) before the step runs; after continuing, the step runs without triggering the same breakpoint again. Inside a `loop` a breakpoint fires on every iteration.
 - A `pause:` step pauses right after it finishes, with reason `breakpoint`.
-- Breakpoints and `pause:` steps also pause runs in `normal` mode. What happens next is the client's choice: the CLI asks for Enter when it runs in a terminal, and otherwise resumes on its own and says so.
+- Breakpoints and `pause:` steps also pause runs in `normal` mode. What happens next is the client's choice: the CLI asks for Enter when it runs in a terminal, and otherwise resumes on its own and says so; with `j5 run --step` or `--break` it gives its debugger prompt instead, at every pause.
 
 **Errors.** A step that fails with `on_error: continue` logs the error and moves on. `retry` makes up to 3 attempts in total (each failure emits `step_failed` with `details.attempt`), then behaves like `stop`. `pause` emits `step_failed` and pauses with reason `error`: `resume` retries the step, `step_over` skips it (`step_skipped`, reason `user`), and `step_into` and `step_out` retry it and then pause as stepping says; in a terminal the CLI offers both (Enter retries, `s` and Enter skips and then carries on), and otherwise retries on its own and says so. `stop` ends the run with `status: failed`.
 
