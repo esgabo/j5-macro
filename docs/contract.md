@@ -135,7 +135,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | `loop_iteration` | At the start of each iteration | `step_id`, `index`, `total?` |
 | `variable_changed` | A variable changes | `name`, `old` (`null` for a new variable), `new`, `step_id?` (absent when set by `set_variable`) |
 | `image_search` | Each image search attempt | `template`, `threshold`, `found`, `best_score`, `bbox?`, `region`, `attempt`, `elapsed_ms`, `screenshot?` (path; by default only on the last failed attempt) |
-| `input_planned` | An input master finished planning | `device` (`mouse` or `keyboard`), `strategy`, `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref` (path to the JSON with the points or key events) |
+| `input_planned` | An input master finished planning | `device` (`mouse` or `keyboard`), `strategy`, `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref?` (path to the JSON with the points or key events, once runs have a directory for artifacts) |
 | `input_executed` | Input finished | `device`, `actual_duration_ms`, `aborted` |
 | `input_state` | The set of held keys or buttons changed | `held` (list); used by the client to release them if the engine dies |
 | `user_interference` | The user moved the mouse during a planned movement (mouse only in v1) | `expected`, `actual`, `action` (`pause` or `stop`) |
@@ -217,7 +217,13 @@ There is one master per device, and it decides *how* the mouse moves or the text
 | `button_down(b)`, `button_up(b)`, `scroll(dx, dy)` | Buttons and wheel |
 | `key_down(k)`, `key_up(k)` | Physical keys, for shortcuts and modifiers |
 | `char_down(c)`, `char_up(c)` | Press and release a character regardless of the keyboard layout (ñ, accents, dead keys, symbols). Separate calls so the `human` profile controls how long each key is held |
-| `capabilities` | Which of the above exist; the master adapts |
+| `screen_bounds()` | The virtual desktop: the bounding box of every screen |
+| `find_window(title)` | Frame of the first visible window whose title contains `title`; for window-relative coordinates |
+| `watch_hotkey(keys, callback)` | Calls back whenever a key combination is pressed, even when another application has the focus; for the emergency stop |
+| `close()` | Releases the display connection and any temporary state, such as key remaps |
+| `capabilities` | Which of the above exist (`pointer_position`, `move_abs`, `move_rel`, `char_input`, `screen_capture`, `windows`, `hotkey`); the master adapts |
+
+Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`; named keys `enter`, `tab`, `escape`, `backspace`, `delete`, `insert`, `space`, arrows `up`/`down`/`left`/`right`, `home`, `end`, `pageup`, `pagedown`, `capslock`, `menu`, `printscreen`, `f1` to `f24`; and single printable ASCII characters. The input layer resolves aliases in scripts (`esc`, `return`, `control`, `cmd`, `win`, `del`, `pgup`...) before calling the backend.
 
 **Plan, then execute.** Every input action goes through three phases:
 
@@ -238,6 +244,7 @@ There is one master per device, and it decides *how* the mouse moves or the text
 | Device | Parameter | Meaning |
 | --- | --- | --- |
 | Mouse | `strategy`, `speed` | Strategy and speed multiplier (1.0 = normal) |
+| Mouse | `path` | Path shape for `human`: `windmouse` (default; gravity and wind, slightly erratic) or `bezier` (smooth curves). Both are implemented in j5-macro as pure seeded functions; a shared timing layer adds the speed curve, overshoot and jitter |
 | Mouse | `overshoot`, `jitter` | Overshoot probability (0 to 1) and jitter amplitude in pixels |
 | Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
 | Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
@@ -249,7 +256,7 @@ There is one master per device, and it decides *how* the mouse moves or the text
 - **Held state.** The master tracks which keys and buttons are held and emits `input_state` on every change. On `stop`, or on an error, it releases them all and emits `keys_released`.
 - **If the engine dies.** The client that started it releases whatever the last `input_state` reported as held, so an engine crash never leaves Shift or Ctrl stuck.
 - **Interference detection, mouse only in v1.** During a movement the real position is compared with the planned one; beyond the tolerance, `user_interference` is emitted. It requires `pointer_position`. The keyboard is left out because on X11 injected keys are hard to tell apart from the user's.
-- **Emergency stop.** A configurable global hotkey, and as a fallback moving the cursor into a screen corner. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
+- **Emergency stop.** A global hotkey, `ctrl+alt+shift+q` by default (engine option `--stop-key`, env `J5_STOP_KEY`), stops the active run with reason `user`. As a fallback, moving the cursor into a corner of the virtual desktop (within 2 pixels) while the run is moving it stops the run too: masters check the real pointer position between points. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
 - **Per-action seeds.** Each plan, and each step's random choices, use a sub-seed derived (SHA-256) from `seed`, `step_id`, `iterations` and the attempt number, so every iteration of a `loop` moves differently. The same seed, start point and target give the same plan; if the cursor position or the matched image location changes, the plan changes even with the same seed.
 - **Typos never change the result.** With `typos` on, an automated test checks that the planned key events, corrections included, produce the original text. It cannot check the target application (autocomplete may interfere), which is why `typos` is off by default.
 - **Fast mode.** `run` accepts an `input_profile` with `direct` strategies to debug without waiting.

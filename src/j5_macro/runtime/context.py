@@ -7,9 +7,11 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any, Protocol
 
+from j5_macro.input.api import StepInput
+from j5_macro.protocol.errors import ErrorCode
 from j5_macro.runtime.resolve import evaluated
 from j5_macro.runtime.seeding import derive_seed
-from j5_macro.steps.spec import LogLevel
+from j5_macro.steps.spec import LogLevel, StepError
 
 
 class ContextHost(Protocol):
@@ -23,6 +25,8 @@ class ContextHost(Protocol):
     def log(self, level: LogLevel, message: str, step_id: str | None) -> None: ...
 
     def wait(self, seconds: float, depth: int) -> None: ...
+
+    def check_stop(self) -> None: ...
 
 
 class RunContext:
@@ -75,3 +79,12 @@ class RunContext:
     def request_pause(self, message: str | None = None) -> None:
         self.pause_requested = True
         self.pause_message = message
+
+    def check_stop(self) -> None:
+        self._host.check_stop()
+
+    @property
+    def input(self) -> StepInput:
+        # Wired to the run's input session in milestone M2 (#15, #17).
+        raise StepError(ErrorCode.CAPABILITY_MISSING,
+                        f"step '{self._step_id}' needs an input backend")

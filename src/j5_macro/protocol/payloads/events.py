@@ -147,7 +147,7 @@ class InputPlannedEvent(Payload):
     duration_ms: int | None = None
     chars: int | None = None
     wpm: float | None = None
-    plan_ref: str
+    plan_ref: str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

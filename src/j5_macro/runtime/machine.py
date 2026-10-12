@@ -82,6 +82,9 @@ class Machine:
     def log(self, level: LogLevel, message: str, step_id: str | None) -> None:
         self._events.log(level, message, step_id)
 
+    def check_stop(self) -> None:
+        self._control.check_stop()
+
     def wait(self, seconds: float, depth: int) -> None:
         remaining = seconds
         while remaining > 0:
