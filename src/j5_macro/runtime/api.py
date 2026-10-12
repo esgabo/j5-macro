@@ -47,6 +47,8 @@ class RunOptions:
     backend: Backend | None = None
     """The engine's input backend; None means input steps fail with capability_missing
     (dry runs never touch it)."""
+    backend_reason: str | None = None
+    """Why there is no backend (as the engine reported it), for capability_missing."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

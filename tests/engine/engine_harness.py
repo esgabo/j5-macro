@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from j5_macro.engine import commands
+from j5_macro.engine.backend import EngineBackend
 from j5_macro.engine.runs import RunManager
 from j5_macro.engine.server import EngineServer
 from j5_macro.engine.transport import LineTransport
@@ -95,13 +96,14 @@ class Engine:
 
     def __init__(self, *, run_factory: RunFactory | None = None,
                  runs_dir: Path | None = None, registry: StepRegistry | None = None,
-                 hello: bool = True) -> None:
+                 hello: bool = True, backend: EngineBackend | None = None) -> None:
         self.reader = QueueReader()
         self.writer = CollectingWriter()
         self.server = EngineServer(LineTransport(self.reader, self.writer))
         self.registry = registry if registry is not None else default_registry()
         self.runs: RunManager = commands.install(
-            self.server, self.registry, run_factory=run_factory, runs_dir=runs_dir)
+            self.server, self.registry, run_factory=run_factory, runs_dir=runs_dir,
+            backend=backend)
         self._ids = itertools.count(1)
         self.exit_code: int | None = None
         self._thread = threading.Thread(target=self._serve, daemon=True)

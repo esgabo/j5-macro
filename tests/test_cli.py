@@ -317,6 +317,31 @@ def test_run_engine_death(engine, script, capsys):
     assert "RuntimeError: boom" in captured.err
 
 
+def test_run_engine_death_releases_held_keys(engine, script, monkeypatch, capsys):
+    engine("crash_held")
+    monkeypatch.setenv("J5_BACKEND", "fake")
+    assert main(["run", script]) == 1
+    err = capsys.readouterr().err
+    released = "j5: released what the engine held: button:left, a, shift (backend fake)"
+    assert released in err
+    assert err.index(released) < err.index("the engine died (exit code 3)")
+
+
+def test_run_engine_death_without_a_backend_says_so(engine, script, monkeypatch, capsys):
+    engine("crash_held")
+    monkeypatch.setenv("J5_BACKEND", "none")
+    assert main(["run", script]) == 1
+    err = capsys.readouterr().err
+    assert ("j5: the engine held shift, a, button:left and they could not be released: "
+            "no input backend (disabled by J5_BACKEND=none)") in err
+
+
+def test_run_header_shows_the_backend(engine, script, capsys):
+    engine("valid")
+    assert main(["run", script]) == 0
+    assert "backend fake" in capsys.readouterr().out
+
+
 # -- Ctrl+C ------------------------------------------------------------------------------
 
 
