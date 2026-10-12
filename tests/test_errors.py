@@ -4,8 +4,8 @@ from j5_macro.protocol import ErrorCode, ErrorInfo, Response, decode, encode
 CONTRACT_CODES = {
     "parse_error", "validation_failed", "unknown_step_type", "script_not_found",
     "not_running", "invalid_state", "busy", "conflict", "template_missing",
-    "image_not_found", "expression_error", "backend_unavailable", "capability_missing",
-    "input_denied", "internal_error",
+    "image_not_found", "window_not_found", "expression_error", "backend_unavailable",
+    "capability_missing", "input_denied", "internal_error",
 }
 
 

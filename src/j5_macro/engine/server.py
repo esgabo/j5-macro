@@ -50,6 +50,7 @@ class EngineServer:
         """Payload of the ``ready`` event; command modules fill in the capabilities."""
         self._after_response: list[Callable[[], None]] = []
         self._shutdown_hooks: list[Callable[[], None]] = []
+        self._ready_hooks: list[Callable[[], None]] = []
 
     # -- registration -----------------------------------------------------
 
@@ -67,6 +68,11 @@ class EngineServer:
         no run event can precede the ``run`` response on the wire.
         """
         self._after_response.append(callback)
+
+    def on_ready(self, hook: Callable[[], None]) -> None:
+        """Run ``hook`` right after ``ready`` is emitted (e.g. startup warnings, which
+        must not precede ``ready``)."""
+        self._ready_hooks.append(hook)
 
     def on_shutdown(self, hook: Callable[[], None]) -> None:
         """Run ``hook`` at end of input, before :meth:`serve` returns."""
@@ -106,6 +112,8 @@ class EngineServer:
         """
         self.emit("ready", ready_payload if ready_payload is not None else self.ready_payload)
         try:
+            for ready_hook in self._ready_hooks:
+                ready_hook()
             while (line := self.transport.read_line()) is not None:
                 if line.strip():
                     self.handle_line(line)

@@ -21,6 +21,8 @@ Scenarios:
 - ``pause``: the run pauses after its first step until ``resume``.
 - ``crash_load``: writes a traceback to stderr and exits with code 3 on ``load``.
 - ``crash_run``: dies the same way after the first step of the run.
+- ``crash_held``: like ``crash_run``, after reporting ``shift``, ``a`` and
+  ``button:left`` as held with ``input_state``.
 """
 
 from __future__ import annotations
@@ -184,7 +186,10 @@ class FakeCliEngine:
             return
         self.event("step_started", r, {"step_id": "open_menu", "path": [0], "line": 3,
                                        "type": "click", "params": {"x": 10, "y": 20}})
-        if self.scenario == "crash_run":
+        if self.scenario == "crash_held":
+            self.event("input_state", r, {"held": ["shift"]})
+            self.event("input_state", r, {"held": ["shift", "a", "button:left"]})
+        if self.scenario in ("crash_run", "crash_held"):
             self.crash()
         self.event("step_finished", r, {"step_id": "open_menu", "path": [0],
                                         "duration_ms": 12})

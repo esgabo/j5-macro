@@ -14,21 +14,24 @@ a step of depth ``d``: ``step_over`` pauses at the next checkpoint of depth ``<=
 
 from __future__ import annotations
 
+import random
 import sys
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, TypeVar
 
 from j5_macro.expr import ExpressionError
+from j5_macro.input.api import EmergencyStop, StepInput
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
 from j5_macro.protocol.payloads.events import StateReason
 from j5_macro.runtime.api import RunOptions
 from j5_macro.runtime.clock import Clock
 from j5_macro.runtime.context import RunContext
-from j5_macro.runtime.control import Command, RunControl
+from j5_macro.runtime.control import Command, RunControl, RunStopped
 from j5_macro.runtime.emitter import Emitter, Iterations
 from j5_macro.runtime.failures import RunFailed, at_step, internal_error
 from j5_macro.runtime.frames import Frame, LoopState, iterations
+from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
 from j5_macro.script.model import Script, Step
 from j5_macro.steps.registry import StepRegistry
@@ -47,8 +50,9 @@ class Machine:
 
     def __init__(self, script: Script, registry: StepRegistry, events: Emitter,
                  control: RunControl, clock: Clock, options: RunOptions,
-                 conditions: Mapping[str, ConditionFn]) -> None:
+                 conditions: Mapping[str, ConditionFn], run_input: RunInput) -> None:
         self._script = script
+        self._input = run_input
         self._registry = registry
         self._events = events
         self._control = control
@@ -84,6 +88,10 @@ class Machine:
 
     def check_stop(self) -> None:
         self._control.check_stop()
+
+    def step_input(self, step_id: str, rng: random.Random,
+                   *overrides: Mapping[str, Any] | None) -> StepInput:
+        return self._input.bind(step_id, rng, *overrides)
 
     def wait(self, seconds: float, depth: int) -> None:
         remaining = seconds
@@ -160,6 +168,11 @@ class Machine:
                 info = exc.info
             except ExpressionError as exc:
                 info = exc.info
+            except EmergencyStop as exc:
+                # The master already released what it held (corner failsafe).
+                self._events.log("warning", f"emergency stop: {exc.reason}", step.id)
+                self._control.stop("user")
+                raise RunStopped("user") from exc
             except Exception as exc:
                 info = internal_error(exc)
             info = at_step(info, step, attempt)
@@ -217,7 +230,7 @@ class Machine:
 
     def _context(self, step: Step, its: Iterations, attempt: int, depth: int) -> RunContext:
         return RunContext(self, step_id=step.id, iterations=its, attempt=attempt, depth=depth,
-                          dry_run=self._dry_run, seed=self._seed)
+                          dry_run=self._dry_run, seed=self._seed, input_overrides=step.input)
 
     def _elapsed_ms(self, started: float, paused_before: float) -> int:
         active = self._clock.now() - started - (self._paused - paused_before)

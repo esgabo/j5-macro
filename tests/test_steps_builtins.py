@@ -145,6 +145,16 @@ class FakeContext:
     def request_pause(self, message: str | None = None) -> None:
         self.calls.append(("request_pause", message))
 
+    def check_stop(self) -> None:
+        pass
+
+    @property
+    def input(self) -> Any:
+        return self.input_for(None)
+
+    def input_for(self, overrides: Any) -> Any:
+        raise StepError(ErrorCode.CAPABILITY_MISSING, "step 's1' needs an input backend")
+
 
 def run(name: str, params: dict[str, Any], ctx: FakeContext) -> Any:
     step_type = REGISTRY.get(name)
@@ -232,11 +242,12 @@ def test_image_targets_warn_that_vision_is_pending(name, params):
 
 
 @pytest.mark.parametrize(("name", "params", "milestone"), [
-    ("click", {"x": 1, "y": 2}, "M2"),
-    ("type", {"text": "x"}, "M2"),
+    ("click", {"x": 1, "y": 2}, "input backend"),
+    ("type", {"text": "x"}, "input backend"),
+    ("click", {"image": "a.png"}, "M3"),
     ("wait_image", {"image": "a.png"}, "M3"),
 ])
-def test_input_placeholders_fail_outside_dry_run(name, params, milestone):
+def test_input_steps_fail_without_input_outside_dry_run(name, params, milestone):
     ctx = FakeContext()
     with pytest.raises(StepError) as info:
         run(name, params, ctx)

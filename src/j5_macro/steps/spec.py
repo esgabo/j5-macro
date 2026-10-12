@@ -257,7 +257,13 @@ class StepContext(Protocol):
     @property
     def input(self) -> StepInput:
         """Mouse and keyboard for this step (``j5_macro.input.api.StepInput``).
-        Raises ``StepError(capability_missing)`` when the engine has no input backend."""
+        Raises ``StepError(capability_missing)`` when the engine has no input backend,
+        and ``StepError(validation_failed)`` when the effective input profile is invalid."""
+        ...
+
+    def input_for(self, overrides: Mapping[str, Any] | None) -> StepInput:
+        """Like :attr:`input`, with ``{mouse: {...}, keyboard: {...}}`` profile
+        overrides applied last (e.g. the ``type`` step's ``keyboard`` parameter)."""
         ...
 
 

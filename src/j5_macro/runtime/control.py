@@ -117,6 +117,22 @@ class RunControl:
             self._state = "running"
             return command
 
+    def sleep_unless_stopped(self, seconds: float) -> None:
+        """Wait ``seconds``, ending early (with :class:`RunStopped`) only on stop.
+
+        For the input masters (``AbortSignal.sleep``): a pause never cuts an action in
+        half, so pause requests are ignored here and take effect at the next checkpoint.
+        """
+        deadline = self._clock.now() + seconds
+        with self.lock:
+            while True:
+                if self._stop_reason is not None:
+                    raise RunStopped(self._stop_reason)
+                remaining = deadline - self._clock.now()
+                if remaining <= 0:
+                    return
+                self._clock.wait(self.lock, remaining)
+
     def sleep(self, seconds: float) -> float:
         """Wait up to ``seconds``; returns the time left if a pause was requested
         (0 when the wait completed). Raises :class:`RunStopped` on stop."""

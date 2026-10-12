@@ -31,6 +31,8 @@ class ErrorCode(StrEnum):
     """A step's image file does not exist."""
     IMAGE_NOT_FOUND = "image_not_found"
     """``wait_image`` or an image-based step ran out of time; includes ``best_score``."""
+    WINDOW_NOT_FOUND = "window_not_found"
+    """No visible window matches a step's ``window`` (``details.title``)."""
     EXPRESSION_ERROR = "expression_error"
     """An expression or interpolation failed."""
     BACKEND_UNAVAILABLE = "backend_unavailable"

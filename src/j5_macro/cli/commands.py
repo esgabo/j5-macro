@@ -11,12 +11,21 @@ import asyncio
 import contextlib
 import json
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Coroutine, Mapping, Sequence
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Coroutine,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, TextIO
 
 from j5_macro.cli.interrupt import Control, Controls
+from j5_macro.cli.release import release_held
 from j5_macro.cli.render import (
     RunRenderer,
     Style,
@@ -78,11 +87,27 @@ def died_message(exc: EngineDied) -> str:
     return message
 
 
+def release_on_death(io: Output) -> Callable[[list[str], int | None], Awaitable[None]]:
+    """The ``on_engine_died`` hook: release what the engine held and say so."""
+
+    async def on_death(held: list[str], exit_code: int | None) -> None:
+        if not held:
+            return
+        report = await asyncio.to_thread(release_held, held)
+        io.note(f"j5: {report.message()}")
+
+    return on_death
+
+
 @contextlib.asynccontextmanager
-async def engine(cmd: Sequence[str]) -> AsyncIterator[EngineClient]:
-    """Launch the engine and close it on exit; startup failures become :class:`CliError`."""
+async def engine(cmd: Sequence[str], io: Output | None = None) -> AsyncIterator[EngineClient]:
+    """Launch the engine and close it on exit; startup failures become :class:`CliError`.
+
+    With ``io``, keys and buttons the engine held when it died are released (and
+    reported there)."""
+    on_death = release_on_death(io) if io is not None else None
     try:
-        client = await EngineClient.start(cmd, client_name="j5-cli")
+        client = await EngineClient.start(cmd, client_name="j5-cli", on_engine_died=on_death)
     except EngineDied as exc:
         raise CliError(died_message(exc)) from exc
     except TimeoutError as exc:
@@ -141,7 +166,7 @@ async def load(client: EngineClient, script: str) -> LoadOutcome:
 
 
 async def validate(cmd: Sequence[str], script: str, *, as_json: bool, io: Output) -> int:
-    async with engine(cmd) as client:
+    async with engine(cmd, io) as client:
         outcome = await load(client, script)
     if as_json:
         io.line(json.dumps({
@@ -164,7 +189,7 @@ async def validate(cmd: Sequence[str], script: str, *, as_json: bool, io: Output
 
 
 async def steps(cmd: Sequence[str], *, as_json: bool, io: Output) -> int:
-    async with engine(cmd) as client:
+    async with engine(cmd, io) as client:
         try:
             result = await client.call("list_step_types")
         except EngineError as exc:
@@ -213,7 +238,7 @@ async def run(cmd: Sequence[str], script: str, options: RunOptions, *, io: Outpu
     interrupted = False
     status: str | None = None
     try:
-        async with engine(cmd) as client:
+        async with engine(cmd, io) as client:
             outcome = await load(client, script)
             for error in outcome.errors:
                 io.note(format_problem(script, error, io.err_style))

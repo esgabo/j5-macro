@@ -8,10 +8,9 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from j5_macro.input.api import StepInput
-from j5_macro.protocol.errors import ErrorCode
 from j5_macro.runtime.resolve import evaluated
 from j5_macro.runtime.seeding import derive_seed
-from j5_macro.steps.spec import LogLevel, StepError
+from j5_macro.steps.spec import LogLevel
 
 
 class ContextHost(Protocol):
@@ -28,13 +27,18 @@ class ContextHost(Protocol):
 
     def check_stop(self) -> None: ...
 
+    def step_input(self, step_id: str, rng: random.Random,
+                   *overrides: Mapping[str, Any] | None) -> StepInput: ...
+
 
 class RunContext:
     """One attempt of one step."""
 
     def __init__(self, host: ContextHost, *, step_id: str, iterations: list[int] | None,
-                 attempt: int, depth: int, dry_run: bool, seed: int) -> None:
+                 attempt: int, depth: int, dry_run: bool, seed: int,
+                 input_overrides: Mapping[str, Any] | None = None) -> None:
         self._host = host
+        self._input_overrides = input_overrides
         self._step_id = step_id
         self._iterations = iterations
         self._attempt = attempt
@@ -85,6 +89,8 @@ class RunContext:
 
     @property
     def input(self) -> StepInput:
-        # Wired to the run's input session in milestone M2 (#15, #17).
-        raise StepError(ErrorCode.CAPABILITY_MISSING,
-                        f"step '{self._step_id}' needs an input backend")
+        return self.input_for(None)
+
+    def input_for(self, overrides: Mapping[str, Any] | None) -> StepInput:
+        return self._host.step_input(self._step_id, self.rng, self._input_overrides,
+                                     overrides)

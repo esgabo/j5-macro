@@ -78,13 +78,13 @@ Rules:
 
 - **Command and response.** The client sends a command with an `id`; the engine answers with `kind: response`, the same `id`, and either `ok: true` with `result` or `ok: false` with `error` (see the codes at the end).
 - **Events are not acknowledged.** The engine emits them in order. If a client sees a gap in `seq`, it fetches the missing ones with `get_events`.
-- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend, available input strategies and registered step types. Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
+- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without) and registered step types. Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key. Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
 - **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
 - **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
 - **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
-- **The client supervises the engine.** If the engine process dies, the client that started it releases the keys and buttons the last `input_state` event reported as held, and says so.
+- **The client supervises the engine.** If the engine process dies, the client that started it releases the keys and buttons the last `input_state` event reported as held, newest first, with a backend of its own process (`button:<name>` with `button_up`, a single character with `char_up`, any other key name with `key_up`), and says so.
 - **Ctrl+C.** In a terminal, Ctrl+C reaches every process of the console. The engine ignores SIGINT when serving stdio: the client decides what Ctrl+C means (the CLI sends `stop`), and the engine ends when its stdin closes. On end of input with a run active, the engine stops the run, waits up to 5 s for `run_finished`, and exits with code 0.
-- **Channels.** v1: stdio, with the client starting the engine as a subprocess (`python -m j5_macro.engine [--runs-dir DIR]`). Later: a Unix socket or a Windows named pipe for a long-lived engine, and WebSocket if a web GUI needs it. Since those channels can inject input, they only accept the same user (socket permissions) and require a token handed over when the engine starts.
+- **Channels.** v1: stdio, with the client starting the engine as a subprocess (`python -m j5_macro.engine [--runs-dir DIR] [--stop-key COMBO]`). Later: a Unix socket or a Windows named pipe for a long-lived engine, and WebSocket if a web GUI needs it. Since those channels can inject input, they only accept the same user (socket permissions) and require a token handed over when the engine starts.
 
 ## Commands
 
@@ -123,7 +123,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | --- | --- | --- |
 | `ready` | When the engine starts, no `run_id` | `v`, `backend`, `capabilities` |
 | `script_changed` | A script changed on disk or through `edit_script`, no `run_id` | `script_id`, `version`, `source` (`disk` or `edit`) |
-| `run_started` | First event of a run | `script_id`, `mode`, `seed` (generated when the client gave none), `backend` (`none` until a backend exists), `input_profile` |
+| `run_started` | First event of a run | `script_id`, `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
 | `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
 | `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
 | `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved |
@@ -137,7 +137,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | `image_search` | Each image search attempt | `template`, `threshold`, `found`, `best_score`, `bbox?`, `region`, `attempt`, `elapsed_ms`, `screenshot?` (path; by default only on the last failed attempt) |
 | `input_planned` | An input master finished planning | `device` (`mouse` or `keyboard`), `strategy`, `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref?` (path to the JSON with the points or key events, once runs have a directory for artifacts) |
 | `input_executed` | Input finished | `device`, `actual_duration_ms`, `aborted` |
-| `input_state` | The set of held keys or buttons changed | `held` (list); used by the client to release them if the engine dies |
+| `input_state` | The set of held keys or buttons changed | `held` (list in press order: key names, single characters, and buttons as `button:<name>`); used by the client to release them if the engine dies |
 | `user_interference` | The user moved the mouse during a planned movement (mouse only in v1) | `expected`, `actual`, `action` (`pause` or `stop`) |
 | `keys_released` | Pending keys or buttons were released | `keys`, `reason` |
 | `log` | Free text, including the script's `log:` step | `level`, `message`, `step_id?` |
@@ -251,12 +251,14 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | Keyboard | `variance`, `typos` | Spread of the intervals, and typos with corrections (`false` by default) |
 | Both | `seed` | Base seed of the run |
 
+Each step's effective profile is the defaults, then the script's `input`, the run's `input_profile`, the step's `input` and, last, step parameters such as `type`'s `keyboard`; an invalid profile fails the step with `validation_failed`.
+
 **Safety and reproducibility:**
 
 - **Held state.** The master tracks which keys and buttons are held and emits `input_state` on every change. On `stop`, or on an error, it releases them all and emits `keys_released`.
 - **If the engine dies.** The client that started it releases whatever the last `input_state` reported as held, so an engine crash never leaves Shift or Ctrl stuck.
 - **Interference detection, mouse only in v1.** During a movement the real position is compared with the planned one; beyond the tolerance, `user_interference` is emitted. It requires `pointer_position`. The keyboard is left out because on X11 injected keys are hard to tell apart from the user's.
-- **Emergency stop.** A global hotkey, `ctrl+alt+shift+q` by default (engine option `--stop-key`, env `J5_STOP_KEY`), stops the active run with reason `user`. As a fallback, moving the cursor into a corner of the virtual desktop (within 2 pixels) while the run is moving it stops the run too: masters check the real pointer position between points. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
+- **Emergency stop.** A global hotkey, `ctrl+alt+shift+q` by default (engine option `--stop-key`, else env `J5_STOP_KEY`; key names and aliases as above, joined with `+`), stops the active run with reason `user` after a `warning` `log` in that run. It needs the backend's `hotkey` capability; without it the engine logs a warning at startup. As a fallback, moving the cursor into a corner of the virtual desktop (within 2 pixels) while the run is moving it stops the run too: masters check the real pointer position between points, release what they hold and raise `EmergencyStop`, and the interpreter stops the run with reason `user` and a `warning` `log`. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
 - **Per-action seeds.** Each plan, and each step's random choices, use a sub-seed derived (SHA-256) from `seed`, `step_id`, `iterations` and the attempt number, so every iteration of a `loop` moves differently. The same seed, start point and target give the same plan; if the cursor position or the matched image location changes, the plan changes even with the same seed.
 - **Typos never change the result.** With `typos` on, an automated test checks that the planned key events, corrections included, produce the original text. It cannot check the target application (autocomplete may interfere), which is why `typos` is off by default.
 - **Fast mode.** `run` accepts an `input_profile` with `direct` strategies to debug without waiting.
@@ -300,7 +302,7 @@ steps:
 - **Blocks.** `if` (`then` and `else`) and `loop` (`times`, `while` or `for_each`, with `as`) contain step lists. `path` alternates the position in a list and the block slot of the parent step: `[3, 1, 0]` is the first step of the second block (`else`) of the fourth step. Slots are numbered in the order the step type declares them (`if`: `then` 0, `else` 1; `loop`: `do` 0).
 - **Conditions and expressions.** `when` and `while` take an expression or a predefined condition such as `image_visible` (available from milestone M3). Expressions support literals (`true`, `false`, `null` included), variables, lists and mappings, indexing, `+ - * / // %`, comparisons (chainable) and `in`, `and`/`or`/`not`, `a if c else b`, and calls to whitelisted functions (`len`, `str`, `int`, `float`, `bool`, `round`, `min`, `max`, `abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). There is no Python `eval`; attribute access, `**`, lambdas and comprehensions are rejected, and length, nesting and result sizes are capped.
 - **Interpolation.** String parameters may contain `${expression}`. A string that is a single `${...}` keeps the value's type (`x: "${pos_x}"` is an integer); otherwise values are rendered as text (`null` as empty, booleans as `true`/`false`). `$${` is a literal `${`. Parameters of type expression or condition are evaluated, never interpolated. Interpolated values are type-checked again before the step runs.
-- **Coordinates.** `x`/`y` are physical pixels on the virtual desktop, which spans every screen and may be negative. With `window: {title: ...}`, coordinates and `region` are relative to that window and survive it being moved. On Windows the engine declares per-monitor DPI awareness so the system never scales coordinates.
+- **Coordinates.** `x`/`y` are physical pixels on the virtual desktop, which spans every screen and may be negative. With `window: {title: ...}`, coordinates and `region` are relative to the top-left corner of the frame of the first visible window whose title contains `title`, looked up when the step runs, so they survive the window being moved; no such window fails with `window_not_found`, and a backend without the `windows` capability with `capability_missing`. `offset: [dx, dy]` is added to the resulting point. `drag` points (`from`, `to`) take their own `window`. Until vision lands (M3), `image` targets fail with `capability_missing` outside dry runs. On Windows the engine declares per-monitor DPI awareness so the system never scales coordinates.
 - **Images.** Paths relative to the script, `threshold` (0.9 by default), an optional search `region`, and `scale` to compensate templates captured at another scaling.
 - **Durations.** Written with a unit (`2s`, `500ms`, `1.5m`, `1h`) and an optional variance (`2s±20%` or `2s+-20%`) for less mechanical pauses. A bare number means seconds. The common `timeout` field applies to waiting steps from milestone M3.
 
@@ -379,9 +381,10 @@ Every error, in a response or in an event, has the shape `{code, message, step_i
 | `conflict` | The script changed since the `base_version` sent with `edit_script` |
 | `template_missing` | A step's image file does not exist |
 | `image_not_found` | `wait_image` or an image-based step ran out of time; includes `best_score` |
+| `window_not_found` | No visible window matches a step's `window`; `details.title` |
 | `expression_error` | An expression or an interpolation failed; `details` has the `expression` and, when known, the `column` |
 | `backend_unavailable` | No backend fits the current session (e.g. Wayland without support) |
-| `capability_missing` | The backend lacks something a step or profile needs, e.g. `pointer_position` for interference detection, or any input before the backends milestone |
+| `capability_missing` | The backend lacks something a step or profile needs, e.g. `pointer_position` for interference detection or `windows` for window-relative coordinates; or there is no backend at all (the message gives the engine's reason), or an `image` target before vision (M3) |
 | `input_denied` | The system refused input or capture for lack of permissions |
 | `internal_error` | Unexpected engine failure; `details.traceback` holds the trace |
 

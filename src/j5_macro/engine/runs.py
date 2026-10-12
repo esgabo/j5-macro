@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from j5_macro.engine.backend import EngineBackend
 from j5_macro.engine.dispatch import CommandError
 from j5_macro.engine.events import EventSequencer, format_ts, utc_now
 from j5_macro.engine.persistence import RUNS_KEPT, RunFiles, RunStore
@@ -44,7 +45,7 @@ SHUTDOWN_TIMEOUT_S = 5.0
 """How long end of input waits for an active run to finish after stopping it."""
 
 NO_BACKEND = "none"
-"""``run_started.backend`` when the controller does not name its backend."""
+"""``run_started.backend`` when there is no input backend."""
 
 STOP_REASONS = ("user", "interference")
 
@@ -184,8 +185,10 @@ class RunManager:
 
     def __init__(self, server: EngineServer, scripts: ScriptStore,
                  run_factory: RunFactory | None, runs_dir: Path | None,
-                 *, keep: int = RUNS_KEPT) -> None:
+                 *, keep: int = RUNS_KEPT, backend: EngineBackend | None = None) -> None:
         self.server = server
+        self.backend = backend
+        """The engine's input backend, handed to every run; None when not configured."""
         self.scripts = scripts
         self._factory = run_factory
         self.store = RunStore(runs_dir, keep) if runs_dir is not None else None
@@ -240,6 +243,8 @@ class RunManager:
                 breakpoints=entry.breakpoints,
                 input_profile=payload.input_profile,
                 captures=payload.captures,
+                backend=None if self.backend is None else self.backend.backend,
+                backend_reason=None if self.backend is None else self.backend.reason,
             )
             meta: JsonObject = {
                 "run_id": run_id,
@@ -256,12 +261,11 @@ class RunManager:
                 run.controller = factory(entry.script, self.scripts.registry, run.sink, options)
             except ControlError as exc:
                 raise CommandError.from_info(exc.info) from exc
-            backend = getattr(run.controller, "backend", None)
             run_started: JsonObject = {
                 "script_id": entry.script_id,
                 "mode": payload.mode,
                 "seed": seed,
-                "backend": backend if isinstance(backend, str) and backend else NO_BACKEND,
+                "backend": self._backend_name(run.controller),
                 "input_profile": merge_profile(entry.script.input, payload.input_profile),
             }
             self.active = run
@@ -271,6 +275,26 @@ class RunManager:
         run.files = self._create_files(run)
         run.start(run_started)
         return run
+
+    def _backend_name(self, controller: RunController) -> str:
+        """``run_started.backend``: the controller's backend name if it reports one, else
+        the engine's, else ``none``."""
+        named = getattr(controller, "backend", None)
+        if isinstance(named, str) and named:
+            return named
+        if self.backend is not None and self.backend.name:
+            return self.backend.name
+        return NO_BACKEND
+
+    def stop_active(self, message: str) -> str | None:
+        """Stop the active run with reason ``user`` after logging ``message`` in it (the
+        emergency stop key). Returns its run_id, or None when no run is active."""
+        run = self.active_run()
+        if run is None or run.controller is None:
+            return None
+        run.sink("log", {"level": "warning", "message": message})
+        run.controller.stop("user")
+        return run.run_id
 
     def launch(self, run: Run) -> None:
         """Start the run's worker thread."""
