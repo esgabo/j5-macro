@@ -18,7 +18,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -e ".[dev]"
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+      - if: runner.os == 'Linux'
+        run: python -m pip install -e ".[dev,x11]"
+      - if: runner.os != 'Linux'
+        run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: mypy
-      - run: pytest
+      # X11 backend tests (marked x11) run against Xvfb; elsewhere they are skipped.
+      - if: runner.os == 'Linux'
+        env:
+          J5_REQUIRE_X11: "1"
+        run: xvfb-run -a -s "-screen 0 1280x800x24" pytest -rs
+      - if: runner.os != 'Linux'
+        run: pytest -rs
