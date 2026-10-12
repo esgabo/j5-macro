@@ -375,3 +375,17 @@ def test_image_visible_in_a_dry_run_searches_once(tmp_path: Path) -> None:
     assert run.join().status == "completed"
     assert run.recorder.of("branch_taken")[0]["branch"] == "then"
     assert len(run.searches()) == 1
+
+
+def test_region_outside_the_screen_is_a_validation_error(tmp_path: Path) -> None:
+    script = with_images("steps:\n  - wait_image: {image: img/x.png, "
+                         "region: [5000, 5000, 10, 10]}\n", tmp_path, "img/x.png")
+    toolkit = FakeToolkit([hit(0.99, BOX)])
+
+    def refuse(region: Rect | None = None) -> Any:
+        raise ValueError("region (5000, 5000, 10, 10) is outside the virtual desktop")
+
+    toolkit.capturer.grab = refuse  # type: ignore[method-assign]
+    outcome = VisionRun(script, toolkit).join()
+    assert outcome.error is not None and outcome.error.code == "validation_failed"
+    assert outcome.error.details is not None and outcome.error.details["param"] == "region"

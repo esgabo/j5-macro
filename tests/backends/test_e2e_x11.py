@@ -101,3 +101,112 @@ def test_run_clicks_and_types_into_a_real_window(observer, tmp_path, monkeypatch
     (run_dir,) = Path(tmp_path / "runs").iterdir()
     events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
     assert '"input_planned"' in events and '"keys_released"' not in events
+
+
+# --- vision ------------------------------------------------------------------------------
+
+VISION_SCRIPT = """\
+version: 1
+name: vision e2e
+input:
+  mouse: {strategy: linear, speed: 4}
+steps:
+  - id: appear
+    wait_image: {image: target.png, timeout: 3s}
+  - id: check
+    if:
+      when: {image_visible: target.png}
+      then:
+        - id: hit
+          click: {image: target.png}
+"""
+
+MISSING_SCRIPT = """\
+version: 1
+name: vision e2e missing
+steps:
+  - id: never
+    wait_image: {image: missing.png, timeout: 600ms}
+"""
+
+
+def paint_stripes(observer: Any, window: Any) -> None:
+    """Fill the window with coloured stripes: a pattern with texture to match."""
+    colours = [0xD03030, 0x30A040, 0x3050D0, 0xE0C020, 0x202020, 0x9040B0]
+    for index, colour in enumerate(colours):
+        gc = window.create_gc(foreground=colour)
+        window.fill_rectangle(gc, index * 20, 0, 20, 80)
+        gc.free()
+    gc = window.create_gc(foreground=0xFFFFFF)
+    window.fill_rectangle(gc, 10, 30, 70, 12)
+    gc.free()
+    observer.display.sync()
+
+
+def vision_env(monkeypatch: Any, tmp_path: Path) -> None:
+    pytest.importorskip("cv2")
+    pytest.importorskip("mss")
+    monkeypatch.setenv("J5_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("J5_BACKEND", "x11")
+    monkeypatch.delenv(ENGINE_CMD_ENV, raising=False)
+
+
+def test_run_waits_for_an_image_and_clicks_it(observer, tmp_path, monkeypatch, capsys):
+    from j5_macro.backends import Rect
+    from j5_macro.vision.toolkit import create_toolkit
+
+    vision_env(monkeypatch, tmp_path)
+    window = observer.create_window(400, 300, 120, 80, wm_name="j5 vision target",
+                                    wm_state=True)
+    paint_stripes(observer, window)
+    toolkit = create_toolkit()
+    try:
+        toolkit.save_image(toolkit.capturer.grab(Rect(410, 310, 60, 40)),
+                           tmp_path / "target.png", None)
+    finally:
+        toolkit.capturer.close()
+    script = tmp_path / "vision.yaml"
+    script.write_text(VISION_SCRIPT, encoding="utf-8")
+    observer.drain()
+
+    recorder = Recorder(observer)
+    recorder.start()
+    try:
+        code = main(["run", "--seed", "3", str(script)])
+    finally:
+        recorder.done.set()
+        recorder.join(5)
+    out = capsys.readouterr().out
+    assert code == 0, out
+    # The template is the window's (10, 10)-(70, 50) area: its center is (40, 30).
+    assert recorder.clicks == [(1, 40, 30)]
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    assert events.count('"image_search"') >= 3
+    assert not (run_dir / "captures").exists() or not any((run_dir / "captures").iterdir())
+
+
+def test_run_fails_with_a_capture_when_the_image_never_appears(tmp_path, monkeypatch,
+                                                               capsys):
+    from j5_macro.vision.toolkit import create_toolkit
+
+    vision_env(monkeypatch, tmp_path)
+    import numpy as np
+
+    toolkit = create_toolkit()
+    try:
+        noise = np.random.default_rng(7).integers(0, 255, (40, 60, 3), dtype=np.uint8)
+        from j5_macro.vision import Frame
+
+        toolkit.save_image(Frame(noise), tmp_path / "missing.png", None)
+    finally:
+        toolkit.capturer.close()
+    script = tmp_path / "missing.yaml"
+    script.write_text(MISSING_SCRIPT, encoding="utf-8")
+
+    assert main(["run", str(script)]) == 1
+    out = capsys.readouterr().out
+    assert "image_not_found" in out
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    captures = list((run_dir / "captures").iterdir())
+    assert len(captures) == 1 and captures[0].suffix == ".png"
