@@ -246,8 +246,8 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | Device | Parameter | Meaning |
 | --- | --- | --- |
 | Mouse | `strategy`, `speed` | Strategy and speed multiplier (1.0 = normal) |
-| Mouse | `path` | Path shape for `human`: `windmouse` (default; gravity and wind, slightly erratic) or `bezier` (smooth curves). Both are implemented in j5-macro as pure seeded functions; a shared timing layer adds the speed curve, overshoot and jitter |
-| Mouse | `overshoot`, `jitter` | Overshoot probability (0 to 1) and jitter amplitude in pixels |
+| Mouse | `path` | Path shape for `human`: `windmouse` (default; gravity and wind, slightly erratic) or `bezier` (smooth curves). Both are implemented in j5-macro as pure seeded functions; a shared timing layer adds the rest: a duration from Fitts' law (`a + b·log2(D/W + 1)`, `W` the target's smaller side, divided by `speed`, with slight noise), a minimum-jerk speed curve peaking slightly before the middle, a point every ~8 ms, overshoot and jitter. Points stay inside the desktop and, except the landing, clear of its corners so the failsafe never fires on a planned point |
+| Mouse | `overshoot`, `jitter` | Overshoot probability (0 to 1; only movements over 100 px: aim a few percent past the landing, at most 40 px, pause 30–100 ms, then correct) and amplitude in pixels of smoothed sideways jitter that fades out at both ends |
 | Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
 | Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
 | Keyboard | `variance`, `typos` | Spread of the intervals, and typos with corrections (`false` by default) |
