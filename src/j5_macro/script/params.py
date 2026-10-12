@@ -123,6 +123,25 @@ def secret_values(declared: Mapping[str, ScriptParam],
     return sorted(found, key=len, reverse=True)
 
 
+POSITION_FIELDS = frozenset({"path", "iterations", "line", "index", "total", "duration_ms"})
+"""Top-level payload fields that say where or how long, never what: engine-made integers
+that :func:`mask_payload` leaves alone, so a numeric secret never turns ``path: [0]``
+into ``["***"]``."""
+
+
+def _is_position(value: Any) -> bool:
+    def number(item: Any) -> bool:
+        return isinstance(item, int) and not isinstance(item, bool)
+    return number(value) or (isinstance(value, list) and all(number(v) for v in value))
+
+
+def mask_payload(payload: Mapping[str, Any], secrets: list[str]) -> dict[str, Any]:
+    """:func:`mask` over an event payload or a ``get_state`` answer, except for its
+    :data:`POSITION_FIELDS` holding integers (or lists of them)."""
+    return {mask(k, secrets): v if k in POSITION_FIELDS and _is_position(v)
+            else mask(v, secrets) for k, v in payload.items()}
+
+
 def mask(value: Any, secrets: list[str]) -> Any:
     """``value`` (JSON-like) with every occurrence of each secret replaced by ``***``,
     in strings, mapping keys and nested containers. Non-string scalars equal to a secret's

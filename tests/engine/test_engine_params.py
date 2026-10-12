@@ -133,6 +133,31 @@ def test_secret_values_are_masked_in_control_answers() -> None:
     engine.close()
 
 
+def test_a_numeric_secret_never_masks_positions() -> None:
+    position = {"step_id": "hi", "path": [0, 0, 1], "iterations": [1, 0], "line": 1}
+    events = [
+        ("step_started", {**position, "type": "log", "params": {"message": "pin 1"}}),
+        ("loop_iteration", {"step_id": "hi", "path": [0], "line": 1, "index": 1, "total": 1}),
+        ("step_finished", {**position, "duration_ms": 1, "result": {"value": 1}}),
+    ]
+    state = {"state": "paused", **position, "variables": {"password": 1, "n": 1}}
+    engine, factory = make(Behaviour(block=True, state=state, events=events))
+    run_id = engine.start(engine.load_source(SCRIPT), params={"user": "ann", "password": "1"})
+    answer = engine.ok("get_state", {"run_id": run_id})
+    assert {k: answer[k] for k in position} == position
+    assert answer["variables"] == {"password": "***", "n": "***"}
+    factory.last.release()
+    engine.wait_finished(run_id)
+    engine.close()
+    payloads = {e["type"]: e["payload"] for e in engine.run_events(run_id)}
+    assert payloads["step_started"]["path"] == [0, 0, 1]
+    assert payloads["step_started"]["iterations"] == [1, 0]
+    assert payloads["step_started"]["params"] == {"message": "pin ***"}
+    assert (payloads["loop_iteration"]["index"], payloads["loop_iteration"]["total"]) == (1, 1)
+    assert payloads["step_finished"]["duration_ms"] == 1
+    assert payloads["step_finished"]["result"] == {"value": "***"}
+
+
 def test_runs_without_secrets_are_untouched() -> None:
     engine, _ = make(Behaviour(events=[("log", {"level": "info", "message": "***x"})]))
     run_id = engine.start(engine.load_source(SCRIPT.replace(

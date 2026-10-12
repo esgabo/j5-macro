@@ -27,6 +27,12 @@ Scenarios:
 - ``crash_run``: dies the same way after the first step of the run.
 - ``crash_held``: like ``crash_run``, after reporting ``shift``, ``char:a`` and
   ``button:left`` as held with ``input_state``.
+- ``debug``: ``load`` reports the step tree of :data:`DEBUG_STEPS` and the debugging
+  commands work: in ``step`` mode the run pauses before ``open_menu``; every stepping
+  command runs one step and pauses before the next (reason ``step``); ``resume`` runs
+  until a client breakpoint (``breakpoint_hit``) or the end; ``get_state``,
+  ``evaluate`` (a variable name or a JSON literal), ``set_variable`` and
+  ``set_breakpoints`` answer from a small variable table with a masked secret.
 """
 
 from __future__ import annotations
@@ -55,6 +61,20 @@ STEP_TYPES = [
 ]
 
 
+DEBUG_STEPS = [
+    {"id": "open_menu", "type": "click", "path": [0], "line": 2, "params": {"x": 10, "y": 20}},
+    {"id": "repeat", "type": "loop", "path": [1], "line": 4, "params": {"times": 2},
+     "blocks": {"do": [{"id": "bump", "type": "set", "path": [1, 0, 0], "line": 7,
+                        "params": {"name": "count", "expr": "count + 1"}}]}},
+    {"id": "save", "type": "key", "path": [2], "line": 9, "params": {"press": "ctrl+s"},
+     "break": True},
+]
+DEBUG_ORDER = ["open_menu", "repeat", "bump", "save"]
+"""Where the ``debug`` run pauses, in order (one iteration of ``repeat``)."""
+DEBUG_NODES = {"open_menu": DEBUG_STEPS[0], "repeat": DEBUG_STEPS[1],
+               "bump": DEBUG_STEPS[1]["blocks"]["do"][0], "save": DEBUG_STEPS[2]}
+
+
 class FakeCliEngine:
     def __init__(self, scenario: str, record: str | None) -> None:
         self.scenario = scenario
@@ -68,6 +88,11 @@ class FakeCliEngine:
         self.controls: queue.Queue[str] = queue.Queue()
         """``resume`` and ``step_over`` commands, in arrival order."""
         self.runner: threading.Thread | None = None
+        self.variables: dict[str, Any] = {"count": 1, "password": "***"}
+        self.breakpoints: set[str] = set()
+        self.position = 0
+        """``debug``: index in DEBUG_ORDER of the step the run is at."""
+        self.state = "running"
 
     # -- output ---------------------------------------------------------------
 
@@ -134,13 +159,17 @@ class FakeCliEngine:
         elif command.type == "stop":
             self.ok(command)
             self.stop_requested.set()
+            self.controls.put("stop")
         elif command.type == "resume":
             self.ok(command)
             self.resumed.set()
             self.controls.put("resume")
-        elif command.type == "step_over":
+        elif command.type in ("step_over", "step_into", "step_out"):
             self.ok(command)
-            self.controls.put("step_over")
+            self.controls.put(command.type)
+        elif self.scenario == "debug" and command.type in (
+                "get_state", "evaluate", "set_variable", "set_breakpoints"):
+            self.debug_command(command)
         else:
             self.error(command, "invalid_state", f"{command.type} is not implemented",
                        {"reason": "not_implemented"})
@@ -170,7 +199,8 @@ class FakeCliEngine:
                 warnings = [{"message": "generated id 'click_1'", "step_id": "click_1",
                              "line": 3},
                             {"message": "script has no name"}]
-            self.ok(command, {"script_id": "s-1", "steps": [], "warnings": warnings})
+            steps = DEBUG_STEPS if self.scenario == "debug" else []
+            self.ok(command, {"script_id": "s-1", "steps": steps, "warnings": warnings})
 
     # -- runs -----------------------------------------------------------------
 
@@ -188,9 +218,13 @@ class FakeCliEngine:
         r = "r-1"
         seed = payload.get("seed", 1234)
         self.event("run_started", r, {"script_id": payload.get("script_id"),
+                                      "script_name": "Save report",
                                       "mode": payload.get("mode"), "seed": seed,
                                       "backend": "fake",
                                       "input_profile": payload.get("input_profile") or {}})
+        if self.scenario == "debug":
+            self.play_debug(r, payload.get("mode") == "step")
+            return
         self.event("state_changed", r, {"state": "running"})
         if self.scenario in ("slow", "deaf"):
             self.play_slow(r)
@@ -262,6 +296,79 @@ class FakeCliEngine:
             self.controls.get(timeout=30)
             self.event("state_changed", r, {"state": "running", "reason": "user"})
         self.event("run_finished", r, {"status": "completed", "duration_ms": 500})
+
+    # -- debug ----------------------------------------------------------------
+
+    def where(self) -> dict[str, Any]:
+        node = DEBUG_NODES[DEBUG_ORDER[min(self.position, len(DEBUG_ORDER) - 1)]]
+        place = {"step_id": node["id"], "path": node["path"], "line": node["line"]}
+        if len(node["path"]) > 1:
+            place["iterations"] = [0]
+        return place
+
+    def pause(self, r: str, reason: str) -> str:
+        """Pause and wait for the next control command."""
+        self.state = "paused"
+        self.event("state_changed", r, {"state": "paused", "reason": reason})
+        command = self.controls.get(timeout=30)
+        if command != "stop":
+            self.state = "running"
+            self.event("state_changed", r, {"state": "running",
+                                            "reason": "user" if command == "resume" else "step"})
+        return command
+
+    def play_debug(self, r: str, step_mode: bool) -> None:
+        command = self.pause(r, "step") if step_mode else "resume"
+        while command != "stop" and self.position < len(DEBUG_ORDER):
+            place = self.where()
+            node = DEBUG_NODES[place["step_id"]]
+            self.event("step_started", r, {**place, "type": node["type"],
+                                           "params": node["params"]})
+            self.event("step_finished", r, {**place, "duration_ms": 1})
+            self.position += 1
+            if self.position >= len(DEBUG_ORDER):
+                break
+            following = self.where()
+            if command != "resume":
+                command = self.pause(r, "step")
+            elif following["step_id"] in self.breakpoints:
+                self.event("breakpoint_hit", r, following)
+                command = self.pause(r, "breakpoint")
+        if command == "stop":
+            self.event("state_changed", r, {"state": "stopping", "reason": "user"})
+            self.event("run_finished", r, {"status": "stopped", "reason": "user",
+                                           "duration_ms": 50})
+            return
+        self.event("run_finished", r, {"status": "completed", "duration_ms": 60})
+
+    def debug_command(self, command: Command) -> None:
+        payload = command.payload
+        if command.type == "set_breakpoints":
+            self.breakpoints = set(payload.get("step_ids") or [])
+            self.ok(command)
+        elif command.type == "get_state":
+            self.ok(command, {"run_id": "r-1", "state": self.state, **self.where(),
+                              "variables": self.variables})
+        elif self.state != "paused":
+            self.error(command, "invalid_state", f"{command.type} needs a paused run")
+        elif command.type == "evaluate":
+            expression = str(payload.get("expression"))
+            if expression in self.variables:
+                self.ok(command, {"value": self.variables[expression]})
+                return
+            try:
+                self.ok(command, {"value": json.loads(expression)})
+            except ValueError:
+                self.error(command, "expression_error",
+                           f"unknown variable {expression!r} in expression {expression!r}",
+                           {"expression": expression})
+        else:  # set_variable
+            name = str(payload.get("name"))
+            old = self.variables.get(name)
+            self.variables[name] = payload.get("value")
+            self.event("variable_changed", "r-1", {"name": name, "old": old,
+                                                   "new": payload.get("value")})
+            self.ok(command)
 
     def play_slow(self, r: str) -> None:
         for n in range(600):

@@ -195,8 +195,9 @@ def test_malformed_payloads_do_not_crash():
 
 def test_run_header_and_summaries():
     renderer = RunRenderer()
-    assert renderer.render(event("run_started", script_id="s-1", mode="dry", seed=42,
-                                 backend="x11")) == ["run s-1 (mode dry, seed 42, backend x11)"]
+    assert renderer.render(event("run_started", script_id="s-1", script_name="Save report",
+                                 mode="dry", seed=42, backend="x11")) == [
+        "run r-1  Save report  (mode dry, seed 42, backend x11)"]
     assert renderer.render(event("run_finished", status="completed", duration_ms=1234)) == [
         "✓ completed in 1.234s  (seed 42)"]
     assert renderer.render(event("run_finished", status="failed", duration_ms=10,
@@ -204,6 +205,14 @@ def test_run_header_and_summaries():
         "✗ failed after 0.010s  (seed 42): [c] m"]
     assert renderer.render(event("run_finished", status="stopped", reason="user",
                                  duration_ms=5)) == ["■ stopped (user) after 0.005s  (seed 42)"]
+
+
+def test_run_header_without_a_script_name_shows_the_script_id():
+    assert RunRenderer().render(event("run_started", script_id="s1", mode="step", seed=1)) == [
+        "run r-1  s1  (mode step, seed 1)"]
+    colored = RunRenderer(style=Style(color=True)).render(
+        event("run_started", script_name="X", mode="normal", seed=1))
+    assert colored == ["\x1b[1mrun r-1\x1b[0m  X  (mode normal, seed 1)"]
 
 
 def test_seed_from_the_command_line_when_the_engine_omits_it():

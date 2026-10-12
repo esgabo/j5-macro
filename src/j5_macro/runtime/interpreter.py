@@ -69,6 +69,11 @@ class Interpreter:
 
     def run(self) -> RunOutcome:
         if self._mode == "step":
+            # Record where the run is paused before saying so, so a client reacting to
+            # this state_changed already gets the first step from get_state.
+            first = self._machine.first_step()
+            if first is not None:
+                self._machine.place_at(first)
             self._events.state("paused", "step")
         else:
             self._events.state("running")
@@ -122,6 +127,9 @@ class Interpreter:
                                         "variables": dict(self._machine.variables)}
             if step is not None:
                 snapshot.update(step_id=step.id, path=list(step.path))
+                its = self._machine.position_iterations
+                if its is not None:
+                    snapshot["iterations"] = list(its)
                 if step.line is not None:
                     snapshot["line"] = step.line
             return snapshot

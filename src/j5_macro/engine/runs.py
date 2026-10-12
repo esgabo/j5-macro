@@ -40,7 +40,14 @@ from j5_macro.protocol.payloads import (
     StopPayload,
 )
 from j5_macro.runtime.api import ControlError, RunController, RunFactory, RunOptions, RunOutcome
-from j5_macro.script.params import ParamProblem, mask, missing_names, resolve, secret_values
+from j5_macro.script.params import (
+    ParamProblem,
+    mask,
+    mask_payload,
+    missing_names,
+    resolve,
+    secret_values,
+)
 
 SHUTDOWN_TIMEOUT_S = 5.0
 """How long end of input waits for an active run to finish after stopping it."""
@@ -179,6 +186,11 @@ class Run:
         """``value`` with this run's secret values replaced by ``***``."""
         return mask(value, self.secrets)
 
+    def masked_payload(self, payload: JsonObject) -> JsonObject:
+        """An event payload or ``get_state`` answer with secret values replaced by
+        ``***``, keeping its position fields (``path``, ``iterations``...) intact."""
+        return mask_payload(payload, self.secrets)
+
     def events_from(self, from_seq: int) -> list[Event]:
         with self._lock:
             return [event for event in self.events if event.seq >= from_seq]
@@ -186,7 +198,7 @@ class Run:
     def _publish(self, type: str, payload: JsonObject) -> None:
         """Stamp, buffer, persist and write one event. Called with ``_lock`` held, so
         the wire order and the file order both match ``seq``."""
-        event = self.sequencer.next(type, self.masked(payload))
+        event = self.sequencer.next(type, self.masked_payload(payload))
         line = encode(event)
         self.events.append(event)
         if self.files is not None and not self._persist_failed:
@@ -290,6 +302,7 @@ class RunManager:
                 raise CommandError.from_info(exc.info) from exc
             run_started: JsonObject = {
                 "script_id": entry.script_id,
+                "script_name": entry.script.name,
                 "mode": payload.mode,
                 "seed": seed,
                 "backend": self._backend_name(run.controller),
@@ -419,13 +432,16 @@ class RunManager:
 
 
 def install(server: EngineServer, runs: RunManager) -> None:
-    def forward(run_id: str, apply: Callable[[RunController], Any]) -> Any:
+    def forward(run_id: str, apply: Callable[[RunController], Any], *,
+                payload: bool = False) -> Any:
         """Apply a control command to the active run; ``ControlError`` becomes the
-        error response. Secret values are masked in the answer and in the error."""
+        error response. Secret values are masked in the answer (as a payload, keeping
+        its position fields, when ``payload``) and in the error."""
         controller = runs.controller(run_id)
         run = runs.get(run_id)
         try:
-            return run.masked(apply(controller))
+            answer = apply(controller)
+            return run.masked_payload(answer) if payload else run.masked(answer)
         except ControlError as exc:
             info = ErrorInfo.from_json(run.masked(exc.info.to_json()))
             raise CommandError.from_info(info) from exc
@@ -455,7 +471,7 @@ def install(server: EngineServer, runs: RunManager) -> None:
 
     def get_state(command: Command) -> JsonObject:
         run_id = RunRef.from_json(command.payload).run_id
-        state: dict[str, Any] = forward(run_id, lambda c: dict(c.state()))
+        state: dict[str, Any] = forward(run_id, lambda c: dict(c.state()), payload=True)
         return {**state, "run_id": run_id}
 
     def set_variable(command: Command) -> JsonObject:

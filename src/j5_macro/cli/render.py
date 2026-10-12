@@ -195,6 +195,7 @@ class RunRenderer:
 
     style: Style = PLAIN
     seed: int | None = None
+    run_id: str | None = None
     _depths: dict[str, int] = field(default_factory=dict)
 
     def render(self, event: Event) -> list[str]:
@@ -202,6 +203,8 @@ class RunRenderer:
         if handler is None:
             return []
         payload = event.payload if isinstance(event.payload, dict) else {}
+        if event.type == "run_started":
+            self.run_id = event.run_id
         lines: list[str] = handler(payload)
         if event.type in ("run_started", "run_finished"):
             return lines
@@ -229,6 +232,9 @@ class RunRenderer:
     # -- run lifecycle --
 
     def _on_run_started(self, p: Mapping[str, Any]) -> list[str]:
+        """``run r-20261012-151051-d36f  Save report  (mode normal, seed 7, backend x11)``.
+
+        Engines that predate ``script_name`` get the ``script_id`` instead."""
         seed = p.get("seed")
         self.seed = seed if isinstance(seed, int) else self.seed
         parts = [f"mode {_text(p.get('mode')) or '?'}"]
@@ -236,8 +242,10 @@ class RunRenderer:
             parts.append(f"seed {self.seed}")
         if p.get("backend"):
             parts.append(f"backend {p['backend']}")
-        title = self.style.paint(f"run {_text(p.get('script_id')) or ''}".rstrip(), "bold")
-        return [f"{title} ({', '.join(parts)})"]
+        title = self.style.paint(f"run {self.run_id or '?'}", "bold")
+        name = _text(p.get("script_name")) or _text(p.get("script_id"))
+        head = f"{title}  {name}" if name else title
+        return [f"{head}  ({', '.join(parts)})"]
 
     def _on_run_finished(self, p: Mapping[str, Any]) -> list[str]:
         sym = self.style.symbols
