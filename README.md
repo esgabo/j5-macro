@@ -84,3 +84,7 @@ Tracked as GitHub milestones:
 | M5 | Human-like mouse and keyboard strategies |
 | M6 | Windows backend |
 | M7 | Script management commands for the GUI |
+
+## License
+
+j5-macro is licensed under the [Apache License 2.0](LICENSE).
