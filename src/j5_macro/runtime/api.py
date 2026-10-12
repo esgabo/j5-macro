@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from j5_macro.backends.base import Backend
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
 from j5_macro.script.model import Script
@@ -43,6 +44,9 @@ class RunOptions:
     input_profile: dict[str, Any] | None = None
     """Overrides for the script's ``input`` profile (e.g. ``direct`` for fast runs)."""
     captures: Literal["on_failure", "all"] = "on_failure"
+    backend: Backend | None = None
+    """The engine's input backend; None means input steps fail with capability_missing
+    (dry runs never touch it)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

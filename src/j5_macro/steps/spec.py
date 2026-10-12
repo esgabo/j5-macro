@@ -18,10 +18,13 @@ import random
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
+
+if TYPE_CHECKING:
+    from j5_macro.input.api import StepInput
 
 ParamType = Literal[
     "string", "integer", "number", "boolean", "duration", "expression", "condition",
@@ -244,6 +247,17 @@ class StepContext(Protocol):
 
     def request_pause(self, message: str | None = None) -> None:
         """Pause the run after this step, as a breakpoint written in the script."""
+        ...
+
+    def check_stop(self) -> None:
+        """Raise the interpreter's stop exception if the run must stop now. Long
+        executors call it between units of work; never catch what it raises."""
+        ...
+
+    @property
+    def input(self) -> StepInput:
+        """Mouse and keyboard for this step (``j5_macro.input.api.StepInput``).
+        Raises ``StepError(capability_missing)`` when the engine has no input backend."""
         ...
 
 
