@@ -93,6 +93,10 @@ def _problems(name, params):
     ("drag", {"from": {"x": 1, "y": 1}, "to": {}}, "to"),
     ("wait_image", {"image": "a.png", "region": [0, 0, 10]}, "region"),
     ("key", {"press": "ctrl+"}, "press"),
+    ("type", {"text": "a\x07b"}, "text"),
+    ("type", {"text": "\x1b[2J"}, "text"),
+    ("type", {"text": "del\x7f"}, "text"),
+    ("type", {"text": "c1\x85"}, "text"),
 ])
 def test_cross_field_problems(name, params, param):
     assert [p for p, _ in _problems(name, params)] == [param]
@@ -108,6 +112,8 @@ def test_cross_field_problems(name, params, param):
     ("click", {"image": "a.png", "offset": [5, -5]}),
     ("key", {"press": "${combo}"}),
     ("key", {"press": "enter"}),
+    ("type", {"text": "a\tb\nc\r\nd\re\bñ😀"}),
+    ("type", {"text": "${t}\x07"}),  # checked after interpolation
 ])
 def test_cross_field_accepts(name, params):
     assert _problems(name, params) == []

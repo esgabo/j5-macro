@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from runtime_helpers import REGISTRY
 from runtime_input_helpers import backend, run_input
 
 from j5_macro.backends.base import Button, Capabilities, Rect
 from j5_macro.backends.fake import FakeBackend
+from j5_macro.script.loader import load_script
 
 NOTES = Rect(100, 200, 800, 600)
 
@@ -120,6 +122,64 @@ def test_type_reports_the_length_not_the_text():
     call = input_run.factory.session.named("type_text")[0]
     assert call[1] == "hunter2"
     assert call[2].strategy == "direct"
+
+
+def test_type_presses_allowed_control_characters():
+    outcome, input_run, result = one_step(r'type: "a\tb\nc\bd"')
+    assert outcome.status == "completed", outcome
+    assert result == {"chars": 7}
+    assert input_run.factory.session.named("type_text")[0][1] == "a\tb\nc\bd"
+
+
+def test_literal_control_characters_fail_the_load():
+    result = load_script('steps:\n  - id: it\n    type: "ok\\x07"\n',
+                         lookup=REGISTRY.spec, check=REGISTRY.check_params)
+    assert result.script is None
+    [error] = result.errors
+    assert error.code == "validation_failed"
+    assert error.details is not None
+    assert error.details["param"] == "text"
+    assert error.details["index"] == 2
+    assert error.details["code_point"] == "U+0007"
+    assert "U+0007" in error.message and "index 2" in error.message
+
+
+@pytest.mark.parametrize("mode", ["normal", "dry"])
+@pytest.mark.parametrize(("text", "index", "code_point"), [
+    ("${secret}", 4, "U+001B"),
+    ("Hi ${secret}!", 7, "U+001B"),
+    ("${secret}\\n", 4, "U+001B"),
+    ("${'a' + chr}", 1, "U+0000"),
+])
+def test_interpolated_control_characters_fail_before_any_input(mode, text, index,
+                                                               code_point):
+    outcome, input_run, result = one_step(
+        f'type: "{text}"', mode=mode, variables={"secret": "pass\x1bword", "chr": "\x00"})
+    assert outcome.error is not None, outcome
+    assert outcome.error.code == "validation_failed"
+    assert outcome.error.details is not None
+    assert {k: outcome.error.details[k] for k in ("param", "index", "code_point")} == {
+        "param": "text", "index": index, "code_point": code_point}
+    assert f"index {index}" in outcome.error.message
+    assert code_point in outcome.error.message
+    assert "pass" not in outcome.error.message and "word" not in outcome.error.message
+    assert result is None
+    for session in input_run.factory.sessions:
+        assert not session.calls
+    assert not input_run.recorder.of("step_finished", step_id="it")
+
+
+def test_interpolated_text_with_a_literal_dollar_brace_is_still_checked():
+    """A value holding "${" is plain text after interpolation, and still checked."""
+    outcome, input_run, _ = one_step('type: "${t}"', variables={"t": "${x}\x07"})
+    assert outcome.error is not None
+    assert outcome.error.code == "validation_failed"
+    assert outcome.error.details is not None
+    assert outcome.error.details["param"] == "text"
+    assert outcome.error.details["index"] == 4
+    assert outcome.error.details["code_point"] == "U+0007"
+    for session in input_run.factory.sessions:
+        assert not session.calls
 
 
 def test_key_with_hold():

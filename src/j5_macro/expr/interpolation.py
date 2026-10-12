@@ -1,8 +1,9 @@
 """``${expr}`` interpolation in script values.
 
-A string that is exactly one ``${...}`` (surrounding whitespace allowed) evaluates to the
-raw value, keeping its type. Otherwise every ``${...}`` is replaced by the text form of
-its value (see :func:`to_text`). ``$${`` writes a literal ``${``.
+A string that is exactly one ``${...}``, with no other character (not even whitespace),
+evaluates to the raw value, keeping its type. Otherwise every ``${...}`` is replaced by
+the text form of its value (see :func:`to_text`), and the rest of the string, whitespace
+and line breaks included, is kept as written. ``$${`` writes a literal ``${``.
 """
 
 from __future__ import annotations
@@ -124,7 +125,7 @@ def _interpolate_text(
         return text
     parts = _parse(text)
     slots = [part for part in parts if isinstance(part, _Slot)]
-    whole = len(slots) == 1 and all(isinstance(part, _Slot) or not part.strip() for part in parts)
+    whole = len(parts) == 1 and len(slots) == 1
     values: list[Any] = []
     for slot in slots:
         try:

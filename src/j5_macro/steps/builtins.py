@@ -11,7 +11,7 @@ BUILTINS: tuple[tuple[StepType, ParamCheck | None], ...] = (
     (input_steps.MOVE, input_steps.check_move),
     (input_steps.DRAG, input_steps.check_drag),
     (input_steps.SCROLL, None),
-    (input_steps.TYPE, None),
+    (input_steps.TYPE, input_steps.check_type),
     (input_steps.KEY, input_steps.check_key),
     (input_steps.WAIT_IMAGE, input_steps.check_wait_image),
     (basic.SLEEP, None),
