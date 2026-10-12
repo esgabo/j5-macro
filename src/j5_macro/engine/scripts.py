@@ -142,6 +142,7 @@ def install(server: EngineServer, store: ScriptStore) -> None:
         return LoadResult(
             script_id=entry.script_id,
             steps=[step_node(step) for step in result.script.steps],
+            params=[param.to_json() for param in result.script.params.values()],
             warnings=_warnings(result),
         ).to_json()
 

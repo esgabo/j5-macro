@@ -85,6 +85,8 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
         "params": [{"name": "duration", "type": "duration", "required": True, "default": None,
                     "doc": ""}]}]},
     "load": {"script_id": "s", "steps": [NODE],
+             "params": [{"name": "who", "type": "string", "secret": False,
+                         "required": False, "default": "you"}],
              "warnings": [{"message": "generated id", "step_id": "c1", "line": 4}]},
     "validate": {"ok": False, "errors": [{"code": "validation_failed", "message": "bad",
                                           "step_id": "a", "line": 2}]},

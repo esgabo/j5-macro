@@ -22,7 +22,8 @@ from ruamel.yaml.error import YAMLError
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
-from j5_macro.script.model import OnError, Script, Step, StepPath
+from j5_macro.script.model import OnError, Script, ScriptParam, Step, StepPath
+from j5_macro.script.params import PARAM_FIELDS, PARAM_TYPES
 from j5_macro.steps.spec import (
     ParamProblem,
     StepLookup,
@@ -37,7 +38,7 @@ CheckFn = Callable[[str, dict[str, Any]], list[ParamProblem]]
 SUPPORTED_VERSION = 1
 ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
-_TOP_LEVEL = ("version", "name", "input", "vars", "steps")
+_TOP_LEVEL = ("version", "name", "input", "params", "vars", "steps")
 _COMMON = ("id", "break", "timeout", "on_error", "input")
 _ON_ERROR = ("stop", "continue", "retry", "pause")
 
@@ -135,6 +136,21 @@ def _plain(value: Any) -> Any:
     if isinstance(value, datetime.date):
         return value.isoformat()
     return str(value)
+
+
+def _of_type(value: Any, kind: str) -> bool:
+    """Whether a param default is natively of ``kind`` (no conversion from strings)."""
+    if isinstance(value, bool):
+        return kind == "boolean"
+    if isinstance(value, int):
+        return kind in ("integer", "number")
+    if isinstance(value, float):
+        return kind == "number" and value == value and abs(value) != float("inf")
+    return isinstance(value, str) and kind == "string"
+
+
+def _a(kind: str) -> str:
+    return f"an {kind}" if kind[0] in "aeiou" else f"a {kind}"
 
 
 def _key_line(mapping: Any, key: Any, default: int | None = None) -> int | None:
@@ -241,6 +257,7 @@ class _Loader:
 
         script_input = self.mapping(data, "input")
         script_vars = self.mapping(data, "vars")
+        script_params = self.params(data, script_vars)
 
         steps: list[_Node] = []
         if "steps" not in data:
@@ -267,6 +284,7 @@ class _Loader:
             steps=[node.build() for node in steps],
             version=int(version),
             input=script_input,
+            params=script_params,
             vars=script_vars,
             source_path=source_path,
             text=text,
@@ -282,6 +300,73 @@ class _Loader:
             self.error(f"{key!r} must be a mapping", _key_line(data, key), field=key)
             return {}
         return cast(dict[str, Any], _plain(value))
+
+    # --- params -------------------------------------------------------------------------
+
+    def params(self, data: Any, script_vars: dict[str, Any]) -> dict[str, ScriptParam]:
+        raw = data.get("params")
+        if raw is None:
+            return {}
+        if not isinstance(raw, Mapping):
+            self.error("'params' must be a mapping of param names", _key_line(data, "params"),
+                       field="params")
+            return {}
+        result: dict[str, ScriptParam] = {}
+        for key, spec in raw.items():
+            line = _key_line(raw, key)
+            name = str(key)
+            if not name.isidentifier():
+                self.error(f"invalid param name {name!r}: use letters, digits and _",
+                           line, param=name)
+                continue
+            if name in script_vars:
+                self.error(f"'{name}' is both a param and a var", line, param=name)
+                continue
+            param = self.param(name, spec, line)
+            if param is not None:
+                result[name] = param
+        return result
+
+    def param(self, name: str, spec: Any, line: int | None) -> ScriptParam | None:
+        if spec is None:
+            return ScriptParam(name=name, line=line)
+        if not isinstance(spec, Mapping):
+            self.error(f"param '{name}' must be a mapping such as {{type: string, "
+                       "description: ...}}, or empty for a required string", line, param=name)
+            return None
+        values = cast(dict[str, Any], _plain(spec))
+        unknown = sorted(set(values) - set(PARAM_FIELDS))
+        if unknown:
+            self.error(f"param '{name}': unknown field(s) {', '.join(unknown)}; "
+                       f"expected {', '.join(PARAM_FIELDS)}", line, param=name)
+            return None
+        kind = values.get("type", "string")
+        if kind not in PARAM_TYPES:
+            self.error(f"param '{name}': type must be one of {', '.join(PARAM_TYPES)}",
+                       line, param=name)
+            return None
+        description = values.get("description")
+        if description is not None and not isinstance(description, str):
+            self.error(f"param '{name}': description must be a string", line, param=name)
+            return None
+        secret = values.get("secret", False)
+        if not isinstance(secret, bool):
+            self.error(f"param '{name}': secret must be true or false", line, param=name)
+            return None
+        param = ScriptParam(name=name, type=kind, description=description, secret=secret,
+                            line=line)
+        if "default" not in values:
+            return param
+        if secret:
+            self.error(f"param '{name}' is secret and cannot have a default: pass it "
+                       "when running the script", line, param=name)
+            return None
+        default = values["default"]
+        if not _of_type(default, kind):
+            self.error(f"param '{name}': the default must be {_a(kind)}", line, param=name)
+            return None
+        return ScriptParam(name=name, type=kind, description=description, default=default,
+                           secret=False, line=line)
 
     # --- steps --------------------------------------------------------------------------
 

@@ -45,6 +45,33 @@ j5 run examples/hello.yaml             # really clicks and types (X11 session)
 
 Stop a run at any time with `ctrl+alt+shift+q`, or by pushing the mouse into a screen corner.
 
+### Passing values in
+
+Declare the values a script takes from outside in `params`, and use them like variables:
+
+```yaml
+params:
+  customer: {description: Name to type in the form}
+  password: {secret: true}
+  copies: {type: integer, default: 1}
+steps:
+  - type: "${customer}"
+  - key: tab
+  - type: "${password}"
+```
+
+```bash
+j5 run form.yaml --param 'customer=ACME #42' --param-env password=FORM_PASSWORD
+j5 run letter.yaml --param-file body=letter.txt      # multi-line text from a file
+printf %s "$TOKEN" | j5 run login.yaml --param-file password=-
+```
+
+`--param` values are typed exactly as written (`#`, quotes and leading zeros included).
+Required params you leave out are asked for when you run `j5` in a terminal, secrets
+without echo. Secret values show as `***` in the output and the run history; pass them
+with `--param-env`, `--param-file` or the prompt rather than `--param`, which leaves them
+in your shell history. `j5 validate` lists a script's params.
+
 ## Layout
 
 ```

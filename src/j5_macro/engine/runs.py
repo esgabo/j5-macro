@@ -40,6 +40,7 @@ from j5_macro.protocol.payloads import (
     StopPayload,
 )
 from j5_macro.runtime.api import ControlError, RunController, RunFactory, RunOptions, RunOutcome
+from j5_macro.script.params import ParamProblem, mask, missing_names, resolve, secret_values
 
 SHUTDOWN_TIMEOUT_S = 5.0
 """How long end of input waits for an active run to finish after stopping it."""
@@ -94,12 +95,28 @@ def merge_profile(base: dict[str, Any], override: dict[str, Any] | None) -> dict
     return merged
 
 
+def initial_variables(declared: Any, payload: RunPayload,
+                      script_vars: dict[str, Any]) -> dict[str, Any]:
+    """The variables a run starts with (the script's ``vars``, the ``run``'s ``vars``
+    overrides and its ``params``); ``validation_failed`` when they do not fit the script."""
+    try:
+        return resolve(declared, payload.params, script_vars, payload.vars)
+    except ParamProblem as exc:
+        details: JsonObject = {exc.kind: exc.name, "reason": exc.reason}
+        if exc.reason == "missing":
+            details["missing"] = missing_names(declared, payload.params)
+        raise CommandError(ErrorCode.VALIDATION_FAILED, exc.message, details) from exc
+
+
 class Run:
     """One run: its event stream, its controller and its files."""
 
     def __init__(self, server: EngineServer, run_id: str, entry: LoadedScript,
-                 options: RunOptions, files_meta: dict[str, Any]) -> None:
+                 options: RunOptions, files_meta: dict[str, Any],
+                 secrets: list[str] | None = None) -> None:
         self.server = server
+        self.secrets = list(secrets or [])
+        """Values of the run's secret params, masked in every event and answer."""
         self.run_id = run_id
         self.script_id = entry.script_id
         self.options = options
@@ -158,6 +175,10 @@ class Run:
             self._closed = True
         return payload
 
+    def masked(self, value: Any) -> Any:
+        """``value`` with this run's secret values replaced by ``***``."""
+        return mask(value, self.secrets)
+
     def events_from(self, from_seq: int) -> list[Event]:
         with self._lock:
             return [event for event in self.events if event.seq >= from_seq]
@@ -165,7 +186,7 @@ class Run:
     def _publish(self, type: str, payload: JsonObject) -> None:
         """Stamp, buffer, persist and write one event. Called with ``_lock`` held, so
         the wire order and the file order both match ``seq``."""
-        event = self.sequencer.next(type, payload)
+        event = self.sequencer.next(type, self.masked(payload))
         line = encode(event)
         self.events.append(event)
         if self.files is not None and not self._persist_failed:
@@ -236,10 +257,12 @@ class RunManager:
             started = utc_now()
             run_id = self._unique_run_id(started)
             seed = payload.seed if payload.seed is not None else new_seed()
+            script = entry.script
+            variables = initial_variables(script.params, payload, script.vars)
             options = RunOptions(
                 mode=payload.mode,
                 seed=seed,
-                variables=dict(payload.vars or {}),
+                variables=variables,
                 breakpoints=entry.breakpoints,
                 input_profile=payload.input_profile,
                 captures=payload.captures,
@@ -258,7 +281,8 @@ class RunManager:
                 "seed": seed,
                 "started": format_ts(started),
             }
-            run = Run(self.server, run_id, entry, options, meta)
+            run = Run(self.server, run_id, entry, options, meta,
+                      secret_values(script.params, variables))
             factory = self._factory if self._factory is not None else default_run_factory()
             try:
                 run.controller = factory(entry.script, self.scripts.registry, run.sink, options)
@@ -397,12 +421,14 @@ class RunManager:
 def install(server: EngineServer, runs: RunManager) -> None:
     def forward(run_id: str, apply: Callable[[RunController], Any]) -> Any:
         """Apply a control command to the active run; ``ControlError`` becomes the
-        error response."""
+        error response. Secret values are masked in the answer and in the error."""
         controller = runs.controller(run_id)
+        run = runs.get(run_id)
         try:
-            return apply(controller)
+            return run.masked(apply(controller))
         except ControlError as exc:
-            raise CommandError.from_info(exc.info) from exc
+            info = ErrorInfo.from_json(run.masked(exc.info.to_json()))
+            raise CommandError.from_info(info) from exc
 
     def run(command: Command) -> JsonObject:
         active = runs.start(RunPayload.from_json(command.payload))

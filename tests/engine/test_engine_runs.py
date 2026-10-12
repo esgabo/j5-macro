@@ -30,6 +30,7 @@ input:
 steps:
   - id: hi
     log: hello
+vars: {n: 1}
 """
 STEP = {"step_id": "hi", "path": [0], "line": 5}
 

@@ -142,6 +142,9 @@ class LoadPayload(Payload):
 class LoadResult(Result):
     script_id: str
     steps: list[StepNode]
+    params: list[dict[str, Any]] = field(default_factory=list)
+    """Declared params: ``name``, ``type``, ``secret``, ``required`` and optionally
+    ``description`` and ``default`` (never for secrets)."""
     warnings: list[Diagnostic] = field(default_factory=list)
 
 
@@ -161,7 +164,10 @@ class ValidateResult(Result):
 class RunPayload(Payload):
     script_id: str
     mode: RunMode
+    params: dict[str, Any] | None = None
+    """Values for the script's declared params."""
     vars: dict[str, Any] | None = None
+    """Overrides for the script's ``vars`` (declared names only)."""
     seed: int | None = None
     input_profile: dict[str, Any] | None = None
     captures: Captures = "on_failure"
@@ -317,6 +323,7 @@ class SetMetaEdit(Payload):
     op: Literal["set_meta"] = "set_meta"
     name: str | None = None
     input: dict[str, Any] | None = None
+    params: dict[str, Any] | None = None
     vars: dict[str, Any] | None = None
 
 
