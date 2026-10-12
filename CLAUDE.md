@@ -9,6 +9,6 @@
   test data, commit messages, issues and PRs. The project is meant to be open source.
 - Before pushing: `scripts/check.sh` (lint, types, and the tests under Xvfb on Linux) must
   pass. GitHub Actions runs the same script on every PR and push to main
-  (`.github/workflows/ci.yml`); merge only when it is green. Keep the workflow lean while
-  the repository is private (Actions minutes are metered there, Windows at double rate).
+  (`.github/workflows/ci.yml`); merge only when it is green. Every supported Python
+  version runs on both Linux and Windows.
 - Supported in v1: Windows and Linux with an X11 session (tested on XFCE). Wayland comes later.
