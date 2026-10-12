@@ -116,7 +116,7 @@ Reglas de diseño:
 
 ## Eventos
 
-Los eventos describen todo lo que hace el motor, así que un depurador o una GUI se construyen solo escuchándolos. Todos llevan los campos comunes (`run_id`, `seq`, `ts`, `t_ms`); los de paso agregan `step_id`, `path` (posición en el árbol de bloques, con el índice de vuelta de cada `loop`) y `line`.
+Los eventos describen todo lo que hace el motor, así que un depurador o una GUI se construyen solo escuchándolos. Todos llevan los campos comunes (`run_id`, `seq`, `ts`, `t_ms`); los de paso agregan `step_id`, `path` (posición estática en el árbol), `iterations` (vuelta actual de cada `loop` que lo contiene, del más externo al más interno) y `line`.
 
 | Evento | Cuándo | Payload |
 | --- | --- | --- |
@@ -240,7 +240,7 @@ Hay un solo master por dispositivo, y él decide *cómo* se mueve el mouse o se 
 - **Si el motor muere.** El cliente que lo lanzó suelta lo que el último `input_state` reportaba retenido; así un fallo del motor no deja un Shift o un Ctrl pegado.
 - **Detección de interferencia, solo mouse en la v1.** Durante el movimiento se compara la posición real con la del plan; si se desvía más que la tolerancia, se emite `user_interference`. Requiere `pointer_position`. El teclado queda fuera porque en X11 no se distinguen bien las teclas inyectadas de las del usuario.
 - **Parada de emergencia.** Tecla global configurable, y como respaldo llevar el cursor a una esquina de la pantalla. En Wayland la captura global de teclas depende del compositor, por eso el respaldo importa.
-- **Semilla por acción.** Cada plan usa una subsemilla derivada de `seed`, `step_id`, el `path` con los índices de vuelta y el número de intento, así cada vuelta de un `loop` produce un recorrido distinto. Con la misma semilla, el mismo punto de partida y el mismo destino, el plan es idéntico; si cambia la posición del cursor o dónde se encontró la imagen, el plan cambia aunque la semilla sea la misma.
+- **Semilla por acción.** Cada plan usa una subsemilla derivada de `seed`, `step_id`, `iterations` y el número de intento, así cada vuelta de un `loop` produce un recorrido distinto. Con la misma semilla, el mismo punto de partida y el mismo destino, el plan es idéntico; si cambia la posición del cursor o dónde se encontró la imagen, el plan cambia aunque la semilla sea la misma.
 - **Los errores de tipeo no cambian el resultado.** Si `typos` está activo, una prueba automática verifica que las pulsaciones del plan, correcciones incluidas, produzcan el texto original. No puede verificar la aplicación de destino (un autocompletado puede alterar el resultado), por eso `typos` va desactivado por defecto.
 - **Modo rápido.** `run` acepta `input_profile` con `direct` para depurar sin esperas.
 
@@ -280,7 +280,7 @@ steps:
 
 - **Un tipo por paso.** Cada paso es un mapa con una clave de tipo y campos comunes opcionales: `id`, `break`, `timeout`, `on_error` (`stop`, `continue`, `retry` o `pause`) e `input` para cambiar la estrategia solo en ese paso.
 - **Ids estables.** Si falta `id`, `load` genera uno desde el tipo y la posición (`click_3`) y avisa con un *warning*. Al guardar con `edit_script`, el motor escribe los ids, para que los breakpoints y el historial no se rompan al reordenar.
-- **Bloques.** `if` (`then` y `else`) y `loop` (`times`, `while`, `for_each`) contienen listas de pasos. El campo `path` de los eventos es la ruta de índices hasta el paso.
+- **Bloques.** `if` (`then` y `else`) y `loop` (`times`, `while`, `for_each`) contienen listas de pasos. `path` alterna la posición en la lista y el número de bloque del paso padre: `[3, 1, 0]` es el primer paso del segundo bloque (`else`) del cuarto paso. Los bloques se numeran en el orden que declara el tipo de paso (`if`: `then` 0, `else` 1; `loop`: `do` 0).
 - **Condiciones y expresiones.** `when` y `while` aceptan una expresión (comparaciones, aritmética, `and`, `or`, `not`, sin `eval` de Python) o una condición predefinida como `image_visible`. La interpolación usa `${nombre}`.
 - **Coordenadas.** `x`/`y` son píxeles físicos del escritorio virtual, que abarca todas las pantallas y puede tener valores negativos. Con `window: {title: ...}`, las coordenadas y la `region` pasan a ser relativas a esa ventana y sobreviven a que la muevas. En Windows el motor se declara consciente del DPI por monitor, para que el sistema no escale las coordenadas.
 - **Imágenes.** Rutas relativas al script, `threshold` (0.9 por defecto), `region` de búsqueda opcional y `scale` para compensar plantillas capturadas con otro escalado.

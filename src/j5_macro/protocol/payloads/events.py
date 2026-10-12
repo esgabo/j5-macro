@@ -18,10 +18,17 @@ LogLevel = Literal["debug", "info", "warning", "error"]
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StepEvent(Payload):
-    """Fields shared by step events: ``path`` includes the iteration index of each loop."""
+    """Fields shared by step events.
+
+    ``path`` is the static position in the script (list index and block slot,
+    alternating); ``iterations`` holds the current iteration of each enclosing loop,
+    outermost first (omitted outside loops), so the same step in different loop
+    iterations is distinguishable.
+    """
 
     step_id: str
     path: list[int]
+    iterations: list[int] | None = None
     line: int | None = None
 
 
