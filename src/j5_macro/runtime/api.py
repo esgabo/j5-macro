@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from j5_macro.backends.base import Backend
@@ -44,6 +45,9 @@ class RunOptions:
     input_profile: dict[str, Any] | None = None
     """Overrides for the script's ``input`` profile (e.g. ``direct`` for fast runs)."""
     captures: Literal["on_failure", "all"] = "on_failure"
+    run_dir: Path | None = None
+    """Where the run keeps its artifacts (``captures/``, ``plans/``); None keeps nothing
+    on disk. Events reference these files relative to it."""
     backend: Backend | None = None
     """The engine's input backend; None means input steps fail with capability_missing
     (dry runs never touch it)."""
