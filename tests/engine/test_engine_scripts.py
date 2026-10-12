@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from engine_harness import Engine
 
+from j5_macro.engine import scripts as scripts_module
 from j5_macro.engine.scripts import format_seconds
 from j5_macro.protocol.messages import ErrorInfo
 from j5_macro.protocol.payloads import (
@@ -122,7 +123,17 @@ def test_load_payload_needs_exactly_one_of_path_and_source(engine: Engine) -> No
     assert engine.error("load", {"path": "a", "source": "b"})["code"] == "validation_failed"
 
 
-def test_validate_rereads_a_changed_file(engine: Engine, tmp_path: Path) -> None:
+@pytest.fixture
+def unwatched_engine(monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
+    """An engine whose file watcher never polls, so only ``validate`` reads files."""
+    monkeypatch.setattr(scripts_module, "WATCH_INTERVAL_S", 3600.0)
+    eng = Engine()
+    yield eng
+    eng.close()
+
+
+def test_validate_rereads_a_changed_file(unwatched_engine: Engine, tmp_path: Path) -> None:
+    engine = unwatched_engine
     path = tmp_path / "demo.yaml"
     path.write_text(GOOD, encoding="utf-8")
     script_id = engine.ok("load", {"path": str(path)})["script_id"]
