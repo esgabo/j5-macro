@@ -7,9 +7,9 @@ Scriptable, debuggable desktop automation for Windows and Linux. Write macros as
 let the mouse and keyboard move like a person instead of teleporting.
 
 **Status:** early development. Scripts load, validate and run on Linux with an X11 session:
-real mouse and keyboard input (`direct` and `linear` movement) and image search on screen
-(`wait_image`, clicking on images, `image_visible`). Human-like movement comes in M5, the
-step debugger in M4 and Windows in M6.
+real mouse and keyboard input with `direct`, `linear` and human-like (`human`) strategies,
+image search on screen (`wait_image`, clicking on images, `image_visible`), and a pause or
+stop when you grab the mouse mid-movement. The step debugger comes in M4 and Windows in M6.
 
 ## Design
 
@@ -19,7 +19,10 @@ The full design is in [`docs/contract.md`](docs/contract.md). The short version:
   commands in, events out.
 - The **CLI**, a future **GUI** and a **DAP debugger** (VS Code) are all clients of that protocol.
 - **Mouse and keyboard masters** plan every movement with a strategy (`direct`, `linear` or
-  `human`) and drive a thin per-platform **backend**.
+  `human`) and drive a thin per-platform **backend**. `human` (the default) curves the
+  pointer along WindMouse or Bézier paths with Fitts' law timing, a bell-shaped speed,
+  occasional overshoot and micro-jitter, and types with irregular rhythm, pauses after
+  punctuation, rolled-over keys and optional corrected typos.
 - Runs are **reproducible** (seeded), **inspectable** (every step emits events) and
   **safe to abort** (held keys and buttons are always released).
 

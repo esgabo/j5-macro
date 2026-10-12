@@ -43,6 +43,9 @@ class FakeBackend:
     held_buttons: list[Button] = field(default_factory=list)
     hotkeys: list[tuple[list[str], Callable[[], None]]] = field(default_factory=list)
     closed: bool = False
+    on_move: Callable[[FakeBackend], None] | None = None
+    """Called after every ``move_abs`` and ``move_rel``, once the pointer has moved: tests
+    use it to act as the user during a movement (e.g. set :attr:`pointer` elsewhere)."""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def _record(self, name: str, *args: object) -> None:
@@ -64,10 +67,16 @@ class FakeBackend:
     def move_abs(self, x: int, y: int) -> None:
         self._record("move_abs", x, y)
         self.pointer = (x, y)
+        self._moved()
 
     def move_rel(self, dx: int, dy: int) -> None:
         self._record("move_rel", dx, dy)
         self.pointer = (self.pointer[0] + dx, self.pointer[1] + dy)
+        self._moved()
+
+    def _moved(self) -> None:
+        if self.on_move is not None:
+            self.on_move(self)
 
     def button_down(self, button: Button) -> None:
         self._record("button_down", button)
@@ -115,6 +124,18 @@ class FakeBackend:
         self.closed = True
 
     # --- test helpers ----------------------------------------------------------------
+
+    def user_moves_pointer(self, x: int, y: int, *, after_moves: int) -> None:
+        """Simulate the user putting the pointer at (x, y) right after the
+        ``after_moves``-th pointer movement from now (once; replaces :attr:`on_move`)."""
+        remaining = [after_moves]
+
+        def hook(backend: FakeBackend) -> None:
+            remaining[0] -= 1
+            if remaining[0] == 0:
+                backend.pointer = (x, y)
+
+        self.on_move = hook
 
     def press_hotkey(self, keys: list[str]) -> None:
         """Simulate the user pressing a watched combination."""

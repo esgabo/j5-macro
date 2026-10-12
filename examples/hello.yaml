@@ -1,5 +1,8 @@
 version: 1
 name: Hello j5
+input:
+  mouse: {strategy: human, path: windmouse, speed: 1.0, interference: pause}
+  keyboard: {strategy: human, wpm: 70, typos: false}
 vars:
   greeting: hello
   attempts: 0

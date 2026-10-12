@@ -20,7 +20,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Literal, TypeVar
 
 from j5_macro.expr import ExpressionError
-from j5_macro.input.api import EmergencyStop, StepInput
+from j5_macro.input.api import EmergencyStop, StepInput, UserInterference
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
 from j5_macro.protocol.payloads.events import StateReason
@@ -183,6 +183,13 @@ class Machine:
                 self._events.log("warning", f"emergency stop: {exc.reason}", step.id)
                 self._control.stop("user")
                 raise RunStopped("user") from exc
+            except UserInterference as exc:
+                # The master already released what the action held and emitted
+                # user_interference. The interrupted attempt neither finishes nor fails.
+                if self._interfered(step, its, depth, exc):
+                    return None
+                attempt += 1
+                continue
             except Exception as exc:
                 info = internal_error(exc)
             info = at_step(info, step, attempt)
@@ -203,6 +210,22 @@ class Machine:
                 attempt += 1
                 continue
             raise RunFailed(info)
+
+    def _interfered(self, step: Step, its: Iterations, depth: int,
+                    exc: UserInterference) -> bool:
+        """Apply the profile's interference action: stop the run (raises RunStopped) or
+        pause; True if the user then skipped the step, False to run it again."""
+        if exc.action == "stop":
+            self._events.log("warning", f"user interference: {exc}; stopping the run",
+                             step.id)
+            self._control.stop("interference")
+            raise RunStopped("interference") from exc
+        with self._control.lock:
+            self.position = step
+        if self._pause("interference", depth) == "step_over":
+            self._events.step_skipped(step, its, "user")
+            return True
+        return False
 
     # --- action steps ---------------------------------------------------------------
 

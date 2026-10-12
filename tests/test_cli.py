@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import faulthandler
+import io
 import json
 import os
 import signal
@@ -15,6 +16,7 @@ import pytest
 
 from j5_macro import __version__
 from j5_macro.cli import commands
+from j5_macro.cli import main as cli_main
 from j5_macro.cli.main import main
 from j5_macro.cli.options import ENGINE_CMD_ENV, FAST_PROFILE
 
@@ -240,8 +242,51 @@ def test_run_stopped_by_engine(engine, script, capsys):
     engine("interference")
     assert main(["run", script]) == 3
     out = capsys.readouterr().out
-    assert "user moved the mouse" in out
+    assert "you moved the mouse" in out
+    assert "stopping the run" in out
     assert out.splitlines()[-1] == "■ stopped (interference) after 0.300s  (seed 1234)"
+
+
+def test_run_retries_after_interference_without_a_terminal(engine, script, record, capsys):
+    engine("interference_pause")
+    assert main(["run", script]) == 0
+    captured = capsys.readouterr()
+    assert "you moved the mouse" in captured.out
+    assert "⏸ paused (interference)" in captured.out
+    assert ("j5: you moved the mouse during step 'open_menu'; retrying it "
+            "(no terminal to ask)") in captured.err
+    assert sent(record, "resume") == [{"run_id": "r-1"}]
+    assert sent(record, "step_over") == []
+
+
+def interactive(monkeypatch, answer: str) -> None:
+    """Make the CLI believe stdin is a terminal where the user types ``answer``."""
+    monkeypatch.setattr(cli_main, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(answer))
+
+
+def test_run_interference_enter_retries_the_step(engine, script, record, monkeypatch,
+                                                 capsys):
+    engine("interference_pause")
+    interactive(monkeypatch, "\n")
+    assert main(["run", script]) == 0
+    err = capsys.readouterr().err
+    assert ("j5: you moved the mouse during step 'open_menu'; press Enter to retry the "
+            "step, or s + Enter to skip it (Ctrl+C stops the run)") in err
+    assert sent(record, "resume") == [{"run_id": "r-1"}]
+    assert sent(record, "step_over") == []
+
+
+def test_run_interference_s_skips_the_step(engine, script, record, monkeypatch, capsys):
+    engine("interference_pause")
+    interactive(monkeypatch, "s\n")
+    assert main(["run", script]) == 0
+    captured = capsys.readouterr()
+    assert "↷ open_menu  skipped (user)" in captured.out
+    # The pause that follows the skip is resumed without asking again.
+    assert sent(record, "step_over") == [{"run_id": "r-1"}]
+    assert sent(record, "resume") == [{"run_id": "r-1"}]
+    assert "the run is paused" not in captured.err
 
 
 def test_run_busy(engine, script, capsys):

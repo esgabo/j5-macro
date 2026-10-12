@@ -284,6 +284,10 @@ class RunFollower:
         self.controls = controls
         self.renderer = RunRenderer(style=io.style, seed=options.seed)
         self.aborted = False
+        self._step: str | None = None
+        """The step last started: the one a pause for an error or interference is about."""
+        self._skipping = False
+        """``step_over`` was sent to skip a step; the next ``step`` pause is resumed."""
         self._background: set[asyncio.Future[Any]] = set()
 
     async def follow(self) -> str | None:
@@ -316,6 +320,9 @@ class RunFollower:
                         deadline = loop.time() + STOP_WAIT
                     elif control is Control.RESUME:
                         self._send("resume", {"run_id": self.run_id})
+                    elif control is Control.SKIP:
+                        self._skipping = True
+                        self._send("step_over", {"run_id": self.run_id})
                 if next_event in done:
                     try:
                         event = next_event.result()
@@ -352,17 +359,38 @@ class RunFollower:
                 self.io.line(line)
         if event.run_id != self.run_id:
             return None
+        if event.type == "step_started":
+            self._step = str(event.payload.get("step_id") or "") or None
         if event.type == "state_changed" and event.payload.get("state") == "paused":
-            self._paused()
+            self._paused(event.payload.get("reason"))
         if event.type == "run_finished":
             status = event.payload.get("status")
             return status if isinstance(status, str) else "unknown"
         return None
 
-    def _paused(self) -> None:
+    def _paused(self, reason: Any) -> None:
         if self.controls.interrupts:
             return
-        if self.options.interactive and not self.options.as_json:
+        if self._skipping and reason == "step":
+            # The pause that follows skipping a step: carry on without asking again.
+            self._skipping = False
+            self._send("resume", {"run_id": self.run_id})
+            return
+        self._skipping = False
+        interactive = self.options.interactive and not self.options.as_json
+        step = f" '{self._step}'" if self._step else ""
+        if reason in ("interference", "error"):
+            what = (f"you moved the mouse during step{step}" if reason == "interference"
+                    else f"step{step} failed")
+            if interactive:
+                self.io.note(f"j5: {what}; press Enter to retry the step, or s + Enter to "
+                             "skip it (Ctrl+C stops the run)")
+                self.controls.wait_for_enter(skippable=True)
+            else:
+                self.io.note(f"j5: {what}; retrying it (no terminal to ask)")
+                self._send("resume", {"run_id": self.run_id})
+            return
+        if interactive:
             self.io.note("j5: the run is paused; press Enter to resume or Ctrl+C to stop "
                          "(the interactive debugger arrives with `j5 run --step`)")
             self.controls.wait_for_enter()
