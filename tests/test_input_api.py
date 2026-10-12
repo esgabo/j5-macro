@@ -65,3 +65,12 @@ def test_fake_backend_hotkeys():
     unwatch()
     fake.press_hotkey(["ctrl", "alt", "shift", "q"])
     assert presses == [1]
+
+
+def test_select_backend_overrides():
+    from j5_macro.backends import select_backend
+
+    assert select_backend({"J5_BACKEND": "none"}).backend is None
+    fake = select_backend({"J5_BACKEND": "fake"})
+    assert fake.name == "fake" and isinstance(fake.backend, FakeBackend)
+    assert "unknown" in select_backend({"J5_BACKEND": "amiga"}).reason
