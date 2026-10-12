@@ -415,17 +415,21 @@ class _Loader:
             else:
                 taken[sid] = node.line
 
-        counters: dict[str, int] = {}
+        # The n-th step of a type (counting steps with explicit ids too) gets ``<type>_n``,
+        # so adding an id to one step never renames the generated ids of the others.
+        position: dict[str, int] = {}
         for node in self.nodes:
-            if node.explicit_id is not None or node.type is None:
+            if node.type is None:
                 continue
-            n = counters.get(node.type, 0)
-            while True:
-                n += 1
-                candidate = f"{node.type}_{n}"
-                if candidate not in taken:
-                    break
-            counters[node.type] = n
+            position[node.type] = position.get(node.type, 0) + 1
+            if node.explicit_id is not None:
+                continue
+            n = position[node.type]
+            candidate = f"{node.type}_{n}"
+            suffix = 1
+            while candidate in taken:
+                suffix += 1
+                candidate = f"{node.type}_{n}_{suffix}"
             taken[candidate] = node.line
             node.id = candidate
             if not node.bad_id:
