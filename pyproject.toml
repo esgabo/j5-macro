@@ -25,7 +25,7 @@ dependencies = [
 [project.optional-dependencies]
 x11 = ["python-xlib>=0.33", "mss>=9.0"]
 windows = ["mss>=9.0"]
-vision = ["opencv-python-headless>=4.9", "numpy>=1.26"]
+vision = ["opencv-python-headless>=4.9", "numpy>=1.26", "mss>=9.0"]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10", "jsonschema>=4.18", "types-python-xlib>=0.33"]
 
 [project.scripts]
@@ -56,3 +56,8 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 python_version = "3.11"
 strict = true
 files = ["src/j5_macro"]
+
+# The vision extra is optional: type-check without it too.
+[[tool.mypy.overrides]]
+module = ["cv2", "cv2.*", "mss", "mss.*", "numpy", "numpy.*"]
+ignore_missing_imports = true
