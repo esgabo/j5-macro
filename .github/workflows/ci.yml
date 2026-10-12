@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch or PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.11"}
+          - {os: ubuntu-latest, python: "3.12"}
+          - {os: ubuntu-latest, python: "3.13"}
+          # Windows minutes cost double while the repository is private: one version
+          # for now; add 3.11 and 3.12 back once it is public (public repos run free).
+          - {os: windows-latest, python: "3.13"}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
+      - if: runner.os == 'Linux'
+        run: python -m pip install -e ".[dev,x11,vision]"
+      - if: runner.os != 'Linux'
+        run: python -m pip install -e ".[dev,vision]"
+      # The same script developers run locally: ruff, mypy and pytest (under Xvfb with
+      # the X11 tests required on Linux; X11 tests are skipped elsewhere).
+      - run: scripts/check.sh
+        shell: bash
