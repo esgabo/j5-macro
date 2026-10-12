@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,14 +26,31 @@ from j5_macro.script.model import Script, Step
 from j5_macro.steps.registry import StepRegistry
 
 
+def script_version(text: str) -> str:
+    """A script's ``version``: the first 16 hex digits of the SHA-256 of its UTF-8 text."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 @dataclass(slots=True)
 class LoadedScript:
     script_id: str
     script: Script
+    """The last valid version: what ``run`` executes."""
     path: Path | None
     """The file it was loaded from; None for ``load`` with ``source``."""
     breakpoints: frozenset[str] = field(default_factory=frozenset)
     """Client breakpoints set with ``set_breakpoints``, by step id."""
+    text: str = ""
+    """The current text (of the file, or the edited source), possibly invalid."""
+    version: str = ""
+    """``script_version(text)``."""
+    errors: list[ErrorInfo] = field(default_factory=list)
+    """Problems of ``text``; empty when ``script`` is ``text`` parsed. While not empty,
+    ``run`` answers ``validation_failed``."""
+
+    @property
+    def valid(self) -> bool:
+        return not self.errors
 
 
 class ScriptStore:
@@ -54,7 +72,8 @@ class ScriptStore:
     def add(self, script: Script, path: Path | None) -> LoadedScript:
         with self._lock:
             self._counter += 1
-            entry = LoadedScript(f"s{self._counter}", script, path)
+            entry = LoadedScript(f"s{self._counter}", script, path, text=script.text,
+                                 version=script_version(script.text))
             self._scripts[entry.script_id] = entry
             return entry
 
@@ -65,6 +84,22 @@ class ScriptStore:
             raise CommandError(ErrorCode.SCRIPT_NOT_FOUND, f"unknown script_id: {script_id!r}",
                                {"script_id": script_id})
         return entry
+
+    def update(self, entry: LoadedScript, text: str, result: LoaderResult) -> None:
+        """Record new ``text`` for ``entry``: its version and problems, and the parsed
+        script when it is valid (an invalid text keeps the last valid script)."""
+        with self._lock:
+            entry.text = text
+            entry.version = script_version(text)
+            if result.script is not None:
+                entry.script = result.script
+                entry.errors = []
+            else:
+                entry.errors = list(result.errors)
+
+    def entries(self) -> list[LoadedScript]:
+        with self._lock:
+            return list(self._scripts.values())
 
     def set_breakpoints(self, script_id: str, step_ids: list[str]) -> LoadedScript:
         entry = self.get(script_id)

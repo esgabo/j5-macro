@@ -122,7 +122,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | Event | When | Payload |
 | --- | --- | --- |
 | `ready` | When the engine starts, no `run_id` | `v`, `backend`, `capabilities` |
-| `script_changed` | A script changed on disk or through `edit_script`, no `run_id` | `script_id`, `version`, `source` (`disk` or `edit`) |
+| `script_changed` | A loaded script's file changed on disk, was deleted, or was edited with `edit_script`; no `run_id` | `script_id`, `version` (`null` when deleted), `source` (`disk`, `edit` or `deleted`), `valid`, `errors?` (the validation problems when not valid) |
 | `run_started` | First event of a run | `script_id`, `script_name` (the script's `name`), `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
 | `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
 | `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
@@ -380,28 +380,32 @@ No client parses or rewrites YAML: it asks the engine for structured edits by `s
 
 | Command | Payload | Result and notes |
 | --- | --- | --- |
-| `list_scripts` | `root?` | Scripts in the working folder: path, name, modification time and whether they validate |
-| `create_script` | `path`, `name` | `script_id` of an empty script |
-| `get_script` | `script_id` | Step tree with ids, parameters and lines, the YAML text and its `version` |
-| `edit_script` | `script_id`, `base_version`, `edits` | Applies the edits in order, validates and saves; answers the new `version` and validation errors. If the file changed since `base_version`, answers `conflict` and changes nothing |
-| `list_runs` | `script_id?`, `limit?` | Saved runs: `run_id`, final status, date and duration |
-| `get_run` | `run_id`, `from_seq?` | Events and screenshot paths of a past run, to review it later |
-| `delete_run` | `run_id` | Deletes the run's directory |
+| `list_scripts` | `root?` | Scripts under `root` (the engine's working directory by default; relative roots resolve against it), searched recursively for `*.yaml` and `*.yml`, skipping hidden directories and stopping at 1000 files: `path` (absolute), `name` (the script's `name`, else the file stem), `modified` and `valid`. Files that are not scripts (no `steps`) are left out |
+| `create_script` | `path`, `name` | Writes a new script (`version: 1`, `name`, `steps: []`) and loads it: `script_id` and `version`. An existing file is never overwritten: `validation_failed` with `details.reason: exists` |
+| `get_script` | `script_id` | `version`, `source` (the YAML text), `name`, `path` (`null` for a script loaded from `source`), `steps` (the step tree with ids, parameters and lines), `params`, `valid` and `errors` |
+| `edit_script` | `script_id`, `base_version`, `edits` | Applies the edits in order, validates and saves; answers the new `version`, `valid` and `errors` (the problems of the resulting script). If the file changed since `base_version`, answers `conflict` (`details.version`: the current one) and changes nothing. An edit that cannot apply (unknown step id, impossible position, a block moved into itself) answers `validation_failed` with `details.edit` (its index) and changes nothing |
+| `list_runs` | `script_id?`, `limit?` | Saved runs, newest first: `run_id`, `script_name`, `script_path`, `mode`, `status` (`null` if it never finished), `started`, `duration_ms`. `script_id` keeps the runs of that loaded script's file (by path); `limit` (default 20) caps the list |
+| `get_run` | `run_id`, `from_seq?` | A past run from the history: its `run.json` fields as `run`, its `events` (from `from_seq`, 1 by default) and `captures` (paths relative to the run's directory). Unknown `run_id` → `not_running` |
+| `delete_run` | `run_id` | Deletes the run's directory. The active run cannot be deleted (`invalid_state`, `details.reason: active`) |
 
 Edit kinds inside `edits`:
 
 | Edit | Fields | Effect |
 | --- | --- | --- |
-| `insert` | `after_step_id` or `parent_path`, `step` | Adds a step; the engine assigns its `id` |
-| `update` | `step_id`, `params` | Changes a step's parameters |
+| `insert` | `step`, `to` | Adds a step at a position; the engine assigns its `id` unless the step has one (which must be unused) |
+| `update` | `step_id`, `params`, `common?` | Replaces the given parameters of a step (`null` removes one); `common` changes `break`, `timeout`, `on_error` or `input` the same way |
 | `move` | `step_id`, `to` | Moves a step, also across blocks |
 | `delete` | `step_id` | Deletes a step and, for a block, its content |
 | `set_meta` | `name?`, `input?`, `params?`, `vars?` | Changes the script header |
 
+A position (`to`) is either `{after_step_id}`, right after that step in the same list, or `{parent_step_id?, block?, index?}`: the list of steps at the top level when `parent_step_id` is absent, else the `block` (`then`, `else` or `do`) of that step, at `index` (from 0; the end of the list by default). A missing `else` is created when a step is put in it.
+
 Rules:
 
 - **The file is preserved.** Every edit keeps the comments and formatting of the rest of the YAML.
-- **The engine watches files.** If a script is edited in a text editor, the engine emits `script_changed` and the GUI reloads.
+- **Versions.** A script's `version` is the first 16 hex digits of the SHA-256 of its text (UTF-8), so it changes exactly when the content changes, whoever changes it.
+- **The engine watches files.** Every loaded script with a path is checked about twice a second. When the content changes, the engine re-reads it and emits `script_changed` (`source: disk`); `edit_script` emits it too (`source: edit`). A valid new version replaces the loaded one; an invalid one is kept with its errors, and `run` answers `validation_failed` until the script is fixed. A deleted file emits `source: deleted` and the script stays loaded as it was.
+- **Ids are written.** Saving through `edit_script` writes every step's id into the file, so generated ids become stable.
 - **Editing does not affect what is running.** A run keeps the version it loaded; changes apply to the next run.
 
 **Run history.** Each run is saved in `<runs dir>/<run_id>/`: `events.jsonl` (one event per line, appended as emitted) and `run.json` (`run_id`, `script_id`, `script_name`, `script_path`, `mode`, `seed`, `started`, and on completion `finished`, `status`, `reason`, `duration_ms`, `error`), and `captures/` with the screen captures of image searches, named `<n>-<step_id>-<attempt>.png` (`n` counts the run's captures from `0001`; `attempt` is the search attempt). Events reference these files by their path relative to the run's directory, with `/` separators. A capture that cannot be saved only logs a warning. The runs dir is the engine's `--runs-dir` option, else `J5_RUNS_DIR`, else the platform state directory plus `j5-macro/runs` (`$XDG_STATE_HOME` or `~/.local/state` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). When a run starts, older runs are deleted so the newest 20 remain. A persistence failure never affects a run; it becomes an engine `log` warning.

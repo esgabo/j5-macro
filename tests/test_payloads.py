@@ -68,9 +68,10 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "create_script": {"path": "a.yaml", "name": "A"},
     "get_script": {"script_id": "s"},
     "edit_script": {"script_id": "s", "base_version": "v1", "edits": [
-        {"op": "insert", "after_step_id": "a", "step": {"sleep": "1s"}},
-        {"op": "update", "step_id": "a", "params": {"x": 3}},
-        {"op": "move", "step_id": "a", "to": {"parent_path": [2]}},
+        {"op": "insert", "step": {"sleep": "1s"}, "to": {"after_step_id": "a"}},
+        {"op": "update", "step_id": "a", "params": {"x": 3}, "common": {"break": True}},
+        {"op": "move", "step_id": "a", "to": {"parent_step_id": "c", "block": "else",
+                                             "index": 0}},
         {"op": "delete", "step_id": "b"},
         {"op": "set_meta", "vars": {"k": "v"}},
     ]},
@@ -99,17 +100,23 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "get_events": {"events": [{"v": 1, "kind": "event", "type": "log", "seq": 3}]},
     "list_scripts": {"scripts": [{"path": "a.yaml", "name": "A",
                                   "modified": "2026-10-12T10:00:00.000Z", "valid": True}]},
-    "create_script": {"script_id": "s"},
+    "create_script": {"script_id": "s", "version": "0123456789abcdef"},
     "get_script": {"script_id": "s", "version": "v1", "source": "version: 1\n",
-                   "steps": [NODE]},
-    "edit_script": {"version": "v2", "errors": []},
+                   "name": "A", "steps": [NODE], "params": [],
+                   "valid": False, "errors": [{"code": "validation_failed",
+                                               "message": "bad", "line": 3}]},
+    "edit_script": {"version": "v2", "valid": True, "errors": []},
     "list_runs": {"runs": [{"run_id": "r-1", "status": "completed",
-                            "started": "2026-10-12T10:00:00.000Z", "duration_ms": 900}]},
-    "get_run": {"run_id": "r-1", "events": [], "captures": ["fail_0001.png"]},
+                            "started": "2026-10-12T10:00:00.000Z", "duration_ms": 900,
+                            "script_name": "A", "script_path": "/s/a.yaml",
+                            "mode": "normal"}]},
+    "get_run": {"run_id": "r-1", "run": {"status": "completed"}, "events": [],
+                "captures": ["captures/0001-a-1.png"]},
 }
 EVENT_EXAMPLES: dict[str, dict[str, Any]] = {
     "ready": {"v": 1, "backend": "x11", "capabilities": CAPS},
-    "script_changed": {"script_id": "s", "version": "v2", "source": "disk"},
+    "script_changed": {"script_id": "s", "source": "deleted",
+                       "valid": False, "errors": [{"code": "parse_error", "message": "x"}]},
     "run_started": {"script_id": "s", "mode": "normal", "seed": 7, "backend": "x11",
                     "input_profile": {}},
     "state_changed": {"state": "paused", "reason": "step"},
@@ -225,10 +232,11 @@ def test_invalid_literal():
 def test_nested_error_path():
     data = {"script_id": "s", "base_version": "v", "edits": [
         {"op": "delete", "step_id": "a"},
-        {"op": "move", "step_id": "a", "to": {"parent_path": [0, "1"]}},
+        {"op": "move", "step_id": "a", "to": {"parent_step_id": "c", "block": "do",
+                                             "index": "1"}},
     ]}
     assert error_of(EditScriptPayload.from_json, data) == \
-        "payload.edits[1].to.parent_path[1]: expected integer, got string"
+        "payload.edits[1].to.index: expected integer, got string"
     data = {"code": "busy"}
     assert error_of(StepFailedEvent.from_json, {**STEP, "error": data}) == \
         "payload.error.message: missing required field"
@@ -256,9 +264,15 @@ def test_exactly_one_location():
         "payload: expected exactly one of path, source"
     assert error_of(parse_command_payload, "load", {"path": "a", "source": "b"}) == \
         "payload: expected exactly one of path, source"
-    edit = {"op": "insert", "step": {"sleep": "1s"}}
+    edit = {"op": "insert", "step": {"sleep": "1s"},
+            "to": {"after_step_id": "a", "index": 1}}
     assert error_of(InsertEdit.from_json, edit) == \
-        "payload: expected exactly one of after_step_id, parent_path"
+        "payload.to: after_step_id excludes parent_step_id, block and index"
+    edit = {"op": "insert", "step": {"sleep": "1s"}, "to": {"block": "then"}}
+    assert error_of(InsertEdit.from_json, edit) == \
+        "payload.to: parent_step_id and block go together"
+    top = InsertEdit.from_json({"op": "insert", "step": {"log": "x"}, "to": {}})
+    assert top.to.parent_step_id is None and top.to.index is None
 
 
 def test_unknown_fields_ignored():

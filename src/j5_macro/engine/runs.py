@@ -261,6 +261,12 @@ class RunManager:
 
     def start(self, payload: RunPayload) -> Run:
         entry = self.scripts.get(payload.script_id)
+        if not entry.valid:
+            first = entry.errors[0]
+            raise CommandError(ErrorCode.VALIDATION_FAILED,
+                               f"the script has problems since it last changed: "
+                               f"{first.message}",
+                               {"errors": [e.to_json() for e in entry.errors]})
         with self._lock:
             if self.active is not None:
                 raise CommandError(ErrorCode.BUSY,
