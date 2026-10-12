@@ -239,7 +239,7 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | --- | --- | --- |
 | `direct` | Jumps to the target | Types the whole text at once |
 | `linear` | Straight interpolation at constant speed | Fixed interval between keys |
-| `human` | Curve with random deviations (Bézier or WindMouse), bell-shaped speed, Gaussian target inside the matched area, occasional overshoot and correction, micro-jitter | Log-normal intervals from the WPM, longer pauses after spaces and punctuation, variable hold time with slight overlap |
+| `human` | Curve with random deviations (Bézier or WindMouse), bell-shaped speed, Gaussian target inside the matched area, occasional overshoot and correction, micro-jitter | Log-normal intervals whose mean matches the WPM, longer pauses after spaces, punctuation and `enter`/`tab`, rare thinking pauses between words, log-normal hold times with slight rollover (at most two keys down; `enter`, `tab` and `backspace` never overlap), optional typos |
 
 **Input profile parameters:**
 
@@ -250,7 +250,7 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | Mouse | `overshoot`, `jitter` | Overshoot probability (0 to 1; only movements over 100 px: aim a few percent past the landing, at most 40 px, pause 30–100 ms, then correct) and amplitude in pixels of smoothed sideways jitter that fades out at both ends |
 | Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
 | Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
-| Keyboard | `variance`, `typos` | Spread of the intervals, and typos with corrections (`false` by default) |
+| Keyboard | `variance`, `typos` | Spread of the intervals (log-normal sigma; `0` is fully regular, without pauses), and typos (`false` by default): about 3% of ASCII letters hit a neighbouring QWERTY key, noticed at once or one or two characters later, then erased with `backspace` and retyped |
 | Both | `seed` | Base seed of the run |
 
 Each step's effective profile is the defaults, then the script's `input`, the run's `input_profile`, the step's `input` and, last, step parameters such as `type`'s `keyboard`; an invalid profile fails the step with `validation_failed`.
@@ -263,7 +263,7 @@ Each step's effective profile is the defaults, then the script's `input`, the ru
 - **Interference detection, mouse only in v1.** Before each point of a movement (every strategy) the master compares the real pointer position with the last one it sent; a distance beyond `tolerance` pixels is user interference (see "Interference" under run states). It requires `pointer_position`: with `interference` other than `off` on a backend without it, input steps that move the pointer fail with `capability_missing`. The keyboard is left out because on X11 injected keys are hard to tell apart from the user's.
 - **Emergency stop.** A global hotkey, `ctrl+alt+shift+q` by default (engine option `--stop-key`, else env `J5_STOP_KEY`; key names and aliases as above, joined with `+`), stops the active run with reason `user` after a `warning` `log` in that run. It needs the backend's `hotkey` capability; without it the engine logs a warning at startup. As a fallback, moving the cursor into a corner of the virtual desktop (within 2 pixels) while the run is moving it stops the run too: masters check the real pointer position between points, release what they hold and raise `EmergencyStop`, and the interpreter stops the run with reason `user` and a `warning` `log`. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
 - **Per-action seeds.** Each plan, and each step's random choices, use a sub-seed derived (SHA-256) from `seed`, `step_id`, `iterations` and the attempt number, so every iteration of a `loop` moves differently. The same seed, start point and target give the same plan; if the cursor position or the matched image location changes, the plan changes even with the same seed.
-- **Typos never change the result.** With `typos` on, an automated test checks that the planned key events, corrections included, produce the original text. It cannot check the target application (autocomplete may interfere), which is why `typos` is off by default.
+- **Typos never change the result.** With `typos` on, an automated test checks that the planned key events, corrections included, produce the original text. A correction never erases past an `enter` or `tab`, nor runs past the end of the text. It cannot check the target application (autocomplete may interfere), which is why `typos` is off by default.
 - **Fast mode.** `run` accepts an `input_profile` with `direct` strategies to debug without waiting.
 
 ## Script format and step registry
