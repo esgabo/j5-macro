@@ -1,5 +1,6 @@
 """Wire protocol shared by the engine and every client (see docs/contract.md)."""
 
+from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import (
     PROTOCOL_VERSION,
     Command,
@@ -15,6 +16,7 @@ from j5_macro.protocol.messages import (
 __all__ = [
     "PROTOCOL_VERSION",
     "Command",
+    "ErrorCode",
     "ErrorInfo",
     "Event",
     "Message",
