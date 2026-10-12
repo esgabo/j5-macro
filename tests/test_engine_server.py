@@ -136,7 +136,8 @@ def test_event_buffer_is_bounded() -> None:
     assert kept[-1].seq == EVENT_BUFFER_SIZE + 5
 
 
-SCRIPT_MANAGEMENT = ("edit_script", "list_runs", "get_run", "delete_run")
+SCRIPT_MANAGEMENT = ("list_runs", "get_run", "delete_run")
+"""Script management commands not implemented yet."""
 
 
 def test_not_implemented_commands() -> None:

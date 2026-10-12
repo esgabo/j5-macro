@@ -7,6 +7,7 @@ import contextlib
 import importlib.util
 from pathlib import Path
 
+from j5_macro.engine import editing as edit_commands
 from j5_macro.engine import runs as run_commands
 from j5_macro.engine import scripts as script_commands
 from j5_macro.engine.backend import EngineBackend
@@ -110,6 +111,7 @@ def install(
 
     scripts = ScriptStore(registry)
     script_commands.install(server, scripts)
+    edit_commands.install(server, scripts)
     manager = RunManager(server, scripts, run_factory, runs_dir, backend=backend)
     run_commands.install(server, manager)
     if backend is not None:
