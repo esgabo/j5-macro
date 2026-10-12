@@ -53,7 +53,7 @@ def test_unimplemented_command_reports_invalid_state():
     async def scenario():
         async with await EngineClient.start() as client:
             with pytest.raises(EngineError) as info:
-                await client.call("run", {"script_id": "s1", "mode": "dry"})
+                await client.call("list_runs", {})
             assert info.value.error.code == ErrorCode.INVALID_STATE
             assert info.value.error.details == {"reason": "not_implemented"}
 

@@ -21,7 +21,15 @@ class HandlerSpec:
 class CommandError(Exception):
     """An expected failure: the server turns it into an ``ok: false`` response."""
 
-    def __init__(self, code: ErrorCode, message: str, details: JsonObject | None = None) -> None:
+    def __init__(self, code: ErrorCode | str, message: str,
+                 details: JsonObject | None = None) -> None:
         super().__init__(message)
-        self.info = ErrorInfo(code=code.value, message=message, details=details)
+        self.info = ErrorInfo(code=str(code), message=message, details=details)
+
+    @classmethod
+    def from_info(cls, info: ErrorInfo) -> CommandError:
+        """Respond with an error built elsewhere (e.g. by the interpreter)."""
+        error = cls(info.code, info.message, info.details)
+        error.info = info
+        return error
 
