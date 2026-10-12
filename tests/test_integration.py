@@ -49,17 +49,6 @@ def test_get_events_with_typed_payload_returns_engine_stream():
     run(scenario())
 
 
-def test_unimplemented_command_reports_invalid_state():
-    async def scenario():
-        async with await EngineClient.start() as client:
-            with pytest.raises(EngineError) as info:
-                await client.call("list_runs", {})
-            assert info.value.error.code == ErrorCode.INVALID_STATE
-            assert info.value.error.details == {"reason": "not_implemented"}
-
-    run(scenario())
-
-
 def test_invalid_payload_reports_field_path():
     async def scenario():
         async with await EngineClient.start() as client:

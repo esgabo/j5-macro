@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from j5_macro.engine.app import create_server
-from j5_macro.engine.commands import CONTRACT_COMMANDS, vision_installed
+from j5_macro.engine.commands import vision_installed
 from j5_macro.engine.events import EventSequencer
 from j5_macro.engine.server import EVENT_BUFFER_SIZE, EngineServer
 from j5_macro.engine.transport import LineTransport
@@ -134,21 +134,6 @@ def test_event_buffer_is_bounded() -> None:
     assert len(kept) == EVENT_BUFFER_SIZE
     assert kept[0].seq == 6
     assert kept[-1].seq == EVENT_BUFFER_SIZE + 5
-
-
-SCRIPT_MANAGEMENT = ("list_runs", "get_run", "delete_run")
-"""Script management commands not implemented yet."""
-
-
-def test_not_implemented_commands() -> None:
-    pending = [name for name in CONTRACT_COMMANDS if name in SCRIPT_MANAGEMENT]
-    assert len(pending) == len(SCRIPT_MANAGEMENT)
-    _, out = serve(cmd("hello", "h", HELLO), *(cmd(name, name, {}) for name in pending))
-    resp = responses(out)
-    for name in pending:
-        assert resp[name]["type"] == name
-        assert resp[name]["error"]["code"] == "invalid_state"
-        assert resp[name]["error"]["details"] == {"reason": "not_implemented"}
 
 
 def test_unknown_command_is_validation_failed() -> None:

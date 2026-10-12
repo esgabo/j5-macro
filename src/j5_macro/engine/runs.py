@@ -170,7 +170,8 @@ class Run:
                 self._publish(type, event_payload)
 
     def finish(self, outcome: RunOutcome) -> JsonObject:
-        """Emit ``run_finished`` (the last event of the run); returns its payload."""
+        """Emit ``run_finished`` (the last event of the run); returns its payload, with
+        secret values masked (it is also written to ``run.json``)."""
         with self._lock:
             duration_ms = max(0, (time.monotonic_ns() - self._start_ns) // 1_000_000)
             payload: JsonObject = {"status": outcome.status, "duration_ms": duration_ms}
@@ -180,7 +181,7 @@ class Run:
                 payload["error"] = outcome.error.to_json()
             self._publish("run_finished", payload)
             self._closed = True
-        return payload
+        return self.masked_payload(payload)
 
     def masked(self, value: Any) -> Any:
         """``value`` with this run's secret values replaced by ``***``."""
@@ -245,6 +246,11 @@ class RunManager:
     def active_run(self) -> Run | None:
         with self._lock:
             return self.active
+
+    def session_run_ids(self, script_id: str) -> set[str]:
+        """The runs of ``script_id`` this engine session still remembers."""
+        with self._lock:
+            return {run.run_id for run in self.runs.values() if run.script_id == script_id}
 
     def controller(self, run_id: str) -> RunController:
         """The controller of the active run ``run_id``; ``not_running`` otherwise."""

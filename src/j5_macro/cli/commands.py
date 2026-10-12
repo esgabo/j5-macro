@@ -1,4 +1,5 @@
-"""The ``j5`` subcommands that talk to the engine: ``validate``, ``run`` and ``steps``.
+"""The ``j5`` subcommands that talk to the engine: ``validate``, ``run``, ``steps`` and
+``runs``.
 
 Each one launches the engine with :class:`EngineClient`, sends the commands of
 docs/contract.md ("Commands") and renders what comes back. Output goes to the
@@ -31,12 +32,15 @@ from j5_macro.cli.render import (
     RunRenderer,
     Style,
     format_problem,
+    format_run_summary,
+    format_runs,
     format_step_types,
     format_warning,
     validate_summary,
 )
 from j5_macro.client import ClientError, EngineClient, EngineDied, EngineError
 from j5_macro.protocol import ErrorInfo, Event, encode
+from j5_macro.protocol.messages import ProtocolError, decode
 
 STOP_WAIT = 10.0
 """Seconds to wait for ``run_finished`` after the first Ctrl+C sent ``stop``."""
@@ -570,6 +574,91 @@ class RunFollower:
                 self.io.note(f"j5: {command} failed: [{exc.code}] {exc.error.message}")
         except (ClientError, TimeoutError):
             pass  # the engine died or is closing; the event stream reports it
+
+
+# -- runs (the run history) ----------------------------------------------------------------
+
+
+def history_error(exc: EngineError, run_id: str) -> tuple[str, int]:
+    """The message and exit code of a failed ``get_run`` or ``delete_run``."""
+    if exc.code == "not_running":
+        return f"no saved run {run_id}", ExitCode.FAILED
+    if exc.code == "validation_failed":
+        return (f"{run_id!r} is not a run id (r-YYYYMMDD-HHMMSS-xxxx; see j5 runs)",
+                ExitCode.USAGE)
+    return f"{run_id}: [{exc.code}] {exc.error.message}", ExitCode.FAILED
+
+
+async def runs_list(cmd: Sequence[str], *, limit: int, as_json: bool, runs_dir: str,
+                    io: Output) -> int:
+    async with engine(cmd, io) as client:
+        try:
+            result = await client.call("list_runs", {"limit": limit})
+        except EngineError as exc:
+            raise CliError(f"list_runs failed: [{exc.code}] {exc.error.message}") from exc
+    runs = result.get("runs")
+    if not isinstance(runs, list):
+        raise CliError("the engine answered list_runs without runs")
+    if as_json:
+        io.line(json.dumps(result, indent=2, ensure_ascii=False))
+    elif not runs:
+        io.note(f"j5: no saved runs in {runs_dir}")
+    else:
+        for line in format_runs([r for r in runs if isinstance(r, dict)], io.style):
+            io.line(line)
+    return ExitCode.OK
+
+
+async def runs_show(cmd: Sequence[str], run_id: str, *, as_json: bool, runs_dir: str,
+                    io: Output) -> int:
+    async with engine(cmd, io) as client:
+        try:
+            result = await client.call("get_run", {"run_id": run_id})
+        except EngineError as exc:
+            message, code = history_error(exc, run_id)
+            io.note(f"j5: {message}")
+            return code
+    raw_events = result.get("events")
+    events = [e for e in raw_events if isinstance(e, dict)] if isinstance(raw_events, list) else []
+    if as_json:
+        for raw in events:
+            io.line(json.dumps(raw, ensure_ascii=False, separators=(",", ":")))
+        return ExitCode.OK
+    run = result.get("run")
+    meta: dict[str, Any] = run if isinstance(run, dict) else {}
+    captures = [str(c) for c in result.get("captures") or []]
+    for line in format_run_summary(run_id, meta, captures, os.path.join(runs_dir, run_id),
+                                   io.style):
+        io.line(line)
+    seed = meta.get("seed")
+    renderer = RunRenderer(style=io.style, seed=seed if isinstance(seed, int) else None)
+    finished = False
+    for raw in events:
+        with contextlib.suppress(ProtocolError):
+            event = decode(json.dumps(raw))
+            if isinstance(event, Event):
+                finished = finished or event.type == "run_finished"
+                for line in renderer.render(event):
+                    io.line(line)
+    if not finished:
+        io.line(io.style.paint("(no run_finished: the run is still active, or the engine "
+                               "ended before it finished)", "yellow"))
+    return ExitCode.OK
+
+
+async def runs_delete(cmd: Sequence[str], run_ids: Sequence[str], *, io: Output) -> int:
+    exit_code: int = ExitCode.OK
+    async with engine(cmd, io) as client:
+        for run_id in run_ids:
+            try:
+                await client.call("delete_run", {"run_id": run_id})
+            except EngineError as exc:
+                message, code = history_error(exc, run_id)
+                io.note(f"j5: {message}")
+                exit_code = max(exit_code, code)
+            else:
+                io.line(f"deleted {run_id}")
+    return exit_code
 
 
 def run_sync(coro: Coroutine[Any, Any, int]) -> int:
