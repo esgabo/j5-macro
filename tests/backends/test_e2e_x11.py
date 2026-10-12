@@ -6,6 +6,7 @@ window recording what it actually receives.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from pathlib import Path
@@ -210,3 +211,87 @@ def test_run_fails_with_a_capture_when_the_image_never_appears(tmp_path, monkeyp
     (run_dir,) = (tmp_path / "runs").iterdir()
     captures = list((run_dir / "captures").iterdir())
     assert len(captures) == 1 and captures[0].suffix == ".png"
+
+
+# --- user interference -------------------------------------------------------------------
+
+INTERFERENCE_SCRIPT = """\
+version: 1
+name: interference e2e
+input:
+  mouse: {strategy: linear, speed: 0.1, interference: stop}
+steps:
+  - id: slow
+    move: {x: 1200, y: 700}
+  - id: never
+    log: not reached
+"""
+START = (100, 100)
+USER_AT = (150, 600)
+
+
+class User(threading.Thread):
+    """Plays the user on a connection of its own: once the run has started moving the
+    pointer away from ``START``, it puts the pointer at ``USER_AT`` (again, should the
+    run's next point land before the run had a chance to notice)."""
+
+    def __init__(self) -> None:
+        super().__init__(daemon=True)
+        self.done = threading.Event()
+        self.warps = 0
+
+    def run(self) -> None:
+        from Xlib.display import Display
+
+        display = Display(os.environ.get("DISPLAY"))
+        try:
+            root = display.screen().root
+            while not self.done.wait(0.02):
+                pointer = root.query_pointer()
+                position = (pointer.root_x, pointer.root_y)
+                if position != USER_AT and position[0] > START[0] + 5:
+                    root.warp_pointer(*USER_AT)
+                    display.sync()
+                    self.warps += 1
+        finally:
+            display.close()
+
+
+def test_moving_the_mouse_mid_movement_stops_the_run(observer, tmp_path, monkeypatch,
+                                                     capsys):
+    monkeypatch.setenv("J5_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("J5_BACKEND", "x11")
+    monkeypatch.delenv(ENGINE_CMD_ENV, raising=False)
+    script = tmp_path / "interference.yaml"
+    script.write_text(INTERFERENCE_SCRIPT, encoding="utf-8")
+    observer.root.warp_pointer(*START)
+    observer.display.sync()
+
+    user = User()
+    user.start()
+    try:
+        code = main(["run", "--seed", "5", str(script)])
+    finally:
+        user.done.set()
+        user.join(5)
+    out = capsys.readouterr().out
+    assert user.warps >= 1, out
+    assert code == 3, out
+    assert "you moved the mouse" in out
+    assert "stopped (interference)" in out
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    events = [json.loads(line) for line in
+              (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    types = [event["type"] for event in events]
+    (interference,) = [e["payload"] for e in events if e["type"] == "user_interference"]
+    assert interference["action"] == "stop"
+    assert interference["actual"] == list(USER_AT)
+    assert events[-1]["type"] == "run_finished"
+    assert events[-1]["payload"]["status"] == "stopped"
+    assert events[-1]["payload"]["reason"] == "interference"
+    assert "step_failed" not in types and "step_finished" not in types
+    assert not any(e["type"] == "step_started" and e["payload"]["step_id"] == "never"
+                   for e in events)
+    # The movement was cut short: the pointer stays where the user put it.
+    pointer = observer.root.query_pointer()
+    assert (pointer.root_x, pointer.root_y) == USER_AT

@@ -10,15 +10,22 @@ pressed is released and the signal's exception propagates.
 Held keys, characters and buttons are tracked in press order. Physical keys appear by
 name (``ctrl``), characters as ``char:<c>`` (``char:ñ``) and buttons as
 ``button:<name>`` (``button:left``). Every change emits ``input_state``.
+
+During a movement the real pointer is read before each point after the first: a pointer
+pushed into a corner of the desktop is the failsafe (:class:`EmergencyStop`), and one
+more than the profile's ``tolerance`` away from the last point sent is user interference
+(``user_interference``, then :class:`UserInterference`), unless the profile's
+``interference`` is ``off``. Either way the action's held buttons are released first.
 """
 
 from __future__ import annotations
 
+import math
 import random
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from j5_macro.backends.base import Backend, Button, Rect
 from j5_macro.input import human_mouse
@@ -32,6 +39,7 @@ from j5_macro.input.api import (
     KeyPlan,
     MousePlan,
     MouseProfile,
+    UserInterference,
 )
 from j5_macro.input.planning import (
     DRAG_SETTLE_MS,
@@ -47,6 +55,7 @@ from j5_macro.protocol.payloads.events import (
     InputStateEvent,
     KeysReleasedEvent,
     LogEvent,
+    UserInterferenceEvent,
 )
 
 CORNER_MARGIN_PX = 2
@@ -56,6 +65,8 @@ FAILSAFE_REASON = "failsafe"
 """``keys_released`` reason when the corner failsafe fires."""
 ABORTED_REASON = "aborted"
 """``keys_released`` reason when an action is interrupted (stop, backend error)."""
+INTERFERENCE_REASON = "interference"
+"""``keys_released`` reason when the user moved the mouse during a movement."""
 
 Clock = Callable[[], float]
 
@@ -186,7 +197,12 @@ class MasterSession:
         try:
             body(pressed)
         except BaseException as exc:
-            reason = FAILSAFE_REASON if isinstance(exc, EmergencyStop) else ABORTED_REASON
+            if isinstance(exc, EmergencyStop):
+                reason = FAILSAFE_REASON
+            elif isinstance(exc, UserInterference):
+                reason = INTERFERENCE_REASON
+            else:
+                reason = ABORTED_REASON
             with self._lock:
                 self._release_tokens(pressed, reason)
             raise
@@ -230,32 +246,48 @@ class MasterSession:
 
     def _move_to(self, x: int, y: int, profile: MouseProfile, rng: random.Random, *,
                  force: bool = False, target: Rect | None = None) -> None:
-        """Plan and execute a movement to (x, y), aiming at ``target`` when given. Without
-        ``force`` nothing is emitted or sent when the pointer is already there (the plan
-        is still drawn, so the caller's generator advances the same way)."""
+        """Plan and execute a movement to (x, y), aiming at ``target`` when given.
+
+        Without ``force`` nothing is emitted or sent when the pointer is already at
+        (x, y), or, with the ``human`` strategy, already inside ``target`` (a person
+        would not move). The plan is drawn either way, so the caller's generator
+        advances the same way."""
         current = self._current_position()
         start = current if current is not None else (x, y)
         plan = plan_move(start, (x, y), profile, rng, target=target,
                          bounds=self._backend.screen_bounds())
-        if current == (x, y) and not force:
+        if not force and current is not None and (
+                current == (x, y)
+                or (profile.strategy == "human" and target is not None
+                    and target.contains(*current))):
             return
-        self._execute_move(plan)
+        self._execute_move(plan, profile)
 
-    def _execute_move(self, plan: MousePlan) -> None:
+    def _execute_move(self, plan: MousePlan, profile: MouseProfile) -> None:
+        """Replay ``plan``. Before each point after the first, the real pointer is read
+        once (when the backend can) for the corner failsafe and, unless the profile's
+        ``interference`` is ``off``, for interference detection."""
         self._emit_planned(InputPlannedEvent(
             device="mouse", strategy=plan.strategy, seed=plan.seed, start=list(plan.start),
             to=list(plan.end), duration_ms=round(plan.duration_ms)))
         backend = self._backend
         bounds = backend.screen_bounds()
-        failsafe = (backend.capabilities.pointer_position
-                    and not in_corner(bounds, *plan.end))
+        readable = backend.capabilities.pointer_position
+        failsafe = readable and not in_corner(bounds, *plan.end)
+        detect = readable and profile.interference != "off"
         start = self._clock()
         aborted = True
         try:
             for i, point in enumerate(plan.points):
                 self._wait_until(start, point.t_ms)
-                if i and failsafe:
-                    self._check_corner(bounds)
+                if i and (failsafe or detect):
+                    real = backend.pointer_position()
+                    if real is not None:
+                        actual = (int(real[0]), int(real[1]))
+                        if failsafe:
+                            self._check_corner(bounds, actual)
+                        if detect:
+                            self._check_interference(actual, profile)
                 self._send_pointer(point.x, point.y)
             aborted = False
         finally:
@@ -271,14 +303,28 @@ class MasterSession:
                 backend.move_rel(x - cx, y - cy)
         self._position = (x, y)
 
-    def _check_corner(self, bounds: Rect) -> None:
-        real = self._backend.pointer_position()
-        if real is None or not in_corner(bounds, *real):
+    def _check_corner(self, bounds: Rect, real: tuple[int, int]) -> None:
+        if not in_corner(bounds, *real):
             return
         if self._position is not None and in_corner(bounds, *self._position):
             return  # we put it there ourselves
         self.release_all(FAILSAFE_REASON)
         raise EmergencyStop(FAILSAFE_MESSAGE)
+
+    def _check_interference(self, real: tuple[int, int], profile: MouseProfile) -> None:
+        """Raise :class:`UserInterference` (after emitting ``user_interference``) when
+        ``real`` is more than ``profile.tolerance`` pixels from the last point sent. The
+        caller (:meth:`_action`) releases what the action holds."""
+        expected = self._position
+        if expected is None or profile.interference == "off":
+            return
+        if math.hypot(real[0] - expected[0], real[1] - expected[1]) <= profile.tolerance:
+            return
+        action: Literal["pause", "stop"] = "stop" if profile.interference == "stop" else "pause"
+        self._emit("user_interference", UserInterferenceEvent(
+            expected=list(expected), actual=list(real), action=action).to_json())
+        self._position = real
+        raise UserInterference(expected, real, action)
 
     def _press_button(self, button: Button, pressed: list[str]) -> None:
         self._press(f"button:{button.value}", lambda: self._backend.button_down(button),

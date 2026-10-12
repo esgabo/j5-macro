@@ -24,7 +24,12 @@ class Control(StrEnum):
     ABORT = "abort"
     """Second Ctrl+C: stop waiting and exit."""
     RESUME = "resume"
-    """The user asked to resume a paused run."""
+    """The user asked to resume a paused run (Enter)."""
+    SKIP = "skip"
+    """The user asked to skip the step the run paused on (``s`` then Enter)."""
+
+SKIP_ANSWERS = frozenset({"s", "skip"})
+"""Lines that mean :attr:`Control.SKIP` when the CLI offers to skip a step."""
 
 
 class Controls:
@@ -75,8 +80,9 @@ class Controls:
                 self._loop.remove_signal_handler(signal.SIGINT)
             signal.signal(signal.SIGINT, previous)
 
-    def wait_for_enter(self) -> None:
-        """Queue RESUME when a line arrives on stdin (daemon thread, never joined)."""
+    def wait_for_enter(self, *, skippable: bool = False) -> None:
+        """Queue RESUME when a line arrives on stdin (daemon thread, never joined). With
+        ``skippable``, a line saying ``s`` or ``skip`` queues SKIP instead."""
         if self._reader is not None and self._reader.is_alive():
             return
 
@@ -84,7 +90,8 @@ class Controls:
             try:
                 line = sys.stdin.readline()
                 if line:
-                    self.put(Control.RESUME)
+                    skip = skippable and line.strip().lower() in SKIP_ANSWERS
+                    self.put(Control.SKIP if skip else Control.RESUME)
             except (OSError, ValueError, RuntimeError):
                 pass  # stdin closed, or the event loop is already gone
 

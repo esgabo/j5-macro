@@ -114,6 +114,13 @@ def depth_of(path: Any) -> int:
     return (len(path) - 1) // 2
 
 
+def _point(value: Any) -> str:
+    """``[x, y]`` -> ``(x, y)``; anything else as compact JSON."""
+    if isinstance(value, list) and len(value) == 2:
+        return f"({value[0]}, {value[1]})"
+    return compact(value, 40)
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value)
 
@@ -328,9 +335,12 @@ class RunRenderer:
         return [f"{indent}{self.style.paint(f'[{level}]', color)} {_text(p.get('message'))}"]
 
     def _on_user_interference(self, p: Mapping[str, Any]) -> list[str]:
+        action = _text(p.get("action"))
+        then = {"stop": "stopping the run", "pause": "pausing the run"}.get(
+            action, f"action: {action or '?'}")
         return [self.style.paint(
-            f"user moved the mouse (expected {compact(p.get('expected'))}, actual "
-            f"{compact(p.get('actual'))}); action: {_text(p.get('action'))}", "yellow")]
+            f"you moved the mouse: the pointer was at {_point(p.get('actual'))}, expected "
+            f"near {_point(p.get('expected'))}; {then}", "yellow", "bold")]
 
     def _on_keys_released(self, p: Mapping[str, Any]) -> list[str]:
         keys = p.get("keys")

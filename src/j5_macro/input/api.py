@@ -100,6 +100,9 @@ def _validate(profile: MouseProfile | KeyboardProfile) -> None:
             raise ValueError("mouse overshoot must be between 0 and 1")
         if profile.interference not in ("pause", "stop", "off"):
             raise ValueError(f"unknown interference action {profile.interference!r}")
+        if isinstance(profile.tolerance, bool) or not isinstance(profile.tolerance, int | float) \
+                or profile.tolerance < 0:
+            raise ValueError("mouse tolerance must be a number of pixels, 0 or more")
     elif profile.wpm <= 0:
         raise ValueError("keyboard wpm must be positive")
 

@@ -15,6 +15,10 @@ Scenarios:
 - ``not_found``: ``load`` fails with ``script_not_found`` and no details.
 - ``failed``: ``run`` fails on its second step.
 - ``interference``: the run ends ``stopped`` with reason ``interference``.
+- ``interference_pause``: the user moves the mouse during the first step and the run
+  pauses with reason ``interference``; ``resume`` runs the step again and completes,
+  ``step_over`` skips it (pausing with reason ``step``) and the run completes after the
+  next ``resume``.
 - ``busy``: ``run`` answers ``busy``.
 - ``slow``: the run goes on for a minute unless ``stop`` arrives.
 - ``deaf``: like ``slow``, but ``stop`` is acknowledged and then ignored.
@@ -29,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -60,6 +65,8 @@ class FakeCliEngine:
         self.run_start = START
         self.stop_requested = threading.Event()
         self.resumed = threading.Event()
+        self.controls: queue.Queue[str] = queue.Queue()
+        """``resume`` and ``step_over`` commands, in arrival order."""
         self.runner: threading.Thread | None = None
 
     # -- output ---------------------------------------------------------------
@@ -130,6 +137,10 @@ class FakeCliEngine:
         elif command.type == "resume":
             self.ok(command)
             self.resumed.set()
+            self.controls.put("resume")
+        elif command.type == "step_over":
+            self.ok(command)
+            self.controls.put("step_over")
         else:
             self.error(command, "invalid_state", f"{command.type} is not implemented",
                        {"reason": "not_implemented"})
@@ -208,6 +219,9 @@ class FakeCliEngine:
             self.event("run_finished", r, {"status": "failed", "duration_ms": 1500,
                                            "error": error})
             return
+        if self.scenario == "interference_pause":
+            self.play_interference_pause(r)
+            return
         if self.scenario == "interference":
             self.event("user_interference", r, {"expected": [1, 2], "actual": [5, 6],
                                                 "action": "stop"})
@@ -230,6 +244,24 @@ class FakeCliEngine:
                               "message": "vars=" + json.dumps(payload.get("vars") or {},
                                                               sort_keys=True)})
         self.event("run_finished", r, {"status": "completed", "duration_ms": 2345})
+
+    def play_interference_pause(self, r: str) -> None:
+        step = {"step_id": "open_menu", "path": [0]}
+        self.event("user_interference", r, {"expected": [10, 20], "actual": [300, 400],
+                                            "action": "pause"})
+        self.event("state_changed", r, {"state": "paused", "reason": "interference"})
+        if self.controls.get(timeout=30) == "resume":
+            self.event("state_changed", r, {"state": "running", "reason": "user"})
+            self.event("step_started", r, {**step, "line": 3, "type": "click",
+                                           "params": {"x": 10, "y": 20}})
+            self.event("step_finished", r, {**step, "duration_ms": 12})
+        else:
+            self.event("state_changed", r, {"state": "running", "reason": "step"})
+            self.event("step_skipped", r, {**step, "reason": "user"})
+            self.event("state_changed", r, {"state": "paused", "reason": "step"})
+            self.controls.get(timeout=30)
+            self.event("state_changed", r, {"state": "running", "reason": "user"})
+        self.event("run_finished", r, {"status": "completed", "duration_ms": 500})
 
     def play_slow(self, r: str) -> None:
         for n in range(600):

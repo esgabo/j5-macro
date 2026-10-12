@@ -147,16 +147,30 @@ class BoundInput:
     def profile(self) -> InputProfile:
         return self._profile
 
+    def _require_pointer(self) -> None:
+        """``capability_missing`` when interference detection is on (the profile's
+        ``interference`` is not ``off``) and the backend cannot report the pointer."""
+        mouse = self._profile.mouse
+        if mouse.interference != "off" and not self._backend.capabilities.pointer_position:
+            raise StepError(ErrorCode.CAPABILITY_MISSING,
+                            f"the {self._backend.name} backend cannot report the pointer "
+                            "position, needed to detect user interference; set the mouse "
+                            "profile's 'interference' to 'off' to move without it",
+                            {"capability": "pointer_position"})
+
     def move(self, x: int, y: int, *, target: Rect | None = None) -> None:
+        self._require_pointer()
         self._session.move(x, y, profile=self._profile.mouse, rng=self._rng, target=target)
 
     def click(self, x: int, y: int, *, button: Button = Button.LEFT, clicks: int = 1,
               target: Rect | None = None) -> None:
+        self._require_pointer()
         self._session.click(x, y, button=button, clicks=clicks, profile=self._profile.mouse,
                             rng=self._rng, target=target)
 
     def drag(self, start: tuple[int, int], end: tuple[int, int], *,
              button: Button = Button.LEFT) -> None:
+        self._require_pointer()
         self._session.drag(start, end, button=button, profile=self._profile.mouse,
                            rng=self._rng)
 

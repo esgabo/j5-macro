@@ -161,6 +161,23 @@ def test_state_changes():
     assert body(renderer.render(event("state_changed", state="stopping"))) == ["■ stopping"]
 
 
+def test_user_interference():
+    renderer = RunRenderer()
+    stop = renderer.render(event("user_interference", expected=[10, 20], actual=[300, 400],
+                                 action="stop"))
+    assert body(stop) == ["you moved the mouse: the pointer was at (300, 400), expected "
+                          "near (10, 20); stopping the run"]
+    pause = renderer.render(event("user_interference", expected=[10, 20], actual=[300, 400],
+                                  action="pause"))
+    assert body(pause)[0].endswith("; pausing the run")
+    assert body(renderer.render(event("state_changed", state="paused",
+                                      reason="interference"))) == ["⏸ paused (interference)"]
+    assert body(renderer.render(event("keys_released", keys=["button:left"],
+                                      reason="interference"))) == [
+        "released button:left (interference)"]
+    assert renderer.render(event("user_interference", expected="?", action=None))
+
+
 def test_quiet_and_unknown_events_render_nothing():
     renderer = RunRenderer()
     for type_ in ("input_planned", "input_executed", "input_state", "image_search",
