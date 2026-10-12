@@ -73,16 +73,19 @@ def install(server: EngineServer, store: ScriptStore) -> None:
         ).to_json())
 
     def save(entry: LoadedScript, text: str, result: LoadResult) -> None:
-        """Write the file, then record the new text in the store. In that order a file
-        watcher can only ever load the new text: at worst it reports it first."""
-        if entry.path is not None:
-            try:
-                write_atomically(entry.path, text)
-            except OSError as exc:
-                raise CommandError(ErrorCode.SCRIPT_NOT_FOUND,
-                                   f"cannot write script {str(entry.path)!r}: "
-                                   f"{exc.strerror or exc}", {"path": str(entry.path)}) from exc
-        store.update(entry, text, result)
+        """Write the file and record the new text in the store under the store's file
+        lock, which the watcher also takes: it never sees the written file before the
+        store knows its version, so the edit is not reported as a disk change too."""
+        with store.file_lock:
+            if entry.path is not None:
+                try:
+                    write_atomically(entry.path, text)
+                except OSError as exc:
+                    raise CommandError(ErrorCode.SCRIPT_NOT_FOUND,
+                                       f"cannot write script {str(entry.path)!r}: "
+                                       f"{exc.strerror or exc}",
+                                       {"path": str(entry.path)}) from exc
+            store.update(entry, text, result)
 
     def edit_script(command: Command) -> JsonObject:
         payload = EditScriptPayload.from_json(command.payload)
@@ -112,7 +115,8 @@ def install(server: EngineServer, store: ScriptStore) -> None:
                 changed(entry, "edit")
             elif entry.version != script_version(new_text):
                 # Nothing to change, but the file changed before the watcher saw it.
-                store.update(entry, new_text, result)
+                with store.file_lock:
+                    store.update(entry, new_text, result)
                 changed(entry, "disk")
             return EditScriptResult(version=entry.version, valid=entry.valid,
                                     errors=list(entry.errors)).to_json()

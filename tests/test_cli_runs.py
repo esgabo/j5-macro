@@ -161,3 +161,14 @@ def test_run_summary_lists_captures() -> None:
                                ["captures/0001-a-1.png"], "/runs/r-1")
     assert lines == ["saved run r-1", "  script    /s.yaml", "  started   x",
                      "  captures  1 file in /runs/r-1", "    captures/0001-a-1.png"]
+
+
+def test_a_closed_pipe_ends_quietly(monkeypatch):
+    from j5_macro.cli import main as cli_main
+
+    def broken(args):
+        raise BrokenPipeError
+
+    monkeypatch.setattr(cli_main, "_dispatch", broken)
+    monkeypatch.setattr(cli_main, "_silence_stdout", lambda: None)
+    assert cli_main.main(["runs"]) == 1

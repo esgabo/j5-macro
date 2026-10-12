@@ -328,6 +328,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CliError as exc:
         print(f"j5: {exc}", file=sys.stderr)
         return int(exc.exit_code)
+    except BrokenPipeError:
+        # The reader went away (``j5 runs show --json | head``): stop quietly. Point
+        # stdout at devnull so the interpreter's final flush does not fail again.
+        _silence_stdout()
+        return ExitCode.FAILED
+
+
+def _silence_stdout() -> None:
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 if __name__ == "__main__":
