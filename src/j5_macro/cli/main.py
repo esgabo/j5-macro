@@ -41,7 +41,8 @@ from j5_macro.engine.persistence import RUNS_DIR_ENV, RUNS_KEPT, resolve_runs_di
 EXIT_CODES = """\
 exit codes:
   0    completed
-  1    the run failed, or the engine died
+  1    the run failed, a paused step kept failing with no terminal to ask,
+       or the engine died
   2    usage error, or the script could not be loaded or started
   3    the run was stopped (by the engine, or with q in the debugger)
   130  interrupted with Ctrl+C (the first Ctrl+C stops the run and waits for it,

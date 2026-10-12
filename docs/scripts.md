@@ -1,0 +1,696 @@
+# Writing scripts
+
+This is the reference for j5-macro scripts: the file format, every step type with its
+parameters, and the rules for coordinates, images, durations, keys, expressions, input
+profiles and params. For a guided introduction, start with the [tutorial](tutorial.md).
+The design behind it is in [contract.md](contract.md#script-format-and-step-registry).
+
+`j5 steps` prints the step types and their parameters from the step registry, the same
+source this page is checked against:
+
+```console
+$ j5 steps
+click  Click on an image or at x/y.
+  image: string  Template image, relative to the script file.
+  x: integer  Horizontal position in physical pixels.
+...
+```
+
+## File structure
+
+A script is a UTF-8 YAML file with these top-level keys:
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `version` | no | Format version. Only `1` exists; it is the default |
+| `name` | no | Name shown in the output and the run history; defaults to the file name without extension |
+| `input` | no | The script's [input profile](#input-profiles): `{mouse: {...}, keyboard: {...}}` |
+| `params` | no | Values the script takes from outside; see [Params and secrets](#params-and-secrets) |
+| `vars` | no | Variables and their starting values (any YAML value: numbers, text, lists, mappings) |
+| `steps` | yes | The list of steps |
+
+Any other top-level key is ignored with a warning.
+
+```yaml
+version: 1
+name: Save report
+input:
+  mouse: {strategy: human, speed: 1.2}
+  keyboard: {strategy: human, wpm: 55}
+params:
+  customer: {description: Name to type in the form}
+vars:
+  filename: october_report
+steps:
+  - id: open_menu
+    click: {image: img/file_menu.png}
+  - id: type_name
+    type: "${filename}_${customer}.txt"
+```
+
+### Editor support
+
+`j5 schema` prints a JSON Schema of the format, generated from the step registry, so an
+editor can complete step types and parameters and flag mistakes as you type. With the VS
+Code YAML extension (`redhat.vscode-yaml`), save it next to your scripts:
+
+```console
+$ j5 schema -o j5-script.schema.json
+wrote j5-script.schema.json
+```
+
+Then either start each script with this comment:
+
+```yaml
+# yaml-language-server: $schema=./j5-script.schema.json
+```
+
+or map it to your script files in `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {"./j5-script.schema.json": ["*.j5.yaml", "scripts/**/*.yaml"]}
+}
+```
+
+Regenerate the schema after upgrading j5-macro.
+
+## Steps
+
+A step is a mapping with exactly one step-type key and, optionally, common fields:
+
+```yaml
+- id: confirm            # common field
+  break: true            # common field
+  key: {press: enter}    # the step type and its parameters
+```
+
+### Common fields
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | generated | Stable id: letters, digits, `_` and `-`, starting with a letter or `_`; unique in the script |
+| `break` | boolean | `false` | A breakpoint written in the script: the run pauses before this step (see [debugging.md](debugging.md)) |
+| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Other steps ignore it |
+| `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
+| `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
+
+`on_error`:
+
+- `stop` ends the run with status `failed`.
+- `continue` logs a warning and goes on with the next step.
+- `retry` runs the step again at once, up to 3 attempts in total, then stops the run.
+- `pause` pauses the run. In a terminal, Enter retries the step and `s` then Enter skips
+  it; under `--step` or `--break`, the debugger's `c` retries and `n` skips. Without a
+  terminal, `j5 run` retries it twice on its own; if it still fails, it stops the run
+  and exits with code 1.
+
+On an `if` or a `loop`, `on_error` applies to evaluating its condition or list, not to
+the steps inside it.
+
+### Stable ids
+
+Ids are how breakpoints, the run history and errors name a step, so give every step an
+explicit `id`. A step without one gets `<type>_<n>`, where `n` counts the steps of that
+type in the whole script in document order, including those that have explicit ids (if
+that id is taken, a suffix is added: `log_2_2`). Adding an id to one step therefore never
+renames the others. Each generated id produces a warning:
+
+```console
+$ j5 validate noid.yaml
+noid.yaml:2: warning: generated id 'log_1', add an explicit id to keep breakpoints stable
+noid.yaml: valid (1 warning)
+```
+
+### Short form
+
+Some step types take one value instead of a mapping, for their main parameter:
+
+| Short form | Means |
+| --- | --- |
+| `type: "hello"` | `type: {text: "hello"}` |
+| `key: ctrl+s` | `key: {press: ctrl+s}` |
+| `wait_image: img/ok.png` | `wait_image: {image: img/ok.png}` |
+| `sleep: 2s` | `sleep: {duration: 2s}` |
+| `log: Done` | `log: {message: Done}` |
+| `pause: Check the form` | `pause: {message: Check the form}` |
+
+`pause:` with nothing after it is valid too. The other types (`click`, `move`, `drag`,
+`scroll`, `if`, `loop`, `set`) need a mapping.
+
+## Step types
+
+Parameters marked "required" must be given. A dash in the Default column means the
+parameter is optional and has no default value. Any string parameter can contain
+[`${...}` interpolation](#interpolation).
+
+### click
+
+Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `image` | string | - | Template image to click on, relative to the script file |
+| `x`, `y` | integer | - | Position in physical pixels (relative to `window` when given) |
+| `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text |
+| `button` | `left`, `right`, `middle` | `left` | Mouse button |
+| `clicks` | integer | `1` | Number of clicks (2 for a double click) |
+| `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
+| `threshold` | number | `0.9` | Minimum image match score, from 0 to 1 |
+| `scale` | number | `1` | Scale applied to the template before searching (image targets only) |
+| `region` | `[x, y, width, height]` | - | Area to search in (image targets only; relative to `window` when given) |
+
+```yaml
+- id: open_file_menu
+  click: {image: img/file_menu.png, threshold: 0.85}
+- id: open_context_menu
+  click: {window: {title: Mousepad}, x: 200, y: 150, button: right}
+```
+
+### move
+
+Moves the pointer to an image or to `x`/`y`, without clicking.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `image` | string | - | Template image |
+| `x`, `y` | integer | - | Position in physical pixels |
+| `window` | mapping | - | `{title: ...}`; coordinates become relative to it |
+| `threshold` | number | `0.9` | Minimum image match score |
+| `scale` | number | `1` | Template scale (image targets only) |
+| `region` | `[x, y, width, height]` | - | Area to search in (image targets only) |
+
+```yaml
+- id: hover_tooltip
+  move: {image: img/help_icon.png}
+```
+
+`move` has no `offset`. Unlike `click`, a `move` always moves, even if the pointer is
+already over the target.
+
+### drag
+
+Presses a button at one point, moves to another and releases it.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `from` | mapping | required | Start point: `{x, y, window?}` or `{image, threshold?, scale?, region?, window?}` |
+| `to` | mapping | required | End point, same forms as `from` |
+| `button` | `left`, `right`, `middle` | `left` | Mouse button |
+
+```yaml
+- id: move_card
+  drag:
+    from: {image: img/card.png}
+    to: {window: {title: Board}, x: 600, y: 120}
+```
+
+Each point has its own `window`; there is no `window` for the whole step.
+
+### scroll
+
+Turns the mouse wheel, in notches.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `dx` | integer | `0` | Horizontal notches; positive scrolls right |
+| `dy` | integer | `0` | Vertical notches; positive scrolls down |
+
+```yaml
+- id: scroll_down
+  scroll: {dy: 5}
+```
+
+`scroll` acts wherever the pointer is; `move` there first.
+
+### type
+
+Types text, whatever the keyboard layout: accents, `ñ` and symbols work.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `text` | string | required | Text to type |
+| `keyboard` | mapping | - | Keyboard profile override for this step, e.g. `{strategy: direct}` or `{wpm: 30}` |
+
+```yaml
+- id: type_address
+  type: "Calle Ñandú 12\n"
+- id: paste_code
+  type: {text: "${code}", keyboard: {strategy: direct}}
+```
+
+Escapes in the text (written in double-quoted YAML strings, where YAML turns `\n` into a
+line break): `\n` and `\r` press Enter, `\t` presses Tab, `\b` presses Backspace. Other
+control characters cannot be typed and fail the step. In single-quoted or unquoted YAML,
+`\n` is a backslash and an `n`.
+
+The step result reports how many characters were typed, never the text, which may be a
+secret.
+
+### key
+
+Presses a key or a combination: the modifiers go down in order, then the key, and all are
+released in reverse order.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `press` | string | required | Key or combination, e.g. `enter`, `ctrl+s`, `alt+f4` (see [Key combinations](#key-combinations)) |
+| `hold` | duration | - | Keep the keys down this long (variance allowed) |
+
+```yaml
+- id: save
+  key: ctrl+s
+- id: hold_shift
+  key: {press: shift, hold: 500ms}
+```
+
+### wait_image
+
+Waits until an image is on screen, checking every 0.25 s.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `image` | string | required | Template image |
+| `timeout` | duration | `10s` | Give up with `image_not_found` after this long; the step's common `timeout` replaces it |
+| `threshold` | number | `0.9` | Minimum image match score |
+| `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
+| `window` | mapping | - | `{title: ...}`: search only in that window |
+| `scale` | number | `1` | Template scale |
+
+The result is `{found, score, bbox}`, with `bbox` as `[x, y, width, height]` on the
+desktop.
+
+```yaml
+- id: wait_dialog
+  wait_image: {image: img/save_dialog.png, timeout: 30s}
+```
+
+### sleep
+
+Waits for a duration.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `duration` | duration | required | How long, e.g. `2s`, `500ms`, `2s±20%` |
+
+```yaml
+- id: let_it_load
+  sleep: 1.5s±20%
+```
+
+A `sleep` can be paused and stopped at any time; after a pause it waits only the time that
+was left.
+
+### if
+
+Runs `then` when a condition holds, else the optional `else`.
+
+| Parameter / block | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `when` | condition | required | An expression, or a predefined condition (see [Conditions](#conditions)) |
+| `then` | steps | required | Steps run when the condition is true |
+| `else` | steps | - | Steps run otherwise |
+
+```yaml
+- id: maybe_close_popup
+  if:
+    when: {image_visible: img/popup.png}
+    then:
+      - id: close_popup
+        key: escape
+    else:
+      - id: no_popup
+        log: no popup this time
+```
+
+### loop
+
+Repeats its `do` block. Give exactly one of `times`, `while` and `for_each`.
+
+| Parameter / block | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `times` | integer | - | Number of iterations, 0 or more |
+| `while` | condition | - | Repeat while this holds; checked before each iteration |
+| `for_each` | list or expression | - | A list, or an expression that gives one |
+| `as` | string | `item` | Variable that holds the current item of `for_each` |
+| `do` | steps | required | The steps to repeat |
+
+```yaml
+- id: each_row
+  loop:
+    for_each: rows            # an expression: the variable 'rows'
+    as: row
+    do:
+      - id: type_row
+        type: "${row}"
+      - id: next_row
+        key: down
+- id: until_done
+  loop:
+    while: {image_visible: img/spinner.png}
+    do:
+      - id: wait_a_bit
+        sleep: 1s
+```
+
+`for_each` also accepts a literal list (`for_each: [a, b, c]`). In a dry run a `while`
+loop stops after 1000 iterations with a warning.
+
+### set
+
+Sets a variable, creating it if it does not exist.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | required | Variable name |
+| `value` | any | - | A literal value; strings in it are interpolated |
+| `expr` | expression | - | An expression whose result is stored |
+
+Give exactly one of `value` and `expr`.
+
+```yaml
+- id: next_attempt
+  set: {name: attempts, expr: "attempts + 1"}
+- id: build_label
+  set: {name: label, value: "batch-${attempts}"}
+```
+
+### log
+
+Writes a message to the run's output and history.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `message` | string | required | Text to log |
+| `level` | `debug`, `info`, `warning`, `error` | `info` | Log level |
+
+```yaml
+- id: report
+  log: {message: "Only ${done} rows processed", level: warning}
+```
+
+### pause
+
+Pauses the run after this step, like a breakpoint written in the script. In a terminal,
+Enter resumes it; without one, the run resumes on its own and says so.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `message` | string | - | Reason shown in the step's parameters |
+
+```yaml
+- id: check_by_hand
+  pause: Check the totals before saving
+```
+
+## Targets and coordinates
+
+- **Coordinates.** `x` and `y` are physical pixels on the virtual desktop, which spans
+  every screen; they can be negative on multi-monitor setups.
+- **Windows.** With `window: {title: ...}`, `x`, `y` and `region` are relative to the
+  top-left corner of the window's content area (inside its title bar and borders), looked
+  up when the step runs. The first visible window whose title contains the text is used
+  (case-sensitive). No match fails the step with `window_not_found`.
+- **Offset.** `offset: [dx, dy]` (on `click`) is added to the final point.
+- **Image targets.** `click`, `move` and the points of `drag` can take an `image`. It is
+  searched once (or until the step's common `timeout`), and a miss fails the step with
+  `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
+  `human` strategy lands somewhere natural inside the matched area, and a `human` click
+  whose pointer is already inside it clicks without moving; with an `offset`, the pointer
+  goes to the exact point.
+
+## Images
+
+- **Paths** are relative to the script file's directory. A missing or unreadable file
+  fails with `template_missing` when the step runs (`j5 validate` does not open images).
+- **Matching** uses normalized cross-correlation: a score from 0 to 1, and a match when
+  the score is at least `threshold` (0.9 by default).
+- **Transparency.** Pixels of a PNG with alpha below 128 are ignored, so a cut-out icon
+  matches on any background.
+- **Texture.** A template whose visible pixels are a single flat colour never matches:
+  include an edge, text or an icon.
+- **Region.** `region: [x, y, width, height]` limits the search. Without it j5 searches
+  the `window`, else the whole desktop. A region is clipped to the desktop; a region
+  entirely outside it fails with `validation_failed`.
+- **Scale.** `scale` (greater than 0; 1 by default) resizes the template before
+  searching, to use a template captured at another display scaling.
+- **Captures.** When a search fails, the run saves a capture of the searched area with
+  the best candidate outlined in red, in the run's `captures/` directory.
+- Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
+  fail with `capability_missing`.
+
+## Durations
+
+A duration is a number with a unit, `ms`, `s`, `m` or `h` (`500ms`, `2s`, `1.5m`, `1h`),
+or a bare number of seconds (`sleep: 2`). An optional variance, `±` or `+-` followed by a
+percentage from 0 to 100, picks a value uniformly in that range on every run:
+`2s±20%` waits between 1.6 and 2.4 s. The random choice comes from the run's seed, so a
+run with the same `--seed` waits the same.
+
+## Key combinations
+
+A combination is modifiers joined with `+`, then one key, case-insensitive, with optional
+spaces: `ctrl+s`, `ctrl+shift+s`, `Alt + F4`, `super+e`. The last part may be a modifier
+on its own (`shift`).
+
+- **Modifiers:** `ctrl`, `shift`, `alt`, `super`.
+- **Named keys:** `enter`, `tab`, `escape`, `backspace`, `delete`, `insert`, `space`,
+  `up`, `down`, `left`, `right`, `home`, `end`, `pageup`, `pagedown`, `capslock`, `menu`,
+  `printscreen`, `f1` to `f24` (some keymaps lack `f13` to `f24`).
+- **Characters:** a single printable ASCII character names the physical key that types
+  it on a US layout (`ctrl+a`, `ctrl+/`). Write `+` as `plus` and `-` as `minus`
+  (`ctrl+plus`). For non-ASCII characters use `type`.
+- **Aliases:** `control`/`ctl` (ctrl); `cmd`/`command`/`win`/`windows`/`meta` (super);
+  `option`/`opt` (alt); `esc`; `return` (enter); `del`; `ins`; `bksp`; `spacebar`;
+  `pgup`/`page_up`; `pgdn`/`pgdown`/`page_down`; `arrowup`, `arrowdown`, `arrowleft`,
+  `arrowright`; `caps`/`caps_lock`; `prtsc`/`prtscr`/`print`; `apps`/`contextmenu` (menu).
+
+`j5 validate` only checks the shape of a combination (no empty parts, as in `ctrl++`). An
+unknown key name fails when the step runs:
+
+```console
+  0.509s  ✗ bad_key  [validation_failed] cannot press 'ctrl+banana': bad key combination 'ctrl+banana': unknown key 'banana'
+```
+
+## Expressions and interpolation
+
+### Expressions
+
+Expressions appear in `set`'s `expr`, in `when` and `while`, in `for_each`, and inside
+`${...}`. They look like Python but are evaluated by j5's own safe evaluator:
+
+| Kind | Examples |
+| --- | --- |
+| Literals | `3`, `2.5`, `"text"`, `'text'`, `true`, `false`, `null`, `[1, 2]`, `{"k": 1}` |
+| Variables | `attempts`, `customer` (an unknown name is an `expression_error`) |
+| Indexing | `rows[0]`, `rows[-1]`, `data["name"]` (no slices) |
+| Arithmetic | `+ - * / // %` (`+` also joins text and lists; `"ab" * 3` repeats) |
+| Comparison | `== != < <= > >=`, chainable (`1 < n <= 10`), `in`, `not in` |
+| Logic | `and`, `or`, `not`, `a if condition else b` |
+| Functions | see below |
+
+| Function | Result |
+| --- | --- |
+| `len(x)` | Length of a text, list or mapping |
+| `str(x)` | Text form (`null` is empty, booleans are `true`/`false`) |
+| `int(x)`, `float(x)` | Number from a number or text |
+| `bool(x)` | Truth value |
+| `round(x, digits?)` | Rounded number |
+| `min(...)`, `max(...)` | Smallest or largest of several values or of a list |
+| `abs(x)` | Absolute value |
+| `lower(t)`, `upper(t)` | Text in lower or upper case |
+| `strip(t, chars?)` | Text without leading and trailing spaces (or `chars`) |
+| `contains(x, item)` | Whether a text, list or mapping contains `item` |
+| `startswith(t, prefix)`, `endswith(t, suffix)` | Text tests |
+
+Attribute access (`name.upper()`), `**`, lambdas, comprehensions and slices are
+rejected. Expressions are limited to 2000 characters, and the values they build to
+100,000 items or characters.
+
+In YAML, quote expressions that contain `:`, `#`, quotes or start with `{` or `[`:
+`when: "status == 'done'"`.
+
+### Interpolation
+
+String parameters (and strings inside `value`, `window`, `from`/`to` and conditions)
+can contain `${expression}`:
+
+- In text, each `${...}` is replaced by its value as text: `"report_${n}.txt"`. `null`
+  becomes empty, booleans `true`/`false`.
+- A string that is a single `${...}`, with nothing else but spaces or line breaks around
+  it, gives the value itself and keeps its type: `x: "${pos_x}"` is an integer,
+  `set: {name: copy, value: "${rows}"}` copies a list. The surrounding spaces and line
+  breaks are dropped, so `type: "${body}\n"` types the body without the line break; press
+  `enter` in a separate `key` step, or put text around it.
+- `$${` writes a literal `${`.
+- After interpolation the value is checked again against the parameter's type. So
+  `log: "${count}"` with an integer `count` fails (`message` must be text); write
+  `log: "${str(count)}"` or `log: "count: ${count}"`.
+- `expr`, `when`, `while` and a `for_each` without `${` are expressions themselves:
+  they are evaluated, not interpolated.
+
+```console
+  1.006s    ✗ show  [validation_failed] parameter 'message' after interpolation: expected a string
+```
+
+### Conditions
+
+`when` (`if`) and `while` (`loop`) take either an expression, true when its value is
+truthy, or a predefined condition written as a one-key mapping. The only predefined
+condition is `image_visible`, which makes one search (not finding the image is not an
+error):
+
+```yaml
+when: {image_visible: img/error.png}
+when:
+  image_visible: {image: img/error.png, threshold: 0.8, region: [0, 0, 400, 300], window: {title: App}}
+```
+
+The mapping form accepts `image`, `threshold`, `scale`, `region` and `window`. Write a
+constant condition as a string (`while: "true"`): a bare YAML `true` is not an
+expression and fails validation (`while: expected an expression or a single predefined
+condition`).
+
+## Input profiles
+
+An input profile says how the mouse moves and how text is typed.
+
+**Mouse** (`input: {mouse: {...}}`):
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `strategy` | `human` | `direct` (jump), `linear` (straight line at constant speed) or `human` (curved, bell-shaped speed) |
+| `speed` | `1.0` | Speed multiplier; greater than 0 |
+| `path` | `windmouse` | Path shape for `human`: `windmouse` (slightly erratic) or `bezier` (smooth curves) |
+| `overshoot` | `0.1` | Probability, 0 to 1, of overshooting a long movement (over 100 px) and correcting |
+| `jitter` | `1.0` | Amplitude in pixels of the small sideways tremor during a movement |
+| `interference` | `pause` | What to do when you move the mouse during a movement: `pause`, `stop` or `off` |
+| `tolerance` | `20` | How far, in pixels, the pointer may stray from the planned path before it counts as interference |
+
+**Keyboard** (`input: {keyboard: {...}}`):
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `strategy` | `human` | `direct` (all at once), `linear` (fixed interval) or `human` (irregular rhythm) |
+| `wpm` | `60` | Typing speed in words per minute; greater than 0 |
+| `variance` | `0.3` | Spread of the intervals between keys; `0` is fully regular, without pauses |
+| `typos` | `false` | Occasionally hit a neighbouring key and correct it with Backspace |
+
+**Precedence.** A step's effective profile starts from the defaults above, then applies,
+in order, each one overriding only the settings it names:
+
+1. the script's `input`,
+2. the run's profile (`j5 run --fast` sets both strategies to `direct`),
+3. the step's `input`,
+4. step parameters, such as `type`'s `keyboard`.
+
+```yaml
+input:
+  keyboard: {wpm: 80}                          # 2. the whole script
+steps:
+  - id: fast_field
+    type: {text: "${code}", keyboard: {strategy: direct}}   # 4. this step only
+  - id: careful_move
+    move: {image: img/slider.png}
+    input: {mouse: {strategy: linear, speed: 0.5}}          # 3. this step only
+```
+
+Profiles are checked when a step uses them: an unknown setting or value fails that step
+with `validation_failed` (`invalid input profile: unknown input profile fields: seed`).
+The seed that makes human-like input reproducible is not a profile setting; pass it with
+`j5 run --seed`.
+
+## Params and secrets
+
+`params` declares the values a script takes from outside. Each entry maps a name (a valid
+identifier, not also used in `vars`) to a mapping of these fields, or to nothing for a
+required string:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `type` | `string` | `string`, `integer`, `number` or `boolean` |
+| `description` | - | Shown by `j5 validate` and when j5 asks for the value |
+| `default` | - | Value when none is given; without one the param is required. Must already have the param's type (`default: 3`, not `"3"`) |
+| `secret` | `false` | Mask the value as `***` in all output and the run history; a secret cannot have a default |
+
+```yaml
+params:
+  customer:                                  # required string
+  password: {secret: true}
+  copies: {type: integer, default: 1}
+  rate: {type: number, default: 0.5}
+  express: {type: boolean, default: false}
+```
+
+When the run starts, params become variables, used as `${customer}`. Values are given
+with `j5 run --param`, `--param-file`, `--param-env` or `--params-file` (see
+[cli.md](cli.md)); required params that are missing are asked for in a terminal.
+
+- A **string** param is taken verbatim: no YAML or expression parsing, so `#`, quotes,
+  leading zeros and line breaks are kept.
+- For the other types a text value is converted only when it is exactly an integer, a
+  number, or `true`/`false` (any case). Anything else fails before the run starts:
+  `param 'copies' expects an integer, got 'two'`.
+- An undeclared param fails too: `the script declares no param 'x'`.
+
+**Secrets.** Every occurrence of a secret's value is replaced with `***` in the events,
+the output and the run history, whatever step or variable carries it. Only the exact text
+is masked: a value transformed by an expression (`upper(password)`) is not recognised, so
+use secrets as they are. `type` reports only the number of characters it typed. Pass
+secrets with `--param-env`, `--param-file` or the prompt: a `--param` value stays in your
+shell history. Masking protects logs, not the screen.
+
+`vars` can be overridden for one run with `j5 run --var NAME=VALUE`, for debugging; a
+param cannot.
+
+## Validation errors and warnings
+
+`j5 validate` reports every problem it finds as
+`path:line: severity[code]: message (step id)`, then a summary. Errors make the script
+invalid (exit code 1); warnings do not. `j5 run` checks the script the same way and does
+not start an invalid one (exit code 2). A few examples:
+
+```console
+$ j5 validate broken.yaml
+broken.yaml:6: error[validation_failed]: duration: invalid duration '2 seconds': expected e.g. 2s, 500ms, 2s±20% (step greet)
+broken.yaml:6: error[validation_failed]: duplicate id 'greet' on lines 4 and 6 (step greet)
+broken.yaml:8: error[unknown_step_type]: unknown step type 'clik' (step go)
+broken.yaml:10: error[validation_failed]: y: 'x' and 'y' go together (step click_1)
+broken.yaml:11: error[validation_failed]: speed: unknown parameter for 'type' (step typing)
+broken.yaml:13: error[validation_failed]: while: use only one of 'times', 'while', 'for_each' (step retry_loop)
+broken.yaml: invalid (6 errors)
+```
+
+```console
+$ j5 validate bad2.yaml
+bad2.yaml:2: error[validation_failed]: scale: only applies to 'image' targets (step w)
+bad2.yaml:4: error[validation_failed]: threshold: must be between 0 and 1 (step t)
+bad2.yaml:6: error[validation_failed]: level: expected one of debug, info, warning, error (step l)
+bad2.yaml:8: error[validation_failed]: expr: use only one of 'value', 'expr' (step s)
+bad2.yaml:10: error[validation_failed]: invalid id 'bad id': use letters, digits, '_' or '-', starting with a letter or '_' (step log_2)
+bad2.yaml:12: error[validation_failed]: press: invalid key combination 'ctrl++' (step k)
+bad2.yaml:14: error[validation_failed]: missing block 'then' (step mi)
+bad2.yaml: invalid (7 errors)
+```
+
+Other messages you may see:
+
+| Message | Cause |
+| --- | --- |
+| `error[parse_error]: invalid YAML: ...` | The file is not valid YAML (wrong indentation, for example); the line is where the parser gave up |
+| `'click' has no short form; write its parameters as a mapping` | A scalar given to a step type without a [short form](#short-form) |
+| `block 'do' must be a list of steps` | A block (`then`, `else`, `do`) that is not a list |
+| `step has several type keys (...); use one per step` | Two step types in one step, often a missing `-` |
+| `warning: generated id 'log_1', add an explicit id ...` | A step without `id` (see [Stable ids](#stable-ids)) |
+| `warning: unknown top-level key 'extra' is ignored` | A top-level key that is not part of the format |
+
+Warnings are listed only when the script has no errors. `j5 validate --json` gives the
+same report as JSON, with `code`, `message`, `step_id`, `line` and `details` for each
+problem.
+
+Some problems can only be found while running, because they depend on variables, the
+screen or the system: a `${...}` that refers to an unknown variable (`expression_error`),
+a value of the wrong type after interpolation, an unknown key name, an invalid input
+profile, a missing image file (`template_missing`), a window that is not there
+(`window_not_found`). A dry run (`j5 run --dry-run`) finds most of them without sending
+any input.
