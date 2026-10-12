@@ -43,6 +43,8 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             continue
         reason = x11_unavailable_reason()
         if reason is not None:
+            if os.environ.get("J5_REQUIRE_X11"):  # set in CI, where Xvfb must be there
+                raise pytest.UsageError(f"J5_REQUIRE_X11 is set but {reason}")
             item.add_marker(pytest.mark.skip(reason=reason))
 
 
