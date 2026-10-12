@@ -132,6 +132,8 @@ class LoadOutcome:
     script_id: str | None
     errors: list[ErrorInfo]
     warnings: list[dict[str, Any]]
+    params: list[dict[str, Any]] = field(default_factory=list)
+    """The script's declared params, as ``load`` reports them."""
 
 
 def _warnings(raw: Any) -> list[dict[str, Any]]:
@@ -159,7 +161,10 @@ async def load(client: EngineClient, script: str) -> LoadOutcome:
     script_id = result.get("script_id")
     if not isinstance(script_id, str):
         raise CliError("the engine answered load without a script_id")
-    return LoadOutcome(script_id, [], _warnings(result.get("warnings")))
+    params = result.get("params")
+    return LoadOutcome(script_id, [], _warnings(result.get("warnings")),
+                       [p for p in params if isinstance(p, dict)]
+                       if isinstance(params, list) else [])
 
 
 # -- validate -----------------------------------------------------------------------------
@@ -175,12 +180,15 @@ async def validate(cmd: Sequence[str], script: str, *, as_json: bool, io: Output
             "script_id": outcome.script_id,
             "errors": [error.to_json() for error in outcome.errors],
             "warnings": outcome.warnings,
+            "params": outcome.params,
         }, indent=2, ensure_ascii=False))
     else:
         for error in outcome.errors:
             io.line(format_problem(script, error, io.style))
         for warning in outcome.warnings:
             io.line(format_warning(script, warning, io.style))
+        for param in outcome.params:
+            io.line(describe_param(param))
         io.line(validate_summary(script, len(outcome.errors), len(outcome.warnings), io.style))
     return ExitCode.FAILED if outcome.errors else ExitCode.OK
 
@@ -208,9 +216,32 @@ async def steps(cmd: Sequence[str], *, as_json: bool, io: Output) -> int:
 # -- run ----------------------------------------------------------------------------------
 
 
+def describe_param(param: Mapping[str, Any]) -> str:
+    """``param customer (string, required): Name to type in the form``."""
+    traits = [str(param.get("type", "string"))]
+    if param.get("secret"):
+        traits.append("secret")
+    if param.get("required"):
+        traits.append("required")
+    elif "default" in param:
+        traits.append(f"default {json.dumps(param['default'], ensure_ascii=False)}")
+    text = f"param {param.get('name')} ({', '.join(traits)})"
+    description = param.get("description")
+    return f"{text}: {description}" if description else text
+
+
+Ask = Callable[[str, bool], str]
+"""``ask(prompt, secret) -> text``: reads a param from the user (no echo for secrets)."""
+
+
 @dataclass(slots=True)
 class RunOptions:
     mode: str = "normal"
+    params: dict[str, Any] = field(default_factory=dict)
+    inline_params: frozenset[str] = frozenset()
+    """Params given with ``--param``, i.e. visible on the command line."""
+    ask: Ask | None = None
+    """Asks for missing required params; None when nobody can answer (no terminal)."""
     vars: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
     input_profile: dict[str, Any] | None = None
@@ -220,6 +251,8 @@ class RunOptions:
 
     def payload(self, script_id: str) -> dict[str, Any]:
         payload: dict[str, Any] = {"script_id": script_id, "mode": self.mode}
+        if self.params:
+            payload["params"] = self.params
         if self.vars:
             payload["vars"] = self.vars
         if self.seed is not None:
@@ -227,6 +260,38 @@ class RunOptions:
         if self.input_profile is not None:
             payload["input_profile"] = self.input_profile
         return payload
+
+
+def warn_inline_secrets(declared: list[dict[str, Any]], inline: frozenset[str],
+                        io: Output) -> None:
+    """Warn about secret params given with ``--param``."""
+    for param in declared:
+        if param.get("secret") and param.get("name") in inline:
+            io.note(f"j5: warning: secret param '{param['name']}' was given with --param, "
+                    "so it is visible in the shell history and the process list; prefer "
+                    "--param-env, --param-file or the prompt")
+
+
+async def ask_missing(declared: list[dict[str, Any]], options: RunOptions,
+                      io: Output) -> bool:
+    """Ask for required params that were not given, when someone can answer. False if
+    the user gave up (Ctrl+D or Ctrl+C at the prompt)."""
+    if options.ask is None:
+        return True  # the engine reports what is missing
+    for param in declared:
+        name = param.get("name")
+        if not isinstance(name, str) or not param.get("required") or name in options.params:
+            continue
+        description = param.get("description")
+        prompt = f"{name} ({description}): " if description else f"{name}: "
+        try:
+            value = await asyncio.to_thread(options.ask, prompt, bool(param.get("secret")))
+        except (EOFError, KeyboardInterrupt):
+            io.note("")
+            io.note(f"j5: no value for param '{name}'")
+            return False
+        options.params[name] = value
+    return True
 
 
 STATUS_CODES = {"completed": ExitCode.OK, "failed": ExitCode.FAILED,
@@ -246,11 +311,18 @@ async def run(cmd: Sequence[str], script: str, options: RunOptions, *, io: Outpu
                 io.note(format_warning(script, warning, io.err_style))
             if outcome.script_id is None:
                 return ExitCode.USAGE
+            warn_inline_secrets(outcome.params, options.inline_params, io)
+            if not await ask_missing(outcome.params, options, io):
+                return ExitCode.USAGE
             with controls.handle_sigint():
                 try:
                     started = await client.call("run", options.payload(outcome.script_id))
                 except EngineError as exc:
                     io.note(f"j5: cannot start the run: [{exc.code}] {exc.error.message}")
+                    details = exc.error.details or {}
+                    if "param" in details:
+                        io.note("j5: pass params with --param NAME=VALUE, --param-file, "
+                                "--param-env or --params-file (see j5 run --help)")
                     return ExitCode.USAGE
                 run_id = started.get("run_id")
                 if not isinstance(run_id, str):

@@ -22,6 +22,36 @@ from j5_macro.protocol.messages import ErrorInfo
 
 OnError = Literal["stop", "continue", "retry", "pause"]
 StepPath = tuple[int, ...]
+ParamType = Literal["string", "integer", "number", "boolean"]
+NO_DEFAULT: Any = object()
+"""``ScriptParam.default`` of a required param."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ScriptParam:
+    """A value the script takes from outside (the ``params`` section)."""
+
+    name: str
+    type: ParamType = "string"
+    description: str | None = None
+    default: Any = NO_DEFAULT
+    secret: bool = False
+    line: int | None = None
+
+    @property
+    def required(self) -> bool:
+        return self.default is NO_DEFAULT
+
+    def to_json(self) -> dict[str, Any]:
+        """The ``load`` result's description of this param (a secret's default is never
+        reported; secrets have none anyway)."""
+        info: dict[str, Any] = {"name": self.name, "type": self.type,
+                                "secret": self.secret, "required": self.required}
+        if self.description is not None:
+            info["description"] = self.description
+        if not self.required and not self.secret:
+            info["default"] = self.default
+        return info
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -59,6 +89,8 @@ class Script:
     version: int = 1
     """Script format version (the ``version:`` key), not the file revision."""
     input: dict[str, Any] = field(default_factory=dict)
+    params: dict[str, ScriptParam] = field(default_factory=dict)
+    """Declared params, in declaration order."""
     vars: dict[str, Any] = field(default_factory=dict)
     source_path: str | None = None
     text: str = ""

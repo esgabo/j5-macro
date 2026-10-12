@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import argparse
 import copy
+import getpass
 import json
+import os
 import sys
 from collections.abc import Sequence
 from typing import Any, TextIO
@@ -22,7 +24,15 @@ from typing import Any, TextIO
 from j5_macro import __version__
 from j5_macro.cli import commands
 from j5_macro.cli.commands import CliError, ExitCode, Output, RunOptions
-from j5_macro.cli.options import FAST_PROFILE, engine_command, parse_var
+from j5_macro.cli.options import (
+    FAST_PROFILE,
+    collect_params,
+    engine_command,
+    parse_param,
+    parse_param_env,
+    parse_param_file,
+    parse_var,
+)
 from j5_macro.cli.render import Style, symbols_for, use_color
 
 EXIT_CODES = """\
@@ -33,6 +43,20 @@ exit codes:
   3    the run was stopped
   130  interrupted with Ctrl+C (the first Ctrl+C stops the run and waits for it,
        the second one quits at once)"""
+
+PARAMS_HELP = """\
+script params:
+  Values declared in the script's 'params' section, used in steps as ${name}.
+  Each param comes from one of --param, --param-file, --param-env or --params-file.
+  Required params left out are asked for when standard input is a terminal; secret
+  ones without echo. Pass secrets with --param-env, --param-file or the prompt: a
+  value on the command line is visible in the shell history and the process list.
+  Secret values are shown as *** in the output and the run history.
+
+  j5 run form.yaml --param 'customer=ACME #42' --param-env password=FORM_PASSWORD
+  j5 run letter.yaml --param-file body=letter.txt
+  printf %s "$TOKEN" | j5 run login.yaml --param-file token=-
+"""
 
 SCHEMA_HELP = """\
 Print the JSON Schema of j5 scripts, for editor completion and validation.
@@ -58,7 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser(
         "run", help="run a script",
         description="Load a script, run it and show its progress.",
-        epilog=EXIT_CODES, formatter_class=argparse.RawDescriptionHelpFormatter)
+        epilog=PARAMS_HELP + "\n" + EXIT_CODES,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     run.add_argument("script", help="path to a YAML script")
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--step", action="store_true",
@@ -68,10 +93,24 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, help="seed for human-like input")
     run.add_argument("--fast", action="store_true",
                      help="force the direct input strategy for mouse and keyboard")
+    run.add_argument("--param", dest="params", metavar="NAME=VALUE", action="append",
+                     type=parse_param, default=[],
+                     help="set a script param to VALUE, taken as text exactly as written "
+                          "(converted for integer, number and boolean params); repeatable")
+    run.add_argument("--param-file", dest="param_files", metavar="NAME=PATH",
+                     action="append", type=parse_param_file, default=[],
+                     help="set a param to the contents of a UTF-8 file (- for standard "
+                          "input), without its final line break; repeatable")
+    run.add_argument("--param-env", dest="param_envs", metavar="NAME=VARIABLE",
+                     action="append", type=parse_param_env, default=[],
+                     help="set a param from an environment variable; repeatable")
+    run.add_argument("--params-file", metavar="FILE",
+                     help="set params from a YAML or JSON mapping of names to values")
     run.add_argument("--var", dest="vars", metavar="NAME=VALUE", action="append",
                      type=parse_var, default=[],
-                     help="set a variable; VALUE is a YAML scalar (3, 2.5, true, text); "
-                          "repeatable")
+                     help="override one of the script's vars (for debugging); 3, 2.5, "
+                          "true, false and null are converted, '...' forces text, anything "
+                          "else is text as written; repeatable")
     run.add_argument("--json", action="store_true",
                      help="print every event as one JSON line instead of text")
 
@@ -118,6 +157,17 @@ def _enable_ansi() -> bool:
     return True
 
 
+def _ask(prompt: str, secret: bool) -> str:
+    """Ask for a param on the terminal (without echo for secrets)."""
+    if secret:
+        return getpass.getpass(prompt, stream=sys.stderr)
+    print(prompt, end="", file=sys.stderr, flush=True)
+    line = sys.stdin.readline()
+    if not line:
+        raise EOFError
+    return line.rstrip("\r\n")
+
+
 def _stdin_is_tty() -> bool:
     try:
         return sys.stdin is not None and sys.stdin.isatty()
@@ -161,13 +211,23 @@ def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "steps":
         return commands.run_sync(commands.steps(cmd, as_json=args.json, io=io))
     variables: dict[str, Any] = dict(args.vars)
+    try:
+        params = collect_params(args.params_file, args.params, args.param_files,
+                                args.param_envs, environ=os.environ, stdin=sys.stdin)
+    except ValueError as exc:
+        raise CliError(str(exc), ExitCode.USAGE) from exc
+    reads_stdin = any(path == "-" for _, path in args.param_files)
+    interactive = _stdin_is_tty() and not reads_stdin
     options = RunOptions(
         mode="dry" if args.dry_run else "normal",
+        params=params,
+        inline_params=frozenset(name for name, _ in args.params),
+        ask=_ask if interactive else None,
         vars=variables,
         seed=args.seed,
         input_profile=copy.deepcopy(FAST_PROFILE) if args.fast else None,
         as_json=args.json,
-        interactive=_stdin_is_tty(),
+        interactive=interactive,
     )
     return commands.run_sync(commands.run(cmd, args.script, options, io=io))
 

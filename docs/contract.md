@@ -94,9 +94,9 @@ There are 16 execution and debugging commands; script management commands have t
 | --- | --- | --- |
 | `hello` | `v_min`, `v_max`, `client` | Chosen `v` and capabilities (backend, input strategies, registered steps) |
 | `list_step_types` | — | The step registry: name, parameters, types, defaults, documentation and JSON Schema |
-| `load` | `path` or `source` | `script_id` (`s1`, `s2`, ...), the step tree with its ids, and `warnings`. On failure, the error code is the first problem's code and `details` holds `errors` (all of them) and `warnings` |
+| `load` | `path` or `source` | `script_id` (`s1`, `s2`, ...), the step tree with its ids, the declared `params` (name, `type`, `description`, `secret`, `required` and, unless secret, `default`), and `warnings`. On failure, the error code is the first problem's code and `details` holds `errors` (all of them) and `warnings` |
 | `validate` | `script_id` | `ok`, `errors` and `warnings`. Re-reads a script loaded from a path, so it reports the file as it is now; never replaces the loaded script |
-| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `vars?`, `seed?`, `input_profile?`, `captures?` (`on_failure` by default: only the last attempt of an image search that fails; or `all`: every attempt) | `run_id`. Captures are saved in the run's directory (see run history); a run that is not saved keeps none. The engine emits `run_started` before answering. In `step` mode the run starts paused before the first step. If another run is active the answer is `busy` |
+| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `params?` (values for the script's declared `params`), `vars?` (overrides for the script's `vars`, for debugging), `seed?`, `input_profile?`, `captures?` (`on_failure` by default: only the last attempt of an image search that fails; or `all`: every attempt) | `run_id`. Captures are saved in the run's directory (see run history); a run that is not saved keeps none. The engine emits `run_started` before answering. In `step` mode the run starts paused before the first step. If another run is active the answer is `busy`. A missing required param, an undeclared param or var, or a value of the wrong type answers `validation_failed` with `details.param` (or `details.var`) and `details.reason` (`missing`, `unknown` or `type`); every missing param is listed in `details.missing` |
 | `pause` | `run_id` | Applies at the next atomic action: never cuts a movement or a key sequence in half, but does interrupt waits (`sleep`, `wait_image`), which continue with the remaining time on resume |
 | `resume` | `run_id` | Continues until the next breakpoint or the end |
 | `step_over` | `run_id` | Runs the current step completely, blocks included, and pauses at the next step at the same depth or shallower |
@@ -276,6 +276,9 @@ name: Save report
 input:
   mouse:    {strategy: human, speed: 1.0}
   keyboard: {strategy: human, wpm: 55}
+params:
+  customer: {description: Name to type in the form}
+  password: {secret: true}
 vars:
   filename: october_report
 steps:
@@ -301,6 +304,8 @@ steps:
 **Format rules:**
 
 - **One type per step.** A step is a mapping with one step-type key and optional common fields: `id`, `break`, `timeout`, `on_error` (`stop`, `continue`, `retry` or `pause`) and `input` to override the input strategy for that step. The type's value is a mapping of parameters, a scalar for the type's shorthand parameter (`sleep: 2s`, `log: hello`), or nothing.
+- **Params.** `params` declares the values a script takes from outside, so the same script can type different text on every run. Each entry maps a name (an identifier, not also in `vars`) to `{type?, description?, default?, secret?}`, or to nothing for a required string. `type` is `string` (the default), `integer`, `number` or `boolean`. A param without `default` is required. When the run starts, params become variables like `vars`, so steps use them as `${customer}`. Values arrive with `run` and must match the type; a string is converted for the other types only when it is exactly an integer, a number, or `true`/`false`. A string param is taken verbatim: no YAML or expression parsing, so `#`, quotes, leading zeros and line breaks survive. Secret params (`secret: true`) cannot have a default (a secret must not live in the script file); see "Secrets".
+- **Secrets.** The values of secret params never leave the engine: every run event (on the wire and in `events.jsonl`) and the `get_state` and `evaluate` answers have each occurrence of a secret value replaced with `***`, whatever carried it (a `step_started` parameter, a `log` message, an error message, a variable built by concatenation). Only the exact text is masked: a value transformed by an expression (`upper(password)`) is not recognised, so scripts should use secrets as they are. `type` never reports the text it types, only how many characters (so a secret's length is visible); with `typos` on, mistyped characters are not reported either. Values are masked when the run starts sending events, so a param given with the wrong type is not repeated in the error either. Masking protects logs and history, not the screen: the target application shows what is typed unless its field hides it.
 - **Stable ids.** Ids match `[A-Za-z_][A-Za-z0-9_-]*` and are unique in the script. A missing `id` is generated from the type and position: the n-th step of a type, counting steps that have explicit ids, gets `<type>_n` (a clash with an explicit id adds a suffix, `<type>_n_2`), with a warning. Adding an id to one step therefore never renames the others. Saving through `edit_script` writes the ids, so breakpoints and history survive reordering.
 - **Blocks.** `if` (`then` and `else`) and `loop` (`times`, `while` or `for_each`, with `as`) contain step lists. `path` alternates the position in a list and the block slot of the parent step: `[3, 1, 0]` is the first step of the second block (`else`) of the fourth step. Slots are numbered in the order the step type declares them (`if`: `then` 0, `else` 1; `loop`: `do` 0).
 - **Conditions and expressions.** `when` and `while` take an expression or a predefined condition: `{image_visible: img/x.png}`, or `{image_visible: {image, threshold?, scale?, region?, window?}}`, makes one search (one `image_search`, never a capture under `on_failure`, since not finding the image is not a failure) and is true when the image is found. Expressions support literals (`true`, `false`, `null` included), variables, lists and mappings, indexing, `+ - * / // %`, comparisons (chainable) and `in`, `and`/`or`/`not`, `a if c else b`, and calls to whitelisted functions (`len`, `str`, `int`, `float`, `bool`, `round`, `min`, `max`, `abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). There is no Python `eval`; attribute access, `**`, lambdas and comprehensions are rejected, and length, nesting and result sizes are capped.
@@ -360,7 +365,7 @@ Edit kinds inside `edits`:
 | `update` | `step_id`, `params` | Changes a step's parameters |
 | `move` | `step_id`, `to` | Moves a step, also across blocks |
 | `delete` | `step_id` | Deletes a step and, for a block, its content |
-| `set_meta` | `name?`, `input?`, `vars?` | Changes the script header |
+| `set_meta` | `name?`, `input?`, `params?`, `vars?` | Changes the script header |
 
 Rules:
 

@@ -151,6 +151,30 @@ def script_json_schema(registry: StepRegistry) -> JsonSchema:
             "version": {"const": 1, "description": "Script format version."},
             "name": {"type": "string"},
             "input": _input_profile("Default input profile of the script."),
+            "params": {
+                "type": "object",
+                "description": "Values the script takes from outside (j5 run --param).",
+                "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                "additionalProperties": {
+                    "oneOf": [
+                        {"type": "null", "description": "A required string."},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "type": {"enum": ["string", "integer", "number", "boolean"],
+                                         "default": "string"},
+                                "description": {"type": "string"},
+                                "default": {"type": ["string", "number", "boolean"],
+                                            "description": "Makes the param optional."},
+                                "secret": {"type": "boolean", "default": False,
+                                           "description": "Masked as *** in events and "
+                                                          "history; cannot have a default."},
+                            },
+                            "additionalProperties": False,
+                        },
+                    ],
+                },
+            },
             "vars": {"type": "object", "description": "Initial variables."},
             "steps": {"type": "array", "items": {"$ref": STEP_REF}},
         },

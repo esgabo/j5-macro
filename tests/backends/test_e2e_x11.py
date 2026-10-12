@@ -364,3 +364,54 @@ def test_human_input_clicks_and_types_exactly(observer, tmp_path, monkeypatch, c
     planned = [e["payload"] for e in events if e["type"] == "input_planned"]
     assert {p["strategy"] for p in planned} == {"human"}
     assert not [e for e in events if e["type"] in ("user_interference", "keys_released")]
+
+
+# --- params ------------------------------------------------------------------------------
+
+PARAMS_SCRIPT = f"""\
+version: 1
+name: params e2e
+params:
+  note: {{description: Text to type}}
+  password: {{secret: true}}
+input:
+  mouse: {{strategy: linear, speed: 4}}
+  keyboard: {{strategy: human, wpm: 400}}
+steps:
+  - id: focus
+    click: {{window: {{title: "{TITLE}"}}, x: 30, y: 40}}
+  - id: write_note
+    type: "${{note}}|"
+  - id: write_password
+    type: "${{password}}"
+"""
+
+
+def test_params_are_typed_and_the_secret_stays_out_of_the_history(observer, tmp_path,
+                                                                   monkeypatch, capsys):
+    monkeypatch.setenv("J5_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("J5_BACKEND", "x11")
+    monkeypatch.delenv(ENGINE_CMD_ENV, raising=False)
+    secret = "Pa55#wörd!"
+    monkeypatch.setenv("E2E_PASSWORD", secret)
+    script = tmp_path / "params.yaml"
+    script.write_text(PARAMS_SCRIPT, encoding="utf-8")
+    observer.create_window(100, 100, 300, 200, wm_name=TITLE, net_wm_name=TITLE,
+                           wm_state=True, focus=True)
+    observer.drain()
+
+    recorder = Recorder(observer)
+    recorder.start()
+    try:
+        code = main(["run", "--seed", "4", "--param", "note=Order #42 'shipped'",
+                     "--param-env", "password=E2E_PASSWORD", str(script)])
+    finally:
+        recorder.done.set()
+        recorder.join(5)
+    out = capsys.readouterr().out
+    assert code == 0, out
+
+    assert replay(recorder.keys) == f"Order #42 'shipped'|{secret}"
+    assert secret not in out
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    assert secret not in (run_dir / "events.jsonl").read_text(encoding="utf-8")
