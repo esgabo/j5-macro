@@ -126,3 +126,33 @@ def test_on_error_pause_then_step_over_skips():
     bg.controller.resume()
     assert bg.join().status == "completed"
     assert len(bg.recorder.of("step_started", step_id="f")) == 1
+
+
+def test_on_error_pause_then_step_into_retries_and_pauses_at_the_next_step():
+    bg = Background("""
+        steps:
+          - id: lp
+            loop:
+              times: 1
+              do:
+                - id: f
+                  flaky: 3
+                  on_error: pause
+          - id: after
+            log: done
+    """)
+    bg.recorder.wait_paused()
+    state = bg.controller.state()
+    assert (state["step_id"], state["iterations"]) == ("f", [0])
+    bg.controller.set_variable("tries", 2)  # fix the cause while paused
+    bg.controller.step_into()
+    bg.recorder.wait_paused(2)
+    assert bg.recorder.summary()[-8:] == [
+        "state_changed:paused/error", "variable_changed", "state_changed:running/step",
+        "step_started:f",
+        "variable_changed:f", "step_finished:f", "step_finished:lp",
+        "state_changed:paused/step"]
+    assert bg.controller.state()["step_id"] == "after"
+    assert [p["error"]["details"]["attempt"] for p in bg.recorder.of("step_failed")] == [1]
+    bg.controller.resume()
+    assert bg.join().status == "completed"

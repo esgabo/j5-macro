@@ -122,6 +122,9 @@ class Interpreter:
                                         "variables": dict(self._machine.variables)}
             if step is not None:
                 snapshot.update(step_id=step.id, path=list(step.path))
+                its = self._machine.position_iterations
+                if its is not None:
+                    snapshot["iterations"] = list(its)
                 if step.line is not None:
                     snapshot["line"] = step.line
             return snapshot

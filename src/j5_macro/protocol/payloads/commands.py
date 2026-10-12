@@ -196,6 +196,8 @@ class GetStateResult(Result):
     state: RunState
     step_id: str | None = None
     path: list[int] = field(default_factory=list)
+    iterations: list[int] | None = None
+    """Current iteration of each enclosing loop, outermost first; None outside loops."""
     line: int | None = None
     variables: dict[str, Any] = field(default_factory=dict)
 

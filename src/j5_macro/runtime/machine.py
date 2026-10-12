@@ -68,6 +68,8 @@ class Machine:
         self._stack: list[Frame] = []
         self.position: Step | None = None
         """The step being run or paused at; read under the control lock."""
+        self.position_iterations: Iterations = None
+        """``iterations`` of :attr:`position` (as in its step events); same lock."""
         self._initial_pause = options.mode == "step"
         self._target: int | None = None
         """Stepping target depth: pause at the next checkpoint of at most this depth."""
@@ -131,14 +133,14 @@ class Machine:
 
     def _checkpoint(self, step: Step) -> None:
         depth = len(self._stack)
-        with self._control.lock:
-            self.position = step
+        its = iterations(self._stack)
+        self._set_position(step, its)
         reason: StateReason
         if self._initial_pause:
             self._initial_pause = False
             reason = "step"
         elif step.breakpoint or self._control.is_breakpoint(step.id):
-            self._events.breakpoint_hit(step, iterations(self._stack))
+            self._events.breakpoint_hit(step, its)
             reason = "breakpoint"
         elif self._control.pause_pending():
             reason = "user"
@@ -147,6 +149,11 @@ class Machine:
         else:
             return
         self._pause(reason, depth)
+
+    def _set_position(self, step: Step, its: Iterations) -> None:
+        with self._control.lock:
+            self.position = step
+            self.position_iterations = its
 
     def _pause(self, reason: StateReason, depth: int) -> Command:
         """Pause at depth ``depth`` until a command; sets the stepping target."""
@@ -193,8 +200,7 @@ class Machine:
             except Exception as exc:
                 info = internal_error(exc)
             info = at_step(info, step, attempt)
-            with self._control.lock:
-                self.position = step
+            self._set_position(step, its)
             self._events.step_failed(step, its, info, screenshot)
             if step.on_error == "continue":
                 self._events.log("warning", f"step '{step.id}' failed, continuing: "
@@ -220,8 +226,7 @@ class Machine:
                              step.id)
             self._control.stop("interference")
             raise RunStopped("interference") from exc
-        with self._control.lock:
-            self.position = step
+        self._set_position(step, its)
         if self._pause("interference", depth) == "step_over":
             self._events.step_skipped(step, its, "user")
             return True
