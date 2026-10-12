@@ -295,3 +295,72 @@ def test_moving_the_mouse_mid_movement_stops_the_run(observer, tmp_path, monkeyp
     # The movement was cut short: the pointer stays where the user put it.
     pointer = observer.root.query_pointer()
     assert (pointer.root_x, pointer.root_y) == USER_AT
+
+
+# --- human strategy ----------------------------------------------------------------------
+
+HUMAN_TEXT = "Hello, human typist! Quick brown fox."
+
+HUMAN_SCRIPT = f"""\
+version: 1
+name: human e2e
+input:
+  mouse: {{strategy: human, path: PATH, speed: 3, overshoot: 0.5}}
+  keyboard: {{strategy: human, wpm: 400, typos: true}}
+steps:
+  - id: focus
+    click: {{window: {{title: "{TITLE}"}}, x: 150, y: 100}}
+  - id: write
+    type: "{HUMAN_TEXT}"
+"""
+
+BACKSPACE = 0xFF08
+
+
+def replay(keys: list[tuple[int, int]]) -> str:
+    """The text a key-press sequence leaves behind (backspace deletes)."""
+    text: list[str] = []
+    for keysym, _ in keys:
+        if keysym == BACKSPACE:
+            if text:
+                text.pop()
+            continue
+        char = keysym_to_char(keysym)
+        if not char.startswith("<"):
+            text.append(char)
+    return "".join(text)
+
+
+@pytest.mark.parametrize("path", ["windmouse", "bezier"])
+def test_human_input_clicks_and_types_exactly(observer, tmp_path, monkeypatch, capsys,
+                                              path):
+    monkeypatch.setenv("J5_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("J5_BACKEND", "x11")
+    monkeypatch.delenv(ENGINE_CMD_ENV, raising=False)
+    script = tmp_path / "human.yaml"
+    script.write_text(HUMAN_SCRIPT.replace("PATH", path), encoding="utf-8")
+    observer.create_window(100, 100, 300, 200, wm_name=TITLE, net_wm_name=TITLE,
+                           wm_state=True, focus=True)
+    observer.drain()
+
+    recorder = Recorder(observer)
+    recorder.start()
+    try:
+        # Seed 2 makes at least one typo in this text (checked below), so the
+        # corrections are exercised against a real X server.
+        code = main(["run", "--seed", "2", str(script)])
+    finally:
+        recorder.done.set()
+        recorder.join(5)
+    out = capsys.readouterr().out
+    assert code == 0, out
+
+    assert recorder.clicks == [(1, 150, 100)]
+    assert any(keysym == BACKSPACE for keysym, _ in recorder.keys), "no typo was made"
+    assert replay(recorder.keys) == HUMAN_TEXT
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    events = [json.loads(line) for line in
+              (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    planned = [e["payload"] for e in events if e["type"] == "input_planned"]
+    assert {p["strategy"] for p in planned} == {"human"}
+    assert not [e for e in events if e["type"] in ("user_interference", "keys_released")]
