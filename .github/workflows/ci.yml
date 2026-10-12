@@ -19,8 +19,8 @@ jobs:
           - {os: ubuntu-latest, python: "3.11"}
           - {os: ubuntu-latest, python: "3.12"}
           - {os: ubuntu-latest, python: "3.13"}
-          # Windows minutes cost double while the repository is private: one version
-          # for now; add 3.11 and 3.12 back once it is public (public repos run free).
+          - {os: windows-latest, python: "3.11"}
+          - {os: windows-latest, python: "3.12"}
           - {os: windows-latest, python: "3.13"}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
