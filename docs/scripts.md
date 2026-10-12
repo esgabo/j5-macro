@@ -241,8 +241,11 @@ Types text, whatever the keyboard layout: accents, `ñ` and symbols work.
 
 Escapes in the text (written in double-quoted YAML strings, where YAML turns `\n` into a
 line break): `\n` and `\r` press Enter, `\t` presses Tab, `\b` presses Backspace. Other
-control characters cannot be typed and fail the step. In single-quoted or unquoted YAML,
-`\n` is a backslash and an `n`.
+control characters (such as `\a` or `\x1b`) cannot be typed: the step fails with
+`validation_failed` before typing anything, naming the character's position and code point
+(`U+0007`) but never the text. Literal text is checked when the script is loaded, text
+with `${...}` after interpolation. In single-quoted or unquoted YAML, `\n` is a backslash
+and an `n`.
 
 The step result reports how many characters were typed, never the text, which may be a
 secret.
@@ -433,7 +436,8 @@ Enter resumes it; without one, the run resumes on its own and says so.
   the `window`, else the whole desktop. A region is clipped to the desktop; a region
   entirely outside it fails with `validation_failed`.
 - **Scale.** `scale` (greater than 0; 1 by default) resizes the template before
-  searching, to use a template captured at another display scaling.
+  searching, to use a template captured at another display scaling. On an `x`/`y`
+  target any `scale` other than 1 is an error.
 - **Captures.** When a search fails, the run saves a capture of the searched area with
   the best candidate outlined in red, in the run's `captures/` directory.
 - Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
@@ -517,11 +521,10 @@ can contain `${expression}`:
 
 - In text, each `${...}` is replaced by its value as text: `"report_${n}.txt"`. `null`
   becomes empty, booleans `true`/`false`.
-- A string that is a single `${...}`, with nothing else but spaces or line breaks around
-  it, gives the value itself and keeps its type: `x: "${pos_x}"` is an integer,
-  `set: {name: copy, value: "${rows}"}` copies a list. The surrounding spaces and line
-  breaks are dropped, so `type: "${body}\n"` types the body without the line break; press
-  `enter` in a separate `key` step, or put text around it.
+- A string that is exactly one `${...}`, with nothing else (not even a space or a line
+  break), gives the value itself and keeps its type: `x: "${pos_x}"` is an integer,
+  `set: {name: copy, value: "${rows}"}` copies a list. Any other string is text, kept
+  as written around the values: `type: "${body}\n"` types the body and presses Enter.
 - `$${` writes a literal `${`.
 - After interpolation the value is checked again against the parameter's type. So
   `log: "${count}"` with an integer `count` fails (`message` must be text); write
@@ -596,9 +599,11 @@ steps:
 ```
 
 Profiles are checked when a step uses them: an unknown setting or value fails that step
-with `validation_failed` (`invalid input profile: unknown input profile fields: seed`).
-The seed that makes human-like input reproducible is not a profile setting; pass it with
-`j5 run --seed`.
+with `validation_failed` (`invalid input profile: unknown input profile fields: wobble`).
+The seed that makes human-like input reproducible is not a profile setting: it belongs to
+the whole run, so pass it with `j5 run --seed` (a `seed` in a profile fails with a message
+saying so). There is no per-step seed: each step attempt already gets its own sub-seed
+derived from the run's seed (see [How it works](how-it-works.md)).
 
 ## Params and secrets
 

@@ -77,6 +77,8 @@ StepLookup = Callable[[str], StepSpec | None]
 class ParamProblem:
     param: str
     message: str
+    details: Mapping[str, Any] | None = None
+    """Extra error details besides ``param`` (e.g. ``index`` and ``code_point``)."""
 
 
 def validate_params(spec: StepSpec, params: Mapping[str, Any]) -> tuple[dict[str, Any],

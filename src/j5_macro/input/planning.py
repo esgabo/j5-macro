@@ -191,21 +191,44 @@ def key_interval_ms(wpm: float) -> float:
 KeyKind = Literal["key", "char"]
 
 
+TEXT_CONTROL_KEYS = {"\n": "enter", "\r": "enter", "\t": "tab", "\b": "backspace"}
+"""The control characters ``type`` accepts and the key each one presses (``\\r\\n`` is one
+``enter``). Every other control character is rejected (see :func:`find_control_character`)."""
+
+
+def is_control_character(char: str) -> bool:
+    """True for a C0 or C1 control character or DEL (Unicode category ``Cc``)."""
+    code = ord(char)
+    return code < 0x20 or 0x7F <= code <= 0x9F
+
+
+def find_control_character(text: str) -> int | None:
+    """Index of the first control character in ``text`` that typing cannot press, or None.
+
+    The accepted ones are the keys of :data:`TEXT_CONTROL_KEYS`."""
+    for index, char in enumerate(text):
+        if is_control_character(char) and char not in TEXT_CONTROL_KEYS:
+            return index
+    return None
+
+
 def text_units(text: str) -> list[tuple[KeyKind, str]]:
     """Split text into ``(kind, value)`` keystrokes: one ``char`` per code point, ``\\n``
-    (and ``\\r\\n`` or a lone ``\\r``) as the ``enter`` key and ``\\t`` as ``tab``."""
+    (and ``\\r\\n`` or a lone ``\\r``) as the ``enter`` key, ``\\t`` as ``tab`` and ``\\b`` as
+    ``backspace``. Any other control character raises ``ValueError``."""
+    bad = find_control_character(text)
+    if bad is not None:
+        raise ValueError(f"cannot type control character U+{ord(text[bad]):04X} "
+                         f"at index {bad}")
     units: list[tuple[KeyKind, str]] = []
     i = 0
     while i < len(text):
         c = text[i]
-        if c == "\r":
-            units.append(("key", "enter"))
-            if text[i + 1:i + 2] == "\n":
+        key = TEXT_CONTROL_KEYS.get(c)
+        if key is not None:
+            units.append(("key", key))
+            if c == "\r" and text[i + 1:i + 2] == "\n":
                 i += 1
-        elif c == "\n":
-            units.append(("key", "enter"))
-        elif c == "\t":
-            units.append(("key", "tab"))
         else:
             units.append(("char", c))
         i += 1

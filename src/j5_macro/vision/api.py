@@ -24,6 +24,9 @@ from typing import Any, Protocol
 from j5_macro.backends.base import Rect
 
 DEFAULT_THRESHOLD = 0.9
+"""Minimum match score of image searches when a step gives no ``threshold``."""
+DEFAULT_SCALE = 1.0
+"""Template scale of image searches when a step gives no ``scale``."""
 DEFAULT_INTERVAL = 0.25
 """Seconds between attempts of a wait."""
 
@@ -105,8 +108,9 @@ screen cannot be captured."""
 class StepVision(Protocol):
     """What step executors and conditions see as ``ctx.vision``."""
 
-    def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD, scale: float = 1.0,
-             region: list[int] | None = None, window: dict[str, Any] | None = None) -> Match:
+    def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
+             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             window: dict[str, Any] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
         directory; ``region`` is ``[x, y, w, h]``, relative to ``window`` when given.
         Raises StepError: ``template_missing``, ``window_not_found``,
@@ -114,7 +118,7 @@ class StepVision(Protocol):
         ...
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = 1.0, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
              window: dict[str, Any] | None = None,
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Search until found or ``timeout`` seconds pass (interruptible like any wait;

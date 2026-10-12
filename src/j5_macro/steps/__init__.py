@@ -1,11 +1,18 @@
 """Step registry and built-in step types (milestone M1).
 
-``default_registry()`` holds every v1 step; ``script_json_schema(registry)`` (in
-:mod:`j5_macro.steps.schema`) builds the editor schema from it.
+``default_registry()`` holds every v1 step, ``registry_with_plugins()`` adds the installed
+step plugins; ``script_json_schema(registry)`` (in :mod:`j5_macro.steps.schema`) builds the
+editor schema from a registry.
 """
 
-from j5_macro.steps.builtins import default_registry
-from j5_macro.steps.registry import ENTRY_POINT_GROUP, ParamCheck, StepRegistry
+from j5_macro.steps.builtins import default_registry, registry_with_plugins
+from j5_macro.steps.registry import (
+    ENTRY_POINT_GROUP,
+    ParamCheck,
+    PluginProblem,
+    PluginReport,
+    StepRegistry,
+)
 from j5_macro.steps.spec import (
     Duration,
     Executor,
@@ -27,6 +34,8 @@ __all__ = [
     "ParamCheck",
     "ParamProblem",
     "ParamSpec",
+    "PluginProblem",
+    "PluginReport",
     "StepContext",
     "StepError",
     "StepLookup",
@@ -35,5 +44,6 @@ __all__ = [
     "StepType",
     "default_registry",
     "parse_duration",
+    "registry_with_plugins",
     "validate_params",
 ]

@@ -13,6 +13,7 @@ from typing import Any
 
 from j5_macro.vision.api import (
     DEFAULT_INTERVAL,
+    DEFAULT_SCALE,
     DEFAULT_THRESHOLD,
     Capturer,
     Frame,
@@ -46,6 +47,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "DEFAULT_INTERVAL",
+    "DEFAULT_SCALE",
     "DEFAULT_THRESHOLD",
     "Capturer",
     "Frame",

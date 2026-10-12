@@ -29,6 +29,25 @@ def test_profile_rejects_bad_overrides(override):
         InputProfile().merged(override)
 
 
+@pytest.mark.parametrize("override", [
+    {"seed": 7},
+    {"mouse": {"seed": 7}},
+    {"keyboard": {"seed": 7, "wpm": 80}},
+])
+def test_profile_rejects_seed_and_points_to_the_run_seed(override):
+    with pytest.raises(ValueError) as info:
+        InputProfile().merged(override)
+    message = str(info.value)
+    assert "unknown input profile" in message and ": seed;" in message
+    assert "j5 run --seed" in message and "run command's seed" in message
+
+
+def test_unknown_fields_other_than_seed_get_no_seed_hint():
+    with pytest.raises(ValueError) as info:
+        InputProfile().merged({"mouse": {"warp": True}})
+    assert str(info.value) == "unknown input profile fields: warp"
+
+
 def test_rect_helpers():
     rect = Rect(-100, 20, 50, 10)
     assert rect.contains(-100, 20)

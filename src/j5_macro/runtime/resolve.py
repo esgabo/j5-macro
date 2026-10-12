@@ -63,7 +63,7 @@ def resolve_params(registry: StepRegistry, spec: StepSpec, params: Mapping[str, 
     if problems:
         first = problems[0]
         raise StepError(ErrorCode.VALIDATION_FAILED, f"parameter '{first.param}': "
-                        f"{first.message}", {"param": first.param})
+                        f"{first.message}", {"param": first.param, **(first.details or {})})
     return resolved
 
 

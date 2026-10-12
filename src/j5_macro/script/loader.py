@@ -473,7 +473,7 @@ class _Loader:
         if not problems and self.check is not None:
             problems = self.check(node.type, defaulted)
         for p in problems:
-            node.problem(f"{p.param}: {p.message}", param=p.param)
+            node.problem(f"{p.param}: {p.message}", param=p.param, **(p.details or {}))
         node.params = defaulted
 
     def block(self, node: _Node, spec: StepSpec, slot: str, value: Any) -> list[_Node]:

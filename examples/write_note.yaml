@@ -38,19 +38,14 @@ steps:
     loop:
       times: "${copies}"
       do:
-        # A string that is only "${...}" plus spaces or line breaks gives the bare
-        # value, so line breaks around it are pressed as separate keys.
+        # "\n" presses Enter after the body (double quotes are needed for it in YAML).
         - id: type_body
-          type: "${body}"
-        - id: body_newline
-          key: enter
+          type: "${body}\n"
         - id: count_copy
           set: {name: written, expr: "written + 1"}
 
-  - id: blank_line
-    key: enter
   - id: sign
-    type: "${signature}"
+    type: "\n${signature}"
 
   # Save As, then give the dialog a moment to appear before typing the name.
   - id: save_as

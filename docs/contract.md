@@ -71,14 +71,14 @@ Every message is a JSON object on a single line (JSON Lines), identical over std
 Example event:
 
 ```json
-{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-151051-d36f","seq":14,"ts":"2026-10-12T15:10:53.412Z","t_ms":2120,"payload":{"step_id":"open_menu","path":[0],"line":9,"type":"click","params":{"x":120,"y":40}}}
+{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-151051-d36f","seq":14,"ts":"2026-10-12T15:10:53.412Z","t_ms":2120,"payload":{"step_id":"open_menu","path":[0],"line":9,"type":"click","params":{"x":120,"y":40,"button":"left","clicks":1,"threshold":0.9,"scale":1.0}}}
 ```
 
 Rules:
 
 - **Command and response.** The client sends a command with an `id`; the engine answers with `kind: response`, the same `id`, and either `ok: true` with `result` or `ok: false` with `error` (see the codes at the end).
 - **Events are not acknowledged.** The engine emits them in order. If a client sees a gap in `seq`, it fetches the missing ones with `get_events`.
-- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types and `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`). Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key. Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
+- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types and `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`). Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key, and then a `warning` for each step plugin it skipped (see "Step plugins" below). Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
 - **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
 - **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
 - **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
@@ -126,7 +126,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | `run_started` | First event of a run | `script_id`, `script_name` (the script's `name`), `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
 | `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
 | `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
-| `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved |
+| `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved and every declared default filled in (an `x`/`y` `click` also reports `threshold` and `scale`) |
 | `step_finished` | When the step completes | `step_id`, `duration_ms` (time spent paused excluded), `result` |
 | `step_skipped` | A step was skipped | `step_id`, `reason` (`user`) |
 | `step_failed` | Error or timeout in a step | `step_id`, `error` (`code`, `message`, `details.attempt`), `screenshot?` (the capture of a failed image search, relative to the run's directory) |
@@ -282,9 +282,9 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
 | Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
 | Keyboard | `variance`, `typos` | Spread of the intervals (log-normal sigma; `0` is fully regular, without pauses), and typos (`false` by default): about 3% of ASCII letters hit a neighbouring QWERTY key, noticed at once or one or two characters later, then erased with `backspace` and retyped |
-| Both | `seed` | Base seed of the run |
-
 Each step's effective profile is the defaults, then the script's `input`, the run's `input_profile`, the step's `input` and, last, step parameters such as `type`'s `keyboard`; an invalid profile fails the step with `validation_failed`.
+
+The seed is not a profile parameter: it belongs to the whole run and comes only from `run`'s `seed` (`j5 run --seed`), else the engine generates one. A `seed` in any profile layer is an unknown field (`validation_failed`, with a message pointing to the run's seed). There is no per-step seed because each step attempt already gets its own sub-seed derived from the run seed (see "Per-action seeds" below); a seed set on one step would either break that scheme or need rules for combining the two.
 
 **Safety and reproducibility:**
 
@@ -340,7 +340,7 @@ steps:
 - **Stable ids.** Ids match `[A-Za-z_][A-Za-z0-9_-]*` and are unique in the script. A missing `id` is generated from the type and position: the n-th step of a type, counting steps that have explicit ids, gets `<type>_n` (a clash with an explicit id adds a suffix, `<type>_n_2`), with a warning. Adding an id to one step therefore never renames the others. Saving through `edit_script` writes the ids, so breakpoints and history survive reordering.
 - **Blocks.** `if` (`then` and `else`) and `loop` (`times`, `while` or `for_each`, with `as`) contain step lists. `path` alternates the position in a list and the block slot of the parent step: `[3, 1, 0]` is the first step of the second block (`else`) of the fourth step. Slots are numbered in the order the step type declares them (`if`: `then` 0, `else` 1; `loop`: `do` 0).
 - **Conditions and expressions.** `when` and `while` take an expression or a predefined condition: `{image_visible: img/x.png}`, or `{image_visible: {image, threshold?, scale?, region?, window?}}`, makes one search (one `image_search`, never a capture under `on_failure`, since not finding the image is not a failure) and is true when the image is found. Expressions support literals (`true`, `false`, `null` included), variables, lists and mappings, indexing, `+ - * / // %`, comparisons (chainable) and `in`, `and`/`or`/`not`, `a if c else b`, and calls to whitelisted functions (`len`, `str`, `int`, `float`, `bool`, `round`, `min`, `max`, `abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). There is no Python `eval`; attribute access, `**`, lambdas and comprehensions are rejected, and length, nesting and result sizes are capped.
-- **Interpolation.** String parameters may contain `${expression}`. A string that is a single `${...}` keeps the value's type (`x: "${pos_x}"` is an integer); otherwise values are rendered as text (`null` as empty, booleans as `true`/`false`). `$${` is a literal `${`. Parameters of type expression or condition are evaluated, never interpolated. Interpolated values are type-checked again before the step runs.
+- **Interpolation.** String parameters may contain `${expression}`. Only a string that is exactly one `${...}`, with no other character (not even whitespace or a line break), keeps the value's type (`x: "${pos_x}"` is an integer); in any other string values are rendered as text (`null` as empty, booleans as `true`/`false`) and the rest is kept as written, so `"${body}\n"` ends with a line break and `" ${n}"` is text with a leading space. `$${` is a literal `${`. Parameters of type expression or condition are evaluated, never interpolated. Interpolated values are type-checked again before the step runs.
 - **Coordinates.** `x`/`y` are physical pixels on the virtual desktop, which spans every screen and may be negative. With `window: {title: ...}`, coordinates and `region` are relative to the top-left corner of the frame of the first visible window whose title contains `title`, looked up when the step runs, so they survive the window being moved; no such window fails with `window_not_found`, and a backend without the `windows` capability with `capability_missing`. `offset: [dx, dy]` is added to the resulting point. `drag` points (`from`, `to`) take their own `window`, and may be `{image: ...}` targets too. An `image` target (`click`, `move`, `drag`) is searched once, or until the step's common `timeout` when it is set, and fails with `image_not_found` if it is not there; the action aims at the centre of the match plus `offset`. Without an offset the match is the target area the `human` strategy lands in (a `human` click whose pointer is already inside it clicks there without moving, as a person would; `move` always moves); with one, the mouse aims at the exact point. Full-desktop and `region` searches need no backend; `window` searches need one with the `windows` capability. On Windows the engine declares per-monitor DPI awareness so the system never scales coordinates.
 - **Images.** Paths relative to the script file's directory (the engine's current directory for a script loaded from `source`), `threshold` (0.9 by default), an optional search `region` (`[x, y, w, h]`, relative to the step's `window` when given, else absolute; without a region the window, else the whole desktop, is searched), and `scale` (1 by default) to compensate templates captured at another scaling. A missing or unreadable file fails with `template_missing`. Searches need the `vision` extra (`pip install j5-macro[vision]`); without it, or when the screen cannot be captured, they fail with `capability_missing`. A wait retries every 0.25 s; `pause` suspends it and paused time does not count towards its timeout, and `stop` ends it at once. Matching uses normalized cross-correlation: `best_score` is in [0, 1], and `found` means `best_score >= threshold`. A PNG's transparent pixels (alpha below 128) are ignored, so a cut-out icon matches on any background; a template with no variation in its visible pixels (a single flat colour) never matches, so templates need some texture or an edge. `scale` must be greater than 0. A region is clipped to the virtual desktop; a region entirely outside it fails with `validation_failed` (`details.param: region`).
 - **Durations.** Written with a unit (`2s`, `500ms`, `1.5m`, `1h`) and an optional variance (`2s±20%` or `2s+-20%`) for less mechanical pauses. A bare number means seconds. The common `timeout` field applies to image searches: it replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to that long for their image targets (they search once otherwise). Other steps ignore it.
@@ -349,13 +349,13 @@ steps:
 
 | Step | Main parameters |
 | --- | --- |
-| `click` | `image` or `x`/`y`, `window?`, `button`, `clicks`, `offset`, `threshold`, `scale?`, `region?` |
-| `move` | `image` or `x`/`y`, `window?`, `threshold?`, `scale?`, `region?` |
+| `click` | `image` or `x`/`y`, `window?`, `button`, `clicks`, `offset?`, `threshold`, `scale`, `region?` |
+| `move` | `image` or `x`/`y`, `window?`, `threshold`, `scale`, `region?` |
 | `drag` | `from`, `to` (each `{x, y, window?}` or `{image, threshold?, scale?, region?, window?}`), `button` |
 | `scroll` | `dx`, `dy` |
 | `type` | `text`, `keyboard?` |
 | `key` | `press` (e.g. `ctrl+s`), `hold?` |
-| `wait_image` | `image`, `timeout` (10 s by default), `threshold`, `region?`, `window?`, `scale?`; the result is `{found, score, bbox}` |
+| `wait_image` | `image`, `timeout` (10 s by default), `threshold`, `region?`, `window?`, `scale`; the result is `{found, score, bbox}` |
 | `sleep` | Duration, with optional variance |
 | `if` | `when` (expression or condition), `then`, `else?` |
 | `loop` | `times`, `while` or `for_each` (with `as`), and `do` |
@@ -363,9 +363,9 @@ steps:
 | `log` | `message`, `level` |
 | `pause` | `message`; pauses the run until `resume`, like a breakpoint written in the script |
 
-**Key combinations** (`key` steps and the stop key) are written as modifiers then one key, joined by `+`, case-insensitive: `ctrl+shift+s`, `alt+f4`, `super+e`. A final single ASCII character is the physical key that types it on a US layout. The `+` and `-` keys are written `plus` and `minus` (`ctrl+plus`). Aliases: `esc`, `return`, `control`/`ctl`, `cmd`/`win`/`meta`, `option`, `del`, `ins`, `pgup`, `pgdn`. To type text, including non-ASCII characters, use `type`, where `\n` and `\r` press Enter, `\t` Tab and `\b` Backspace; other control characters are rejected. Some keymaps lack `f13` to `f24`; using one then fails with `validation_failed`.
+**Key combinations** (`key` steps and the stop key) are written as modifiers then one key, joined by `+`, case-insensitive: `ctrl+shift+s`, `alt+f4`, `super+e`. A final single ASCII character is the physical key that types it on a US layout. The `+` and `-` keys are written `plus` and `minus` (`ctrl+plus`). Aliases: `esc`, `return`, `control`/`ctl`, `cmd`/`win`/`meta`, `option`, `del`, `ins`, `pgup`, `pgdn`. To type text, including non-ASCII characters, use `type`, where `\n` and `\r` press Enter (`\r\n` presses it once), `\t` Tab and `\b` Backspace; other control characters (U+0000 to U+001F and U+007F to U+009F) are rejected before any input is sent, in every mode: literal text when the script is loaded, interpolated text after interpolation, with `validation_failed`, `details.param: text`, and the first offending character's `details.index` (0-based, in the text after interpolation) and `details.code_point` (`U+0007`). The message names the index and code point, never the text, which may be a secret. Some keymaps lack `f13` to `f24`; using one then fails with `validation_failed`.
 
-**Step registry.** Each type is registered with its name, its parameter schema (name, type, required, default, documentation), its cross-parameter checks and the function that executes it. From that single registry come:
+**Step registry.** Each type is registered with its name, its parameter schema (name, type, required, default, documentation), its cross-parameter checks and the function that executes it. Every parameter that has an effective default declares it in the schema (e.g. `threshold` 0.9 and `scale` 1 on every step with an `image`), so every client sees the value the executor uses; loading fills declared defaults in, so cross-parameter checks treat a default as not written (`scale` 1 is accepted on an `x`/`y` target, another `scale` is not). Parameters without a default (`offset`, `region`, `window`, `hold`, ...) mean "none" when absent. The image targets nested in `drag`'s `from` and `to`, and `image_visible`, use the same defaults. From that single registry come:
 
 - the validation of `load` and `validate`,
 - a JSON Schema for editor completion and validation (`j5 schema`, e.g. with the VS Code YAML extension),
@@ -373,6 +373,12 @@ steps:
 - the parameter forms of the future GUI.
 
 Adding a step (including a third-party one, registered as a plugin through the `j5_macro.steps` entry point group) means registering it; neither the interpreter nor the GUI changes.
+
+**Step plugins.** Third-party packages add step types through the `j5_macro.steps` entry point group. Each entry point resolves to a callable that receives the registry and registers its step types. The engine process loads every installed plugin at startup, after the built-ins, in order of entry point name; so does `j5 schema`, which builds the registry without an engine. Plugin steps are then like any other: they are validated, listed by `list_step_types` and `capabilities.step_types`, described in the JSON Schema and run. Rules:
+
+- A plugin step is an action step with an executor (control steps with blocks stay built-in), named with letters, digits and `_` only, and not after a common step field (`id`, `break`, `timeout`, `on_error`, `input`).
+- Names already taken win: a plugin that registers a built-in name, or the name of a plugin loaded before it, is skipped.
+- A plugin is loaded entirely or not at all. One that cannot be imported, is not callable, raises while registering, or registers a step that breaks the rules is skipped, along with every step it registered, and never stops the engine: the engine logs a `warning` naming the entry point and the error right after `ready` (`j5 schema` writes it to standard error). A script using a skipped plugin's steps fails to load with `unknown_step_type`.
 
 ## Script management
 

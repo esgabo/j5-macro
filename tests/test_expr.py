@@ -662,13 +662,30 @@ def test_default_string_functions_are_size_limited() -> None:
 
 def test_whole_string_keeps_the_type() -> None:
     assert interpolate("${x}", VARS) == 10
-    assert interpolate("  ${ x }  ", VARS) == 10
+    assert interpolate("${ x }", VARS) == 10
     assert interpolate("${f}", VARS) == 2.5
     assert interpolate("${items}", VARS) == [1, 2, 3]
     assert interpolate("${pos}", VARS) == {"x": 100, "y": 200}
     assert interpolate("${nothing}", VARS) is None
     assert interpolate("${flag}", VARS) is True
     assert interpolate("${x + 1}", VARS) == 11
+
+
+def test_any_character_around_a_single_slot_makes_text() -> None:
+    assert interpolate("${name}\n", VARS) == "Ana\n"
+    assert interpolate("\n${name}", VARS) == "\nAna"
+    assert interpolate(" ${x}", VARS) == " 10"
+    assert interpolate("${x} ", VARS) == "10 "
+    assert interpolate("  ${ x }  ", VARS) == "  10  "
+    assert interpolate("\t${x}\r\n", VARS) == "\t10\r\n"
+    assert interpolate(" ${nothing} ", VARS) == "  "
+    assert interpolate("${flag}\n", VARS) == "true\n"
+    assert interpolate("${items}\n", VARS) == "[1, 2, 3]\n"
+    # An escaped "$${" next to a slot is text too, and so are two slots.
+    assert interpolate("$${x}${x}", VARS) == "${x}10"
+    assert interpolate("${x}${y}", VARS) == "103"
+    assert interpolate("${'${x}'}\n", VARS) == "${x}\n"
+    assert interpolate({"a": ["${x}", " ${x}"]}, VARS) == {"a": [10, " 10"]}
 
 
 def test_mixed_text_renders_values() -> None:

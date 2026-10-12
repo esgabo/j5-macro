@@ -586,9 +586,7 @@ steps:
       times: "${copies}"
       do:
         - id: type_body
-          type: "${body}"
-        - id: body_newline
-          key: enter
+          type: "${body}\n"
   - id: type_filename
     type: {text: "${filename}", keyboard: {strategy: linear, wpm: 120}}
 ```
@@ -603,8 +601,8 @@ run r-20261012-215714-563f  Write a note  (mode dry, seed 1702225079, backend x1
 ...
   0.007s  ▶ write_body  loop  {"times": 1, "as": "item"}
   0.007s  ↻ write_body  iteration 1/1
-  0.007s    ▶ type_body  type  {"text": "Thanks for the review.\nThe figures are in the shared folder."}
-  0.007s      [info] would type 60 characters
+  0.007s    ▶ type_body  type  {"text": "Thanks for the review.\nThe figures are in the shared folder.\n"}
+  0.007s      [info] would type 61 characters
 ...
   1.033s    [info] Saved note_for_ana.txt with 1 copy of the body
 ✓ completed in 1.030s  (seed 1702225079)
@@ -612,10 +610,9 @@ $ j5 run examples/write_note.yaml --param recipient=Ana \
     --param-file body=note.txt --param filename=note_for_ana.txt --param copies=2
 ```
 
-Notice that the line break after the body is a separate `key: enter` step. A string that
-is a single `${...}` with only spaces or line breaks around it gives the bare value, so
-`"${body}\n"` would type the body without the line break; see
-[Interpolation](scripts.md#interpolation).
+`"${body}\n"` types the body and then presses Enter: only a string that is exactly one
+`${...}`, with nothing else around it, gives the bare value; any other string is text
+(see [Interpolation](scripts.md#interpolation)).
 
 ## Next steps
 

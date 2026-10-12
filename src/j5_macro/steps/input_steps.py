@@ -25,6 +25,7 @@ from typing import Any
 
 from j5_macro.backends.base import Button, Rect, UnknownKey
 from j5_macro.input.api import StepInput
+from j5_macro.input.planning import find_control_character
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.steps.checks import check_point, is_interpolated
 from j5_macro.steps.images import (
@@ -44,7 +45,7 @@ from j5_macro.steps.spec import (
     StepType,
     parse_duration,
 )
-from j5_macro.vision.api import DEFAULT_THRESHOLD
+from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD
 
 BUTTONS = ("left", "right", "middle")
 
@@ -299,8 +300,10 @@ def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
     if isinstance(scale, int | float) and not isinstance(scale, bool) and scale <= 0:
         problems.append(ParamProblem("scale", "must be greater than 0"))
     if "image" not in params:
+        # ``scale`` is filled in with its default, so only another value is a mistake.
         problems += [ParamProblem(name, "only applies to 'image' targets")
-                     for name in ("region", "scale") if name in params]
+                     for name in ("region", "scale")
+                     if name in params and not (name == "scale" and scale == DEFAULT_SCALE)]
     return problems
 
 
@@ -337,6 +340,46 @@ def check_wait_image(params: Mapping[str, Any]) -> list[ParamProblem]:
     return _check_image_options(params)
 
 
+def text_problem(text: Any) -> ParamProblem | None:
+    """The problem with ``type``'s ``text``: a control character it cannot press.
+
+    The message and details give the character's index and code point, never the text
+    itself, which may be a secret."""
+    if not isinstance(text, str):
+        return None
+    index = find_control_character(text)
+    if index is None:
+        return None
+    code_point = f"U+{ord(text[index]):04X}"
+    return ParamProblem("text", f"control character {code_point} at index {index} cannot "
+                        r"be typed; only \n, \r, \t and \b are allowed",
+                        {"index": index, "code_point": code_point})
+
+
+def check_type(params: Mapping[str, Any]) -> list[ParamProblem]:
+    """Literal text is checked when the script loads; interpolated text when it runs."""
+    text = params.get("text")
+    if is_interpolated(text):
+        return []
+    problem = text_problem(text)
+    return [] if problem is None else [problem]
+
+
+def _checked_text(executor: Executor) -> Executor:
+    """``executor`` after checking the interpolated ``text``, before any input or dry-run
+    description (the registry's check skips text that still contains ``${``)."""
+
+    def run(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any] | None:
+        problem = text_problem(params.get("text"))
+        if problem is not None:
+            raise StepError(ErrorCode.VALIDATION_FAILED,
+                            f"parameter 'text': {problem.message}",
+                            {"param": problem.param, **(problem.details or {})})
+        return executor(ctx, params)
+
+    return run
+
+
 def check_key(params: Mapping[str, Any]) -> list[ParamProblem]:
     press = params.get("press")
     if not isinstance(press, str) or is_interpolated(press):
@@ -360,9 +403,9 @@ WINDOW = ParamSpec(name="window", type="object",
                    doc="Window to work in, e.g. {title: ...}; coordinates become relative.")
 THRESHOLD = ParamSpec(name="threshold", type="number", default=DEFAULT_THRESHOLD,
                       doc="Minimum image match score, from 0 to 1.")
-SCALE = ParamSpec(name="scale", type="number",
-                  doc="Scale applied to the image before searching (default 1), to "
-                      "compensate images captured at another display scaling.")
+SCALE = ParamSpec(name="scale", type="number", default=DEFAULT_SCALE,
+                  doc="Scale applied to the image before searching, to compensate images "
+                      "captured at another display scaling.")
 REGION = ParamSpec(name="region", type="list",
                    doc="[x, y, width, height] to search in (relative to 'window' when "
                        "given); defaults to the window, else the whole desktop.")
@@ -385,10 +428,7 @@ CLICK = StepType(StepSpec(
 MOVE = StepType(StepSpec(
     name="move",
     doc="Move the mouse to an image or to x/y.",
-    params=(_image(), X, Y, WINDOW,
-            ParamSpec(name="threshold", type="number",
-                      doc="Minimum image match score, from 0 to 1 (default 0.9)."),
-            SCALE, REGION),
+    params=(_image(), X, Y, WINDOW, THRESHOLD, SCALE, REGION),
 ), input_step(lambda p: f"move to {_target(p)}", perform_move))
 
 DRAG = StepType(StepSpec(
@@ -425,7 +465,8 @@ TYPE = StepType(StepSpec(
         ParamSpec(name="keyboard", type="object",
                   doc="Keyboard profile override, e.g. {strategy: direct}."),
     ),
-), input_step(lambda p: f"type {len(str(p['text']))} characters", perform_type))
+), _checked_text(input_step(lambda p: f"type {len(str(p['text']))} characters",
+                            perform_type)))
 
 KEY = StepType(StepSpec(
     name="key",

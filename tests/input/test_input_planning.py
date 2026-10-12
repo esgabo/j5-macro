@@ -10,6 +10,7 @@ from j5_macro.input.planning import (
     COMBO_GAP_MS,
     SCROLL_NOTCH_MS,
     ScrollAction,
+    find_control_character,
     plan_click,
     plan_combo,
     plan_move,
@@ -136,6 +137,17 @@ def test_text_units_cover_unicode_and_control_characters():
         ("char", "ñ"), ("char", "日"), ("char", "😀"), ("char", "a"), ("key", "enter"),
         ("char", "b"), ("key", "tab"), ("char", "c"), ("key", "enter"), ("char", "d"),
         ("key", "enter"), ("char", "e")]
+
+
+def test_text_units_press_backspace_and_refuse_other_control_characters():
+    assert text_units("ab\bc") == [("char", "a"), ("char", "b"), ("key", "backspace"),
+                                   ("char", "c")]
+    for bad in ("\x00", "\x07", "\x1b", "\x7f", "\x85", "\x9f"):
+        with pytest.raises(ValueError, match=f"U\\+{ord(bad):04X} at index 1"):
+            text_units(f"a{bad}")
+    assert find_control_character("ok\tfine\n\r\b") is None
+    assert find_control_character("ok\x07") == 2
+    assert find_control_character("\xa0é") is None  # not control characters
 
 
 def test_direct_typing_presses_everything_at_once():

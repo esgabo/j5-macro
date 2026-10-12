@@ -189,7 +189,7 @@ evaluated on every iteration.
 
 **Interpolation.** String parameters may contain `${expression}`
 ([expr/interpolation.py](../src/j5_macro/expr/interpolation.py)). A string that is
-exactly one `${...}` (whitespace aside) evaluates to the raw value and keeps its type, so
+exactly one `${...}`, with no other character (not even whitespace), evaluates to the raw value and keeps its type, so
 `x: "${pos_x}"` is an integer; otherwise each slot is rendered as text (`null` as empty,
 booleans as `true`/`false`). `$${` is a literal `${`. Interpolation recurses into lists
 and mapping values. Parameters of type `expression` or `condition` are never
@@ -289,7 +289,8 @@ Drags pause ~120 ms after pressing and before releasing.
 ### The human keyboard
 
 Typing happens in two passes. First the text becomes strokes: one `char` per code point,
-with `\n`, `\r\n` and `\r` as `enter` and `\t` as `tab`. With `typos` on, each ASCII
+with `\n`, `\r\n` and `\r` as `enter`, `\t` as `tab` and `\b` as `backspace`; any other
+control character is refused (the `type` step rejects it before planning). With `typos` on, each ASCII
 letter has a 3 % chance of becoming a QWERTY neighbour, noticed at once or (40 %) one or
 two correct characters later, then erased with `backspace` and retyped. A correction
 never crosses an `enter` or `tab` and never runs past the end of the text, and a test
@@ -595,8 +596,6 @@ pull request and every push to `main`, on Ubuntu and Windows with Python 3.11, 3
   (`direct`) movements.
 - **Secrets**: the masked value's length is visible through `type`, transformed values
   are not masked, and the screen shows whatever the target application shows.
-- **Step plugins are not loaded by the engine process**: the registry supports the
-  `j5_macro.steps` entry point group, but the engine builds its registry without it.
 - **One client per engine**, over stdio only. Sockets or named pipes for a long-lived
   engine, with read-only observers, are planned after v1.
 - **Reserved, not implemented**: `input_planned.plan_ref` (the points or key events of a

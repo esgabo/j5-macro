@@ -124,6 +124,20 @@ def test_a_bad_profile_is_validation_failed(override):
     assert "invalid input profile" in outcome.error.message
 
 
+def test_a_profile_with_a_seed_fails_the_step_pointing_to_the_run_seed():
+    outcome, _ = run_input("""
+        input: {mouse: {seed: 7}}
+        steps:
+          - id: press_it
+            click: {x: 1, y: 1}
+    """)
+    assert outcome.error is not None
+    assert outcome.error.code == "validation_failed"
+    assert outcome.error.message.startswith(
+        "invalid input profile: unknown input profile fields: seed; ")
+    assert "j5 run --seed" in outcome.error.message
+
+
 # --- release on every ending ------------------------------------------------------------
 
 
