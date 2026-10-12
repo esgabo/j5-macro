@@ -21,6 +21,7 @@ from collections.abc import Callable
 from typing import Any
 
 from j5_macro.backends.base import Backend, Button, Rect
+from j5_macro.input import human_mouse
 from j5_macro.input.api import (
     AbortSignal,
     EmergencyStop,
@@ -31,11 +32,9 @@ from j5_macro.input.api import (
     KeyPlan,
     MousePlan,
     MouseProfile,
-    Strategy,
 )
 from j5_macro.input.planning import (
     DRAG_SETTLE_MS,
-    HUMAN_FALLBACK_WARNING,
     plan_click,
     plan_combo,
     plan_move,
@@ -88,21 +87,19 @@ class MasterSession:
         self._held: list[tuple[str, Callable[[], None]]] = []
         self._position: tuple[int, int] | None = None
         """Last position the session sent the pointer to (or read from the backend)."""
-        self._warned_human = False
 
     # --- InputSession: mouse ---------------------------------------------------------
 
     def move(self, x: int, y: int, *, profile: MouseProfile, rng: random.Random,
              target: Rect | None = None) -> None:
-        self._warn_if_human(profile.strategy)
-        self._action(lambda pressed: self._move_to(x, y, profile, rng, force=True))
+        self._action(lambda pressed: self._move_to(x, y, profile, rng, force=True,
+                                                   target=target))
 
     def click(self, x: int, y: int, *, button: Button, clicks: int, profile: MouseProfile,
               rng: random.Random, target: Rect | None = None) -> None:
-        self._warn_if_human(profile.strategy)
 
         def body(pressed: list[str]) -> None:
-            self._move_to(x, y, profile, rng)
+            self._move_to(x, y, profile, rng, target=target)
             plan = plan_click(button, clicks, profile, rng)
             start = self._clock()
             for action in plan.actions:
@@ -116,8 +113,12 @@ class MasterSession:
 
     def drag(self, start: tuple[int, int], end: tuple[int, int], *, button: Button,
              profile: MouseProfile, rng: random.Random) -> None:
-        self._warn_if_human(profile.strategy)
-        settle = 0.0 if profile.strategy == "direct" else DRAG_SETTLE_MS / 1000.0
+        if profile.strategy == "human":
+            settle = human_mouse.drag_settle_ms(profile, rng) / 1000.0
+        elif profile.strategy == "linear":
+            settle = DRAG_SETTLE_MS / 1000.0
+        else:
+            settle = 0.0
 
         def body(pressed: list[str]) -> None:
             self._move_to(*start, profile, rng)
@@ -130,7 +131,6 @@ class MasterSession:
         self._action(body)
 
     def scroll(self, dx: int, dy: int, *, profile: MouseProfile, rng: random.Random) -> None:
-        self._warn_if_human(profile.strategy)
         plan = plan_scroll(dx, dy, profile, rng)
 
         def body(pressed: list[str]) -> None:
@@ -152,14 +152,12 @@ class MasterSession:
     # --- InputSession: keyboard ------------------------------------------------------
 
     def type_text(self, text: str, *, profile: KeyboardProfile, rng: random.Random) -> None:
-        self._warn_if_human(profile.strategy)
         plan = plan_typing(text, profile, rng)
         self._action(lambda pressed: self._execute_keys(plan, pressed))
 
     def press(self, combo: str, *, hold: float | None, profile: KeyboardProfile,
               rng: random.Random) -> None:
         plan = plan_combo(combo, hold, profile, rng)
-        self._warn_if_human(profile.strategy)
         self._action(lambda pressed: self._execute_keys(plan, pressed))
 
     # --- InputSession: other ---------------------------------------------------------
@@ -192,15 +190,6 @@ class MasterSession:
             with self._lock:
                 self._release_tokens(pressed, reason)
             raise
-
-    def _warn_if_human(self, strategy: Strategy) -> None:
-        if strategy != "human":
-            return
-        with self._lock:
-            if self._warned_human:
-                return
-            self._warned_human = True
-        self._emit("log", LogEvent(level="warning", message=HUMAN_FALLBACK_WARNING).to_json())
 
     def _wait_until(self, start: float, t_ms: float) -> None:
         delay = start + t_ms / 1000.0 - self._clock()
@@ -240,13 +229,14 @@ class MasterSession:
         return self._position
 
     def _move_to(self, x: int, y: int, profile: MouseProfile, rng: random.Random, *,
-                 force: bool = False) -> None:
-        """Plan and execute a movement to (x, y). Without ``force`` nothing is emitted or
-        sent when the pointer is already there (the plan is still drawn, so the caller's
-        generator advances the same way)."""
+                 force: bool = False, target: Rect | None = None) -> None:
+        """Plan and execute a movement to (x, y), aiming at ``target`` when given. Without
+        ``force`` nothing is emitted or sent when the pointer is already there (the plan
+        is still drawn, so the caller's generator advances the same way)."""
         current = self._current_position()
         start = current if current is not None else (x, y)
-        plan = plan_move(start, (x, y), profile, rng)
+        plan = plan_move(start, (x, y), profile, rng, target=target,
+                         bounds=self._backend.screen_bounds())
         if current == (x, y) and not force:
             return
         self._execute_move(plan)

@@ -97,11 +97,11 @@ def test_zero_length_move_is_a_single_point():
     assert plan.points == (TimedPoint(0.0, 5, 5),)
 
 
-def test_human_move_is_planned_as_linear():
+def test_human_move_reports_human_and_replans_from_its_seed():
     human = plan_move((0, 0), (600, 0), MouseProfile(), random.Random(3))
-    linear = plan_move((0, 0), (600, 0), LINEAR, random.Random(3))
-    assert human == linear
-    assert human.strategy == "linear"
+    assert human.strategy == "human"
+    assert human.points[-1] == TimedPoint(human.duration_ms, *human.end)
+    assert replan_move(human.seed, (0, 0), (600, 0), MouseProfile()) == human
 
 
 def test_click_plans():
@@ -159,9 +159,10 @@ def test_linear_typing_fixed_interval_from_wpm():
     assert plan.duration_ms == pytest.approx(460)
 
 
-def test_human_typing_is_planned_as_linear():
+def test_human_typing_reports_human_and_is_reproducible():
     human = plan_typing("hello", KeyboardProfile(wpm=60), random.Random(5))
-    assert human == plan_typing("hello", KB_LINEAR, random.Random(5))
+    assert human.strategy == "human" and human.chars == 5 and human.wpm == 60
+    assert human == plan_typing("hello", KeyboardProfile(wpm=60), random.Random(5))
 
 
 def test_combo_plan_order_and_aliases():

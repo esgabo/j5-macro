@@ -5,8 +5,9 @@ plans with a fresh ``Random(seed)``. The plan reports that seed, so ``replan(see
 reproduces it exactly and the caller's generator advances by the same amount whatever the
 strategy. Nothing here touches the system.
 
-The ``human`` strategy arrives in milestone M5; until then it is planned as ``linear`` and
-the plan reports ``linear`` (the strategy actually used). The session warns once per run.
+``direct`` and ``linear`` are planned here; ``human`` is delegated to
+:mod:`j5_macro.input.human_mouse` and :mod:`j5_macro.input.human_keys`, which receive the
+plan's own ``Random(seed)`` and never touch the caller's generator.
 """
 
 from __future__ import annotations
@@ -16,13 +17,16 @@ import random
 from dataclasses import dataclass
 from typing import Literal
 
-from j5_macro.backends.base import Button
+from j5_macro.backends.base import Button, Rect
+from j5_macro.input import human_keys, human_mouse
 from j5_macro.input.api import (
+    ButtonAction,
     KeyAction,
     KeyboardProfile,
     KeyPlan,
     MousePlan,
     MouseProfile,
+    ScrollAction,
     Strategy,
     TimedPoint,
 )
@@ -52,14 +56,6 @@ SCROLL_NOTCH_MS = 50.0
 DRAG_SETTLE_MS = 50.0
 """``linear`` pause after pressing and before releasing the button of a drag."""
 
-HUMAN_FALLBACK_WARNING = "human input arrives in M5; using linear"
-
-
-def effective_strategy(strategy: Strategy) -> Strategy:
-    """The strategy actually planned (``human`` falls back to ``linear`` until M5)."""
-    return "linear" if strategy == "human" else strategy
-
-
 def _derive(rng: random.Random) -> tuple[int, random.Random]:
     seed = rng.getrandbits(63)
     return seed, random.Random(seed)
@@ -69,23 +65,34 @@ def _derive(rng: random.Random) -> tuple[int, random.Random]:
 
 
 def plan_move(start: tuple[int, int], end: tuple[int, int], profile: MouseProfile,
-              rng: random.Random) -> MousePlan:
+              rng: random.Random, *, target: Rect | None = None,
+              bounds: Rect | None = None) -> MousePlan:
     """Plan a pointer movement from ``start`` to ``end``.
 
     ``direct``: one point at t=0 on the target. ``linear``: a straight line at
     ``LINEAR_SPEED_PX_S * speed`` (at least ``LINEAR_MIN_MOVE_MS``), a point every
     ~``POINT_INTERVAL_MS``, the first one interval after the start and the last one
     exactly on ``end``. A zero-length movement is a single point at t=0.
+
+    ``human``: see :func:`j5_macro.input.human_mouse.plan_points`. ``target`` is the area
+    aimed at (an image match, a window): ``human`` lands somewhere inside it, so the
+    plan's ``end`` may differ from the requested one; ``direct`` and ``linear`` ignore
+    it. ``bounds`` is the virtual desktop: ``human`` keeps every point inside it.
     """
     seed, _ = _derive(rng)
-    return replan_move(seed, start, end, profile)
+    return replan_move(seed, start, end, profile, target=target, bounds=bounds)
 
 
 def replan_move(seed: int, start: tuple[int, int], end: tuple[int, int],
-                profile: MouseProfile) -> MousePlan:
+                profile: MouseProfile, *, target: Rect | None = None,
+                bounds: Rect | None = None) -> MousePlan:
     """The plan :func:`plan_move` produced with ``seed``."""
-    strategy = effective_strategy(profile.strategy)
-    # ``seed`` is unused by direct and linear; the human strategy (M5) will draw from it.
+    strategy: Strategy = profile.strategy
+    if profile.strategy == "human":
+        landing, human_points = human_mouse.plan_points(
+            start, end, profile, random.Random(seed), target=target, bounds=bounds)
+        return MousePlan(strategy="human", seed=seed, start=start, end=landing,
+                         points=human_points)
     sx, sy = start
     ex, ey = end
     distance = math.hypot(ex - sx, ey - sy)
@@ -101,12 +108,6 @@ def replan_move(seed: int, start: tuple[int, int], end: tuple[int, int],
                        round(sy + (ey - sy) * i / count))
             for i in range(1, count + 1))
     return MousePlan(strategy=strategy, seed=seed, start=start, end=end, points=points)
-
-
-@dataclass(frozen=True, slots=True)
-class ButtonAction:
-    t_ms: float
-    down: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -130,7 +131,10 @@ def plan_click(button: Button, clicks: int, profile: MouseProfile,
     if clicks < 1:
         raise ValueError("clicks must be at least 1")
     seed, r = _derive(rng)
-    strategy = effective_strategy(profile.strategy)
+    if profile.strategy == "human":
+        return ClickPlan(strategy="human", seed=seed, button=button,
+                         actions=human_mouse.plan_click_actions(clicks, profile, r))
+    strategy: Strategy = profile.strategy
     actions: list[ButtonAction] = []
     t = 0.0
     for i in range(clicks):
@@ -141,13 +145,6 @@ def plan_click(button: Button, clicks: int, profile: MouseProfile,
             t += CLICK_HOLD_MS
         actions.append(ButtonAction(t, False))
     return ClickPlan(strategy=strategy, seed=seed, button=button, actions=tuple(actions))
-
-
-@dataclass(frozen=True, slots=True)
-class ScrollAction:
-    t_ms: float
-    dx: int
-    dy: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -164,8 +161,11 @@ class ScrollPlan:
 def plan_scroll(dx: int, dy: int, profile: MouseProfile, rng: random.Random) -> ScrollPlan:
     """``direct``: one ``scroll(dx, dy)``. ``linear``: one notch per axis at a time,
     ``SCROLL_NOTCH_MS`` apart (both axes advance together while both have notches left)."""
-    seed, _ = _derive(rng)
-    strategy = effective_strategy(profile.strategy)
+    seed, r = _derive(rng)
+    if profile.strategy == "human":
+        return ScrollPlan(strategy="human", seed=seed,
+                          actions=human_mouse.plan_scroll_actions(dx, dy, profile, r))
+    strategy: Strategy = profile.strategy
     if dx == 0 and dy == 0:
         actions: tuple[ScrollAction, ...] = ()
     elif strategy == "direct":
@@ -216,9 +216,13 @@ def plan_typing(text: str, profile: KeyboardProfile, rng: random.Random) -> KeyP
     """``direct``: every keystroke down then up at t=0. ``linear``: keystroke ``i`` goes
     down at ``i * interval`` and up ``KEY_HOLD_FRACTION * interval`` later, with
     ``interval = key_interval_ms(wpm)``."""
-    seed, _ = _derive(rng)
-    strategy = effective_strategy(profile.strategy)
+    seed, r = _derive(rng)
     units = text_units(text)
+    if profile.strategy == "human":
+        return KeyPlan(strategy="human", seed=seed,
+                       actions=human_keys.plan_typing_actions(units, profile, r),
+                       chars=len(units), wpm=profile.wpm)
+    strategy: Strategy = profile.strategy
     actions: list[KeyAction] = []
     if strategy == "direct":
         for kind, value in units:
@@ -248,10 +252,15 @@ def plan_combo(combo: str, hold: float | None, profile: KeyboardProfile,
     parsed = parse_combo(combo)
     if hold is not None and (not math.isfinite(hold) or hold < 0):
         raise ValueError("hold must be a non-negative number of seconds")
-    seed, _ = _derive(rng)
-    strategy = effective_strategy(profile.strategy)
-    gap = 0.0 if strategy == "direct" else COMBO_GAP_MS
+    seed, r = _derive(rng)
     keys = parsed.keys
+    if profile.strategy == "human":
+        return KeyPlan(strategy="human", seed=seed,
+                       actions=human_keys.plan_combo_actions(
+                           keys, None if hold is None else hold * 1000.0, profile, r),
+                       chars=len(keys), wpm=profile.wpm)
+    strategy: Strategy = profile.strategy
+    gap = 0.0 if strategy == "direct" else COMBO_GAP_MS
     actions = [KeyAction(i * gap, "key", key, True) for i, key in enumerate(keys)]
     t = actions[-1].t_ms
     if hold is not None:

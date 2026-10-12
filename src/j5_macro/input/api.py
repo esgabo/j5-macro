@@ -140,6 +140,23 @@ class KeyAction:
     down: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ButtonAction:
+    """Press (``down``) or release the click's button ``t_ms`` after the click starts."""
+
+    t_ms: float
+    down: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ScrollAction:
+    """Scroll ``dx``/``dy`` notches ``t_ms`` after the scroll starts."""
+
+    t_ms: float
+    dx: int
+    dy: int
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class KeyPlan:
     strategy: Strategy
@@ -164,6 +181,21 @@ class EmergencyStop(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class UserInterference(Exception):
+    """Raised by the mouse master when the real pointer strays more than the profile's
+    ``tolerance`` from where the master put it during a movement (the user moved the
+    mouse). The master has already released what the action held and emitted
+    ``user_interference``; the interpreter pauses the run (``action == "pause"``) or
+    stops it with reason ``interference`` (``"stop"``)."""
+
+    def __init__(self, expected: tuple[int, int], actual: tuple[int, int],
+                 action: Literal["pause", "stop"]) -> None:
+        super().__init__(f"pointer moved by the user: expected {expected}, got {actual}")
+        self.expected = expected
+        self.actual = actual
+        self.action = action
 
 
 class AbortSignal(Protocol):
