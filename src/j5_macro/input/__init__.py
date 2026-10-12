@@ -2,6 +2,7 @@
 
 from j5_macro.input.api import (
     AbortSignal,
+    ButtonAction,
     EmergencyStop,
     InputEventSink,
     InputProfile,
@@ -12,16 +13,19 @@ from j5_macro.input.api import (
     MousePath,
     MousePlan,
     MouseProfile,
+    ScrollAction,
     SessionFactory,
     StepInput,
     Strategy,
     TimedPoint,
+    UserInterference,
 )
 from j5_macro.input.keys import Combo, normalize_key, parse_combo
 from j5_macro.input.session import MasterSession, create_session
 
 __all__ = [
     "AbortSignal",
+    "ButtonAction",
     "Combo",
     "EmergencyStop",
     "InputEventSink",
@@ -34,10 +38,12 @@ __all__ = [
     "MousePath",
     "MousePlan",
     "MouseProfile",
+    "ScrollAction",
     "SessionFactory",
     "StepInput",
     "Strategy",
     "TimedPoint",
+    "UserInterference",
     "create_session",
     "normalize_key",
     "parse_combo",

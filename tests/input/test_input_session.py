@@ -384,20 +384,16 @@ def test_corner_failsafe_does_not_fire_when_starting_in_a_corner():
     assert h.backend.pointer == (600, 600)
 
 
-# --- human fallback, windows ------------------------------------------------------------
+# --- human, windows ---------------------------------------------------------------------
 
 
-def test_human_falls_back_to_linear_with_one_warning_per_session():
+def test_human_strategy_is_planned_as_human_without_warnings():
     h = make()
     h.session.move(100, 0, profile=MouseProfile(), rng=rng())
     h.session.type_text("hi", profile=KeyboardProfile(), rng=rng())
     h.session.click(5, 5, button=Button.LEFT, clicks=1, profile=MouseProfile(), rng=rng())
-    logs = h.events.of("log")
-    assert logs == [{"level": "warning", "message": "human input arrives in M5; using linear"}]
-    assert {p["strategy"] for p in h.events.of("input_planned")} == {"linear"}
-    other = make()
-    other.session.move(100, 0, profile=MouseProfile(), rng=rng())
-    assert len(other.events.of("log")) == 1
+    assert h.events.of("log") == []
+    assert {p["strategy"] for p in h.events.of("input_planned")} == {"human"}
 
 
 def test_find_window_delegates_when_supported():
