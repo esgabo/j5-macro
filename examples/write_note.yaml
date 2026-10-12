@@ -1,0 +1,66 @@
+# Write a short note in a text editor and save it under a new name.
+#
+# Open an empty document in a text editor whose window title contains "Mousepad"
+# (Xfce's editor; change `editor` below for another one), then run:
+#
+#   j5 run examples/write_note.yaml --param recipient=Ana --param-file body=note.txt \
+#     --param filename=note_for_ana.txt
+#
+# Try it first with --dry-run: it describes every click and key without sending any.
+version: 1
+name: Write a note
+input:
+  mouse: {strategy: human, speed: 1.2}
+  keyboard: {strategy: human, wpm: 75}
+params:
+  recipient: {description: Who the note is for}
+  body: {description: Text of the note; pass multi-line text with --param-file}
+  filename: {description: File name to save the note as}
+  signature: {description: Closing line, default: "Best regards"}
+  copies: {type: integer, default: 1, description: How many times to repeat the body}
+vars:
+  editor: Mousepad
+  written: 0
+steps:
+  - id: start
+    log: "Writing a note for ${recipient} in ${editor}"
+
+  # Click inside the text area so the editor has the keyboard focus. The coordinates
+  # are relative to the editor's window, wherever it is on the screen.
+  - id: focus_editor
+    click: {window: {title: "${editor}"}, x: 200, y: 150}
+    on_error: pause
+
+  - id: greeting
+    type: "Hello ${recipient},\n\n"
+
+  - id: write_body
+    loop:
+      times: "${copies}"
+      do:
+        # A string that is only "${...}" plus spaces or line breaks gives the bare
+        # value, so line breaks around it are pressed as separate keys.
+        - id: type_body
+          type: "${body}"
+        - id: body_newline
+          key: enter
+        - id: count_copy
+          set: {name: written, expr: "written + 1"}
+
+  - id: blank_line
+    key: enter
+  - id: sign
+    type: "${signature}"
+
+  # Save As, then give the dialog a moment to appear before typing the name.
+  - id: save_as
+    key: ctrl+shift+s
+  - id: wait_dialog
+    sleep: 1s±20%
+  - id: type_filename
+    type: {text: "${filename}", keyboard: {strategy: linear, wpm: 120}}
+  - id: confirm
+    key: enter
+
+  - id: done
+    log: "Saved ${filename} with ${written} ${'copy' if written == 1 else 'copies'} of the body"

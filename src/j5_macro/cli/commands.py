@@ -353,6 +353,10 @@ def make_debugger(client: EngineClient, run_id: str, script: str, outcome: LoadO
                     breakpoints=list(dict.fromkeys(options.breakpoints)))
 
 
+UNATTENDED_RETRIES = 2
+"""Without a terminal, a step paused by an error or interference is retried this many
+times; then the run is stopped and ``j5 run`` exits with code 1."""
+
 STATUS_CODES = {"completed": ExitCode.OK, "failed": ExitCode.FAILED,
                 "stopped": ExitCode.STOPPED}
 
@@ -404,6 +408,8 @@ async def run(cmd: Sequence[str], script: str, options: RunOptions, *, io: Outpu
         raise
     if interrupted:
         return ExitCode.INTERRUPTED
+    if follower.gave_up:
+        return ExitCode.FAILED
     return STATUS_CODES.get(status or "", ExitCode.FAILED)
 
 
@@ -429,6 +435,10 @@ class RunFollower:
         right after it (a ``pause:`` step) is after that step, not before it."""
         self._skipping = False
         """``step_over`` was sent to skip a step; the next ``step`` pause is resumed."""
+        self._unattended_retries: dict[str, int] = {}
+        """Retries sent without a terminal, per step, for error and interference pauses."""
+        self.gave_up = False
+        """The run was stopped because a step kept failing with nobody to ask."""
         self._background: set[asyncio.Future[Any]] = set()
 
     async def follow(self) -> str | None:
@@ -542,8 +552,17 @@ class RunFollower:
                              "skip it (Ctrl+C stops the run)")
                 self.controls.wait_for_enter(skippable=True)
             else:
-                self.io.note(f"j5: {what}; retrying it (no terminal to ask)")
-                self._send("resume", {"run_id": self.run_id})
+                key = self._step or ""
+                retries = self._unattended_retries.get(key, 0)
+                if retries >= UNATTENDED_RETRIES:
+                    self.io.note(f"j5: {what} again; stopping the run after "
+                                 f"{retries} retries (no terminal to ask)")
+                    self.gave_up = True
+                    self._send("stop", {"run_id": self.run_id, "reason": "user"})
+                else:
+                    self._unattended_retries[key] = retries + 1
+                    self.io.note(f"j5: {what}; retrying it (no terminal to ask)")
+                    self._send("resume", {"run_id": self.run_id})
             return
         if interactive:
             self.io.note("j5: the run is paused; press Enter to resume or Ctrl+C to stop "

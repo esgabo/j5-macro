@@ -60,3 +60,18 @@ def test_real_run_without_backend_fails_cleanly(capsys, monkeypatch):
     assert main(["run", str(EXAMPLE)]) == 1
     out = capsys.readouterr().out
     assert "capability_missing" in out
+
+
+def test_a_step_that_keeps_failing_ends_an_unattended_run(tmp_path, capsys, monkeypatch):
+    """Without a terminal, an on_error: pause step is retried a bounded number of times,
+    then the run stops and j5 exits with code 1 (never an endless retry loop)."""
+    monkeypatch.setenv("J5_BACKEND", "fake")
+    script = tmp_path / "flaky.yaml"
+    script.write_text("steps:\n  - id: broken\n    on_error: pause\n"
+                      "    log: \"${missing + 1}\"\n  - id: after\n    log: never\n",
+                      encoding="utf-8", newline="\n")
+    assert main(["run", str(script)]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.count("retrying it (no terminal to ask)") == 2
+    assert "stopping the run after 2 retries" in captured.err
+    assert "never" not in captured.out
