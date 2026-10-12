@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from input_helpers import backend, run_input
+from runtime_input_helpers import backend, run_input
 
 from j5_macro.backends.base import Button, Capabilities, Rect
 from j5_macro.backends.fake import FakeBackend

@@ -3,8 +3,9 @@ the client supervises the engine).
 
 The engine reports held keys and buttons with ``input_state``. If it dies with
 something held, the CLI selects a backend in its own process and releases each entry:
-``button:<name>`` with ``button_up``, a single character with ``char_up`` and any other
-name with ``key_up``, newest first.
+``button:<name>`` with ``button_up``, ``char:<c>`` with ``char_up`` and any other entry,
+a physical key name (single ASCII characters included, e.g. the ``a`` of ``ctrl+a``),
+with ``key_up``, newest first.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from j5_macro.backends.base import Backend, Button
 from j5_macro.backends.select import BackendChoice, select_backend
 
 BUTTON_PREFIX = "button:"
+CHAR_PREFIX = "char:"
 
 
 @dataclass(slots=True)
@@ -46,8 +48,8 @@ def release_one(backend: Backend, entry: str) -> None:
     """Release one ``input_state.held`` entry; ValueError for one it cannot name."""
     if entry.startswith(BUTTON_PREFIX):
         backend.button_up(Button(entry[len(BUTTON_PREFIX):]))
-    elif len(entry) == 1:
-        backend.char_up(entry)
+    elif entry.startswith(CHAR_PREFIX) and len(entry) > len(CHAR_PREFIX):
+        backend.char_up(entry[len(CHAR_PREFIX):])
     elif entry:
         backend.key_up(entry)
     else:

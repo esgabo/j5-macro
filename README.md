@@ -6,8 +6,9 @@ Scriptable, debuggable desktop automation for Windows and Linux. Write macros as
 (click, type, wait for an image, branch, loop), run them step by step with breakpoints, and
 let the mouse and keyboard move like a person instead of teleporting.
 
-**Status:** early development. Scripts load, validate and run in dry-run mode; real mouse and
-keyboard input arrives with the backends milestone (M2).
+**Status:** early development. Scripts load, validate and run, with real mouse and keyboard
+input on Linux with an X11 session (`direct` and `linear` movement; human-like movement comes
+in M5, Windows in M6).
 
 ## Design
 
@@ -29,12 +30,16 @@ steps:
   - key: {press: ctrl+s}
 ```
 
-Try it without touching your desktop (input backends arrive in milestone M2):
+Try it:
 
 ```bash
+pip install -e ".[x11]"           # X11 input support on Linux
 j5 validate examples/hello.yaml
-j5 run --dry-run examples/hello.yaml
+j5 run --dry-run examples/hello.yaml   # describes the input, touches nothing
+j5 run examples/hello.yaml             # really clicks and types (X11 session)
 ```
+
+Stop a run at any time with `ctrl+alt+shift+q`, or by pushing the mouse into a screen corner.
 
 ## Layout
 
