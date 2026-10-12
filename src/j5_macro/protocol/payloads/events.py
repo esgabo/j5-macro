@@ -1,4 +1,4 @@
-"""Event payloads (docs/contract.md, "Eventos")."""
+"""Event payloads (docs/contract.md, "Events")."""
 
 from __future__ import annotations
 

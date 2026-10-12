@@ -15,7 +15,7 @@ EXAMPLES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "move": ({"image": "img/a.png"}, {"x": "left"}),
     "drag": ({"from": {"x": 0, "y": 0}, "to": {"image": "img/b.png"}}, {"from": {"x": 0}}),
     "scroll": ({}, {"dy": 1.5}),
-    "type": ({"text": "hola"}, {}),
+    "type": ({"text": "hello"}, {}),
     "key": ({"press": "ctrl+s"}, {"press": "ctrl+s", "hold": "forever"}),
     "wait_image": ({"image": "img/a.png"}, {"image": "img/a.png", "timeout": "soon"}),
     "sleep": ({"duration": "2s±20%"}, {"duration": "2"}),
@@ -180,9 +180,9 @@ def test_set_with_value_and_expr():
 @pytest.mark.parametrize("level", ["debug", "info", "warning", "error"])
 def test_log_levels(level):
     ctx = FakeContext()
-    assert run("log", {"message": "hola", "level": level}, ctx) == {"level": level,
-                                                                     "message": "hola"}
-    assert ctx.calls == [("log", (level, "hola"))]
+    assert run("log", {"message": "hello", "level": level}, ctx) == {"level": level,
+                                                                     "message": "hello"}
+    assert ctx.calls == [("log", (level, "hello"))]
 
 
 def test_log_defaults_to_info_and_rejects_bad_levels():

@@ -1,7 +1,7 @@
 """Message envelope and JSON-lines encoding.
 
 Every message is a single-line JSON object with the common fields defined in
-docs/contract.md ("Transporte y formato de mensajes"). Unknown fields are
+docs/contract.md ("Transport and message format"). Unknown fields are
 ignored on decode so that newer engines never break older clients.
 """
 

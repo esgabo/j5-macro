@@ -87,20 +87,20 @@ def by_id(script: Script) -> dict[str, Step]:
 
 CONTRACT_EXAMPLE = """\
 version: 1
-name: Guardar informe
+name: Save report
 input:
   mouse:    {strategy: human, speed: 1.0}
   keyboard: {strategy: human, wpm: 55}
 vars:
-  nombre: informe_octubre
+  filename: october_report
 steps:
-  - id: abrir_menu
-    click: {image: img/menu_archivo.png, threshold: 0.9}
-  - id: esperar_dialogo
+  - id: open_menu
+    click: {image: img/file_menu.png, threshold: 0.9}
+  - id: wait_dialog
     sleep: {duration: 10s}
     on_error: stop
-  - type: {text: "${nombre}", keyboard: {strategy: direct}}
-  - id: confirmar
+  - type: {text: "${filename}", keyboard: {strategy: direct}}
+  - id: confirm
     break: true
     log: {message: enter}
   - loop:
@@ -109,7 +109,7 @@ steps:
         - if:
             when: {image_visible: img/error.png}
             then:
-              - click: {image: img/reintentar.png}
+              - click: {image: img/retry.png}
               - sleep: 2s
 """
 
@@ -119,33 +119,33 @@ steps:
 
 def test_contract_example_loads() -> None:
     script = ok(CONTRACT_EXAMPLE)
-    assert script.name == "Guardar informe"
+    assert script.name == "Save report"
     assert script.version == 1
     assert script.input == {"mouse": {"strategy": "human", "speed": 1.0},
                             "keyboard": {"strategy": "human", "wpm": 55}}
-    assert script.vars == {"nombre": "informe_octubre"}
+    assert script.vars == {"filename": "october_report"}
     assert script.text == CONTRACT_EXAMPLE
     assert script.source_path is None
 
     rows = [(s.id, s.type, s.line, s.path) for s in script.walk()]
     assert rows == [
-        ("abrir_menu", "click", 9, (0,)),
-        ("esperar_dialogo", "sleep", 11, (1,)),
+        ("open_menu", "click", 9, (0,)),
+        ("wait_dialog", "sleep", 11, (1,)),
         ("type_1", "type", 14, (2,)),
-        ("confirmar", "log", 15, (3,)),
+        ("confirm", "log", 15, (3,)),
         ("loop_1", "loop", 18, (4,)),
         ("if_1", "if", 21, (4, 0, 0)),
         ("click_2", "click", 24, (4, 0, 0, 0, 0)),
         ("sleep_2", "sleep", 25, (4, 0, 0, 0, 1)),
     ]
     steps = by_id(script)
-    assert steps["abrir_menu"].params == {"image": "img/menu_archivo.png", "threshold": 0.9,
+    assert steps["open_menu"].params == {"image": "img/file_menu.png", "threshold": 0.9,
                                           "button": "left"}
-    assert steps["esperar_dialogo"].on_error == "stop"
-    assert steps["type_1"].params == {"text": "${nombre}",
+    assert steps["wait_dialog"].on_error == "stop"
+    assert steps["type_1"].params == {"text": "${filename}",
                                       "keyboard": {"strategy": "direct"}}
-    assert steps["confirmar"].breakpoint is True
-    assert steps["confirmar"].params == {"message": "enter", "level": "info"}
+    assert steps["confirm"].breakpoint is True
+    assert steps["confirm"].params == {"message": "enter", "level": "info"}
     assert steps["loop_1"].params == {"times": 3}
     assert list(steps["loop_1"].blocks) == ["do"]
     assert steps["if_1"].params == {"when": {"image_visible": "img/error.png"}}
@@ -171,13 +171,13 @@ def test_shorthand_forms() -> None:
 steps:
   - sleep: 2s
   - sleep: 1.5
-  - log: hola
+  - log: hello
   - log: {message: hi, level: debug}
 """)
     assert [s.params for s in script.steps] == [
         {"duration": "2s"},
         {"duration": 1.5},
-        {"message": "hola", "level": "info"},
+        {"message": "hello", "level": "info"},
         {"message": "hi", "level": "debug"},
     ]
 
@@ -237,14 +237,14 @@ def test_unicode_text() -> None:
     script = ok("""\
 name: Configuración rápida
 vars:
-  saludo: "¡Hola, señor Muñoz!"
+  greeting: "¡Hola, señor Muñoz!"
 steps:
   # comentario con tildes: acción
   - id: escribir
     type: {text: "año, acción, pingüino"}
 """)
     assert script.name == "Configuración rápida"
-    assert script.vars == {"saludo": "¡Hola, señor Muñoz!"}
+    assert script.vars == {"greeting": "¡Hola, señor Muñoz!"}
     assert script.steps[0].params["text"] == "año, acción, pingüino"
     assert script.steps[0].line == 6
 
@@ -421,7 +421,7 @@ steps:
 
 
 def test_explicit_ids_mean_no_warnings() -> None:
-    script = ok("steps:\n  - id: uno\n    sleep: 1s\n")
+    script = ok("steps:\n  - id: one\n    sleep: 1s\n")
     assert script.warnings == []
 
 

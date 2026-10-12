@@ -1,5 +1,5 @@
-"""The step registry: the single source of step types (docs/contract.md, "Registro de
-pasos").
+"""The step registry: the single source of step types (docs/contract.md, "Script
+format and step registry").
 
 Validation, ``list_step_types``, the editor JSON Schema and future GUI forms all come
 from it. Third-party packages add steps through the ``j5_macro.steps`` entry-point group.

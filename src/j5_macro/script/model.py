@@ -1,4 +1,4 @@
-"""In-memory model of a loaded script (docs/contract.md, "Formato de script").
+"""In-memory model of a loaded script (docs/contract.md, "Script format and step registry").
 
 The loader builds it from YAML; the interpreter only ever reads it. Both sides depend
 on this module and nothing else, which keeps them decoupled.

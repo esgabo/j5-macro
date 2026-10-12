@@ -5,6 +5,7 @@
 - The engine core never prints or reads stdin directly: all output is a protocol event.
 - Backends expose primitives only; human-like behaviour belongs in `j5_macro.input`.
 - Input planning must be a pure, seeded function that is testable without a display.
-- Code, identifiers and commit messages in English; the design docs are in Spanish.
+- Everything in the repo is in English: code, identifiers, comments, docstrings, docs,
+  test data, commit messages, issues and PRs. The project is meant to be open source.
 - Before pushing: `ruff check . && mypy && pytest`.
 - Supported in v1: Windows and Linux with an X11 session (tested on XFCE). Wayland comes later.

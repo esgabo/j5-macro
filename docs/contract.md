@@ -1,44 +1,44 @@
-# j5-macro: contrato de comandos y eventos
+# j5-macro: command and event contract
 
-> Fuente de verdad del diseño. Cualquier cambio de protocolo se refleja aquí primero.
+> The source of truth for the design. Any protocol change lands here first, in the same pull request.
 
-## Objetivo y reglas de diseño
+## Goals and design rules
 
-El núcleo de j5-macro no sabe quién lo usa: recibe comandos, emite eventos, y todo lo demás (CLI, GUI, depurador) es un cliente de ese contrato.
+The j5-macro core does not know who is using it: it receives commands and emits events, and everything else (CLI, GUI, debugger) is a client of that contract.
 
-Este documento fija el contrato antes de escribir código. Alcance de la v1: Windows y Linux con sesión X11, probado en XFCE. Wayland queda como backend experimental posterior.
+Scope of v1: Windows, and Linux with an X11 session (tested on XFCE). Wayland comes later as an experimental backend.
 
-1. **Sin UI en el núcleo.** Nada de `print`, `input()` ni diálogos: toda salida es un evento.
-2. **Todo es serializable.** Comandos y eventos son JSON, con el mismo esquema dentro de un proceso y entre procesos.
-3. **El motor corre en un proceso aparte.** Los clientes nunca comparten su bucle de eventos, así una GUI no se congela ni compite con el motor que controla el mouse.
-4. **Lo que una GUI necesite, está en el contrato.** Pasos con id estable, trayectorias planificadas, puntaje de las coincidencias de imagen, variables.
-5. **Reproducible.** Cada ejecución lleva una semilla, que queda registrada en los eventos.
-6. **Seguro al abortar.** Detener la macro libera todas las teclas y botones presionados, y existe una tecla global de emergencia.
-7. **Los pasos se describen a sí mismos.** Cada tipo de paso declara parámetros, tipos y documentación; de ahí salen el JSON Schema y los formularios de la GUI.
+1. **No UI in the core.** No `print`, `input()` or dialogs: all output is an event.
+2. **Everything is serializable.** Commands and events are JSON, with the same schema inside a process and between processes.
+3. **The engine runs in its own process.** Clients never share its event loop, so a GUI never freezes and never competes with the engine that drives the mouse.
+4. **Whatever a GUI needs is in the contract.** Steps with stable ids, planned trajectories, image-match scores, variables.
+5. **Reproducible.** Every run has a seed, recorded in its events.
+6. **Safe to abort.** Stopping a macro releases every held key and button, and there is a global emergency key.
+7. **Steps describe themselves.** Each step type declares its parameters, types and documentation; the JSON Schema and the GUI forms are generated from that.
 
-## Arquitectura de procesos y capas
+## Process and layer architecture
 
 ```mermaid
 flowchart TB
-  subgraph Clientes
-    CLI["CLI<br/>run, --step, --dry-run"]
-    GUI["GUI futura<br/>editor, ejecución, depuración"]
-    DAP["Depurador DAP<br/>VS Code sobre el YAML"]
+  subgraph Clients
+    CLI["CLI<br/>run, validate, --dry-run"]
+    GUI["Future GUI<br/>editor, runs, debugging"]
+    DAP["DAP debugger<br/>VS Code on the YAML"]
   end
-  C{{"Contrato: comandos hacia el motor, eventos hacia los clientes"}}
+  C{{"Contract: commands to the engine, events to the clients"}}
   CLI <--> C
   GUI <--> C
   DAP <--> C
-  subgraph Motor["Motor (proceso aparte)"]
-    I["Intérprete y depurador<br/>pasos, bloques, variables"]
-    R["Registro de pasos<br/>esquema de cada tipo de paso"]
-    V["Visión<br/>captura y coincidencia de imágenes"]
-    M["Mouse master<br/>direct, linear o human"]
-    K["Keyboard master<br/>direct, linear o human"]
-    B[["Interfaz de backend<br/>elegida por tipo de sesión"]]
-    BW["Backend Windows<br/>v1"]
-    BX["Backend X11<br/>v1, probado en XFCE"]
-    BL["Backend Wayland<br/>experimental, tras la v1"]
+  subgraph Engine["Engine (separate process)"]
+    I["Interpreter and debugger<br/>steps, blocks, variables"]
+    R["Step registry<br/>schema of every step type"]
+    V["Vision<br/>capture and image matching"]
+    M["Mouse master<br/>direct, linear or human"]
+    K["Keyboard master<br/>direct, linear or human"]
+    B[["Backend interface<br/>chosen by session type"]]
+    BW["Windows backend<br/>v1"]
+    BX["X11 backend<br/>v1, tested on XFCE"]
+    BL["Wayland backend<br/>experimental, after v1"]
     I --> M
     I --> K
     M --> B
@@ -47,115 +47,117 @@ flowchart TB
     B --> BX
     B --> BL
   end
-  C <--> Motor
+  C <--> Engine
 ```
 
-El motor corre en su propio proceso: CLI, GUI y depurador solo envían comandos y reciben eventos, y los masters de entrada llegan al sistema únicamente por la interfaz de backend, que se elige según el tipo de sesión.
+The engine runs in its own process: the CLI, the GUI and the debugger only send commands and receive events, and the input masters reach the system only through the backend interface, chosen by session type.
 
-## Transporte y formato de mensajes
+## Transport and message format
 
-Cada mensaje es un objeto JSON en una sola línea (JSON-lines), idéntico por stdio, socket local o llamada en proceso.
+Every message is a JSON object on a single line (JSON Lines), identical over stdio, a local socket or an in-process call.
 
-| Campo | Tipo | Descripción |
+| Field | Type | Description |
 | --- | --- | --- |
-| `v` | entero | Versión del esquema; empieza en 1 y sube solo con cambios incompatibles |
-| `kind` | `command` \| `response` \| `event` | Dirección y rol del mensaje |
-| `type` | texto | Nombre, por ejemplo `run` o `step_started` |
-| `id` | texto | Comandos y respuestas: id de correlación elegido por el cliente |
-| `run_id` | texto o `null` | Eventos: identifica la ejecución; `null` en eventos del motor fuera de una ejecución (`ready`, `log`, `script_changed`) |
-| `seq` | entero | Eventos: contador sin saltos, uno por ejecución y otro para los eventos del motor |
-| `ts` | texto | Hora UTC en ISO 8601 con milisegundos; solo para mostrar |
-| `t_ms` | entero | Eventos: milisegundos de reloj monotónico desde el inicio de la ejecución o del motor. Es la referencia para medir y reproducir, porque no salta si cambia la hora del sistema |
-| `payload` | objeto | Contenido específico del `type` |
+| `v` | integer | Schema version; starts at 1 and only increases on incompatible changes |
+| `kind` | `command` \| `response` \| `event` | Direction and role of the message |
+| `type` | string | Name, e.g. `run` or `step_started` |
+| `id` | string | Commands and responses: correlation id chosen by the client |
+| `run_id` | string or `null` | Events: the run; `null` for engine events outside any run (`ready`, `log`, `script_changed`) |
+| `seq` | integer | Events: gap-free counter, one per run plus one for engine events |
+| `ts` | string | UTC time, ISO 8601 with milliseconds; for display only |
+| `t_ms` | integer | Events: milliseconds on a monotonic clock since the start of the run or the engine. The reference for timing and replay, since it never jumps when the system clock changes |
+| `payload` | object | Content specific to the `type` |
 
-Ejemplo de evento:
+Example event:
 
 ```json
-{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-0001","seq":14,"ts":"2026-10-12T10:15:03.412Z","t_ms":5120,"payload":{"step_id":"abrir_menu","path":[0,2],"line":12}}
+{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-151051-d36f","seq":14,"ts":"2026-10-12T15:10:53.412Z","t_ms":2120,"payload":{"step_id":"open_menu","path":[0],"line":9,"type":"click","params":{"x":120,"y":40}}}
 ```
 
-Reglas:
+Rules:
 
-- **Comando y respuesta.** El cliente envía un comando con `id`; el motor responde con `kind: response`, el mismo `id` y `ok: true` con `result`, o `ok: false` con `error` (ver códigos al final).
-- **Eventos sin acuse.** El motor los emite en orden. Si el cliente nota un salto en `seq`, pide los faltantes con `get_events`.
-- **Saludo inicial.** El motor emite `ready` al arrancar. Luego el cliente envía `hello` con el rango de versiones que entiende, y el motor responde con la versión elegida y sus capacidades: backend activo, estrategias de entrada disponibles y tipos de paso registrados. Cualquier otro comando antes de `hello` responde `invalid_state` con `details.reason: hello_required`.
-- **Sin binarios en los mensajes.** Capturas y recortes se guardan en `runs/<run_id>/` y el evento lleva la ruta relativa.
-- **Compatibilidad.** Los campos desconocidos se ignoran. Un cliente nunca debe fallar por un evento o campo nuevo. Los campos opcionales con valor `null` se omiten al serializar, así que omitido y `null` significan lo mismo.
-- **Líneas inválidas.** Una línea que no es un comando válido no puede responderse (no tiene `id` confiable): el motor emite un evento `log` de nivel `error` y sigue.
-- **El cliente supervisa al motor.** Si el proceso del motor muere, el cliente que lo lanzó suelta las teclas y botones que el último evento `input_state` reportaba retenidos, y lo informa.
-- **Canales.** v1: stdio, con el cliente lanzando el motor como subproceso. Después: socket Unix o *named pipe* en Windows para un motor persistente, y WebSocket si hace falta una GUI web. Como esos canales permiten inyectar entrada, solo aceptan al mismo usuario (permisos del socket) y exigen un token entregado al lanzar el motor.
+- **Command and response.** The client sends a command with an `id`; the engine answers with `kind: response`, the same `id`, and either `ok: true` with `result` or `ok: false` with `error` (see the codes at the end).
+- **Events are not acknowledged.** The engine emits them in order. If a client sees a gap in `seq`, it fetches the missing ones with `get_events`.
+- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend, available input strategies and registered step types. Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
+- **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
+- **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
+- **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
+- **The client supervises the engine.** If the engine process dies, the client that started it releases the keys and buttons the last `input_state` event reported as held, and says so.
+- **Ctrl+C.** In a terminal, Ctrl+C reaches every process of the console. The engine ignores SIGINT when serving stdio: the client decides what Ctrl+C means (the CLI sends `stop`), and the engine ends when its stdin closes. On end of input with a run active, the engine stops the run, waits up to 5 s for `run_finished`, and exits with code 0.
+- **Channels.** v1: stdio, with the client starting the engine as a subprocess (`python -m j5_macro.engine [--runs-dir DIR]`). Later: a Unix socket or a Windows named pipe for a long-lived engine, and WebSocket if a web GUI needs it. Since those channels can inject input, they only accept the same user (socket permissions) and require a token handed over when the engine starts.
 
-## Comandos
+## Commands
 
-Hay 16 comandos de ejecución y depuración; los de gestión de scripts están en su propia sección. Los de control (pausa, pasos, variables) solo valen con una ejecución activa y devuelven `not_running` si no la hay.
+There are 16 execution and debugging commands; script management commands have their own section. Control commands (pause, stepping, variables) only apply to an active run and return `not_running` otherwise.
 
-| Comando | Payload | Resultado y notas |
+| Command | Payload | Result and notes |
 | --- | --- | --- |
-| `hello` | `v_min`, `v_max`, `client` | `v` elegida y capacidades (backend, estrategias de entrada, pasos registrados) |
-| `list_step_types` | — | Registro de pasos: nombre, parámetros, tipos, valores por defecto, documentación y JSON Schema |
-| `load` | `path` o `source` | `script_id` y el árbol de pasos con sus ids; `warnings` si hay ids generados |
-| `validate` | `script_id` | `ok` y lista de errores con `step_id`, `line`, `code`, `message` |
-| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `vars?`, `seed?`, `input_profile?`, `captures?` (`on_failure` por defecto, o `all`) | `run_id`. En `step` arranca pausada antes del primer paso. Si ya hay otra ejecución activa responde `busy` |
-| `pause` | `run_id` | Se aplica en la siguiente acción atómica: nunca corta un movimiento ni una secuencia de teclas, pero sí interrumpe esperas (`sleep`, `wait_image`), que siguen con el tiempo restante al reanudar |
-| `resume` | `run_id` | Continúa hasta el siguiente breakpoint o el final |
-| `step_over` | `run_id` | Ejecuta el paso actual completo, bloques incluidos, y pausa en el siguiente del mismo nivel |
-| `step_into` | `run_id` | Entra al primer paso del bloque (`loop`, `if`); en un paso simple equivale a `step_over` |
-| `step_out` | `run_id` | Termina el bloque actual y pausa justo después |
-| `stop` | `run_id`, `reason?` | Aborta de inmediato, libera teclas y botones, emite `run_finished` con `status: stopped` |
-| `set_breakpoints` | `script_id`, `step_ids` | Reemplaza los breakpoints puestos por clientes; vale para ejecuciones nuevas y en curso. Los `break: true` del script se suman y solo se quitan editando el script |
-| `get_state` | `run_id` | Estado, paso actual, ruta de bloques anidados y variables |
-| `set_variable` | `run_id`, `name`, `value` | Solo en pausa |
-| `evaluate` | `run_id`, `expression` | Valor de una expresión sobre las variables; solo en pausa |
-| `get_events` | `run_id?`, `from_seq` | Devuelve en `result.events` los eventos con `seq >= from_seq`, sin reemitirlos; se usa al detectar un salto. `run_id` omitido o `null` pide el flujo del motor, del que se guardan los últimos 1000 eventos |
+| `hello` | `v_min`, `v_max`, `client` | Chosen `v` and capabilities (backend, input strategies, registered steps) |
+| `list_step_types` | — | The step registry: name, parameters, types, defaults, documentation and JSON Schema |
+| `load` | `path` or `source` | `script_id` (`s1`, `s2`, ...), the step tree with its ids, and `warnings`. On failure, the error code is the first problem's code and `details` holds `errors` (all of them) and `warnings` |
+| `validate` | `script_id` | `ok`, `errors` and `warnings`. Re-reads a script loaded from a path, so it reports the file as it is now; never replaces the loaded script |
+| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `vars?`, `seed?`, `input_profile?`, `captures?` (`on_failure` by default, or `all`) | `run_id`. The engine emits `run_started` before answering. In `step` mode the run starts paused before the first step. If another run is active the answer is `busy` |
+| `pause` | `run_id` | Applies at the next atomic action: never cuts a movement or a key sequence in half, but does interrupt waits (`sleep`, `wait_image`), which continue with the remaining time on resume |
+| `resume` | `run_id` | Continues until the next breakpoint or the end |
+| `step_over` | `run_id` | Runs the current step completely, blocks included, and pauses at the next step at the same depth or shallower |
+| `step_into` | `run_id` | Pauses at the very next step, entering blocks (`loop`, `if`); on a simple step it is the same as `step_over` |
+| `step_out` | `run_id` | Finishes the current block and pauses right after it; at the top level it runs to the end or the next breakpoint |
+| `stop` | `run_id`, `reason?` (`user` or `interference`) | Aborts immediately, releases keys and buttons, emits `run_finished` with `status: stopped` |
+| `set_breakpoints` | `script_id`, `step_ids` | Replaces the client breakpoints of a script; applies to new runs and to the active run of that script. `break: true` steps in the script are added on top and only go away by editing the script. Unknown `script_id` → `script_not_found` |
+| `get_state` | `run_id` | State, current step, its path, line and the variables |
+| `set_variable` | `run_id`, `name`, `value` | Only while paused |
+| `evaluate` | `run_id`, `expression` | `value` of an expression over the variables; only while paused |
+| `get_events` | `run_id?`, `from_seq` | Returns in `result.events` the events with `seq >= from_seq`, without re-emitting them; used after a gap. Omitted or `null` `run_id` means the engine stream, of which the last 1000 events are kept. Run events are kept for the last 20 runs of the engine session |
 
-Reglas de diseño:
+Design rules:
 
-- **Pausa en la siguiente acción atómica, parada inmediata.** `pause` y los `step_*` nunca dejan el cursor o una tecla a medias, pero tampoco esperan a que termine un `loop` o un `sleep` largo: el motor responde en lo que dura una acción. `stop` interrumpe incluso a mitad de un movimiento, y el motor libera todo lo presionado antes de responder.
-- **Una ejecución a la vez.** Hay un solo mouse y un solo teclado, así que `run` con otra ejecución activa responde `busy`.
-- **Un solo controlador.** En la v1 solo un cliente puede enviar comandos de control sobre una ejecución; los demás clientes, si los hay, solo reciben eventos.
+- **Pause at the next atomic action, stop immediately.** `pause` and the `step_*` commands never leave the cursor or a key half-way, but they do not wait for a `loop` or a long `sleep` to end either: the engine reacts within one action. `stop` interrupts even in the middle of a movement, and the engine releases everything held before answering.
+- **One run at a time.** There is one mouse and one keyboard, so `run` while another run is active answers `busy`.
+- **One controller.** In v1 only one client may send control commands for a run; other clients, if any, only receive events.
 
-## Eventos
+## Events
 
-Los eventos describen todo lo que hace el motor, así que un depurador o una GUI se construyen solo escuchándolos. Todos llevan los campos comunes (`run_id`, `seq`, `ts`, `t_ms`); los de paso agregan `step_id`, `path` (posición estática en el árbol), `iterations` (vuelta actual de cada `loop` que lo contiene, del más externo al más interno) y `line`.
+Events describe everything the engine does, so a debugger or a GUI is built by listening to them. They all carry the common fields (`run_id`, `seq`, `ts`, `t_ms`). Step events add `step_id`, `path` (static position in the tree, see the script format), `iterations` (current iteration of each enclosing `loop`, outermost first; omitted outside loops) and `line`. Loop indices are 0-based.
 
-| Evento | Cuándo | Payload |
+| Event | When | Payload |
 | --- | --- | --- |
-| `ready` | Al arrancar el motor, sin `run_id` | `v`, `backend`, `capabilities` |
-| `script_changed` | Un script cambió en disco o por `edit_script`, sin `run_id` | `script_id`, `version`, `source` (`disk` o `edit`) |
-| `run_started` | Al iniciar | `script_id`, `mode`, `seed`, `backend`, `input_profile` |
-| `state_changed` | Cada cambio de estado | `state` (`running`, `paused`, `stopping`), `reason` (`breakpoint`, `step`, `user`, `error`, `interference`) |
-| `run_finished` | Al terminar | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
-| `step_started` | Antes de ejecutar un paso, antes de cualquier efecto | `step_id`, `type`, `params` ya resueltos con las variables |
-| `step_finished` | Al completar el paso | `step_id`, `duration_ms`, `result` |
-| `step_skipped` | Paso omitido por el usuario o por una condición | `step_id`, `reason` |
-| `step_failed` | Error o *timeout* en un paso | `step_id`, `error` (`code`, `message`), `screenshot?` |
-| `breakpoint_hit` | Se alcanza un breakpoint | `step_id` |
-| `branch_taken` | Después de evaluar un `if` | `step_id`, `condition`, `value`, `branch` (`then` o `else`) |
-| `loop_iteration` | Al empezar cada vuelta | `step_id`, `index`, `total?` |
-| `variable_changed` | Una variable cambia | `name`, `old`, `new`, `step_id` |
-| `image_search` | Cada intento de búsqueda de imagen | `template`, `threshold`, `found`, `best_score`, `bbox?`, `region`, `attempt`, `elapsed_ms`, `screenshot?` (ruta; por defecto solo en el último intento fallido) |
-| `input_planned` | El master de entrada terminó de planificar | `device` (`mouse` o `keyboard`), `strategy`, `seed`, resumen (`from`, `to`, `duration_ms` o `chars`, `wpm`), `plan_ref` (ruta al JSON con los puntos o las pulsaciones) |
-| `input_executed` | Terminó de ejecutarse | `device`, `actual_duration_ms`, `aborted` |
-| `input_state` | Cambia el conjunto de teclas o botones retenidos | `held` (lista); el cliente lo usa para soltarlos si el motor muere |
-| `user_interference` | El usuario movió el mouse durante un movimiento planificado (solo mouse en la v1) | `expected`, `actual`, `action` (`pause` o `stop`) |
-| `keys_released` | Se soltaron teclas o botones pendientes | `keys`, `reason` |
-| `log` | Mensaje libre, incluido el paso `log:` del script | `level`, `message`, `step_id?` |
-| `trigger_fired` | Reservado para la etapa de disparadores | `trigger_id`, `kind` |
+| `ready` | When the engine starts, no `run_id` | `v`, `backend`, `capabilities` |
+| `script_changed` | A script changed on disk or through `edit_script`, no `run_id` | `script_id`, `version`, `source` (`disk` or `edit`) |
+| `run_started` | First event of a run | `script_id`, `mode`, `seed` (generated when the client gave none), `backend` (`none` until a backend exists), `input_profile` |
+| `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
+| `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
+| `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved |
+| `step_finished` | When the step completes | `step_id`, `duration_ms` (time spent paused excluded), `result` |
+| `step_skipped` | A step was skipped | `step_id`, `reason` (`user`) |
+| `step_failed` | Error or timeout in a step | `step_id`, `error` (`code`, `message`, `details.attempt`), `screenshot?` |
+| `breakpoint_hit` | A breakpoint is reached, before the step runs | `step_id` |
+| `branch_taken` | After an `if` is evaluated | `step_id`, `condition`, `value` (boolean), `branch` (`then` or `else`) |
+| `loop_iteration` | At the start of each iteration | `step_id`, `index`, `total?` |
+| `variable_changed` | A variable changes | `name`, `old` (`null` for a new variable), `new`, `step_id?` (absent when set by `set_variable`) |
+| `image_search` | Each image search attempt | `template`, `threshold`, `found`, `best_score`, `bbox?`, `region`, `attempt`, `elapsed_ms`, `screenshot?` (path; by default only on the last failed attempt) |
+| `input_planned` | An input master finished planning | `device` (`mouse` or `keyboard`), `strategy`, `seed`, summary (`from`, `to`, `duration_ms` or `chars`, `wpm`), `plan_ref` (path to the JSON with the points or key events) |
+| `input_executed` | Input finished | `device`, `actual_duration_ms`, `aborted` |
+| `input_state` | The set of held keys or buttons changed | `held` (list); used by the client to release them if the engine dies |
+| `user_interference` | The user moved the mouse during a planned movement (mouse only in v1) | `expected`, `actual`, `action` (`pause` or `stop`) |
+| `keys_released` | Pending keys or buttons were released | `keys`, `reason` |
+| `log` | Free text, including the script's `log:` step | `level`, `message`, `step_id?` |
+| `trigger_fired` | Reserved for the triggers milestone | `trigger_id`, `kind` |
 
-Reglas de emisión:
+Emission rules:
 
-- **`step_started` sale antes de actuar.** La GUI puede resaltar el paso y mostrar la trayectoria planificada antes de que el cursor se mueva.
-- **Orden estricto por `seq`.** `step_started` precede a todo lo que ocurra dentro del paso y `step_finished` o `step_failed` lo cierra.
-- **Detalles pesados por referencia.** Capturas, recortes y listas de puntos se guardan en `runs/<run_id>/` y el evento solo lleva la ruta.
-- **Un evento nuevo no rompe a nadie.** Los clientes ignoran los tipos que no conocen.
+- **`step_started` comes before acting.** A GUI can highlight the step and show the planned trajectory before the cursor moves.
+- **Strict order by `seq`.** `step_started` precedes everything that happens inside the step, and `step_finished` or `step_failed` closes it.
+- **Blocks wrap their children.** `if` and `loop` emit `step_started` before their children and `step_finished` after them, with results `{branch}` and `{iterations}`.
+- **Heavy details by reference.** Screenshots, crops and point lists are saved under the run's directory and the event only carries the path.
+- **A new event breaks nobody.** Clients ignore types they do not know.
 
-## Estados y semántica de la depuración
+## Run states and debugging semantics
 
 ```mermaid
 stateDiagram-v2
-  [*] --> running: run (normal)
+  [*] --> running: run (normal, dry)
   [*] --> paused: run (step)
-  running --> paused: pause, breakpoint, fin de step, on_error pause, interferencia
+  running --> paused: pause, breakpoint, end of a step command, pause step, on_error pause, interference
   paused --> running: resume, step_over/into/out
   running --> stopping: stop
   paused --> stopping: stop
@@ -164,106 +166,114 @@ stateDiagram-v2
   finished --> [*]
 ```
 
-Una ejecución nace en `running` (modo normal) o en `paused` (modo paso a paso) y siempre termina en `finished`; `stop` (o una interferencia configurada para detener) es el único camino que interrumpe, y pasa por `stopping` para soltar teclas y botones antes de cerrar.
+A run starts in `running` (normal and dry modes) or `paused` (step mode) and always ends in `finished`. `stop`, or an interference configured to stop, is the only way to interrupt it, and goes through `stopping` to release keys and buttons before closing.
 
-**Semántica de los pasos con bloques anidados:**
+**Stepping.** Depth is the number of nested step lists (the top level is depth 1). A step command given while paused at depth `d`:
 
-- `step_over` sobre un `loop` ejecuta todas sus vueltas y pausa en el paso que sigue al bloque; sobre un `if`, ejecuta la rama elegida completa.
-- `step_into` sobre un `loop` o un `if` pausa en el primer paso del bloque (en un `if`, de la rama elegida).
-- `step_out` termina el bloque actual, incluidas las vueltas que queden, y pausa justo después.
-- Todos los `step_*` pasan por `running` y vuelven a `paused`, así una GUI siempre sabe cuándo el motor está actuando.
-- Un breakpoint dentro de un `loop` se dispara en cada vuelta.
-- Un paso que falla con `on_error: continue` o `retry` no cambia el estado; con `pause` pasa a `paused` para inspeccionar y reintentar; con `stop`, la ejecución pasa a `finished` con `status: failed`.
-- Una interferencia del usuario lleva a `paused` o a `stopping` según el perfil; en el segundo caso termina con `status: stopped` y `reason: interference`.
-- En modo `dry` no se envía entrada y cada búsqueda de imagen se hace una sola vez: informa el resultado y sigue, porque sin clics la pantalla no cambia y una espera fallaría siempre.
+- `step_over` pauses at the next step at depth `d` or shallower. Over a `loop` it runs all iterations; over an `if` it runs the chosen branch. On the last step of a loop body, the next step is the first one of the next iteration.
+- `step_into` pauses at the very next step, entering blocks (for an `if`, the chosen branch).
+- `step_out` pauses at the next step shallower than `d`, finishing the current block including its remaining iterations. At the top level it runs to the end or the next breakpoint.
+- Every step command goes `paused → running → paused` with `state_changed` events (reason `step`), so a GUI always knows when the engine is acting. `resume` goes to `running` with reason `user`.
 
-**Secuencia de mensajes** de un `step_over` desde el modo paso a paso (notación abreviada; → cliente, ← motor):
+**Breakpoints and pauses.**
+
+- Breakpoints are the client's plus the script's `break: true` steps. The engine emits `breakpoint_hit` and pauses (reason `breakpoint`) before the step runs; after continuing, the step runs without triggering the same breakpoint again. Inside a `loop` a breakpoint fires on every iteration.
+- A `pause:` step pauses right after it finishes, with reason `breakpoint`.
+- Breakpoints and `pause:` steps also pause runs in `normal` mode. What happens next is the client's choice: the CLI asks for Enter when it runs in a terminal, and otherwise resumes on its own and says so.
+
+**Errors.** A step that fails with `on_error: continue` logs the error and moves on. `retry` makes up to 3 attempts in total (each failure emits `step_failed` with `details.attempt`), then behaves like `stop`. `pause` emits `step_failed` and pauses with reason `error`: `resume` retries the step, `step_over` skips it (`step_skipped`, reason `user`). `stop` ends the run with `status: failed`.
+
+**Interference.** User interference leads to `paused` or `stopping`, depending on the input profile; in the second case the run ends with `status: stopped` and `reason: interference`.
+
+**Dry runs.** In `dry` mode no input is sent: input steps describe what they would do (`step_finished.result` holds `dry_run: true` and a `description`, plus an info `log`). Each image search runs once, reports and moves on, since without clicks the screen never changes and a wait would always fail; image conditions evaluate to false with a warning. `while` loops are capped at 1000 iterations with a warning. Everything else (variables, loops, branches, logs, sleeps) runs as usual.
+
+**Message sequence** of a `step_over` in step mode (abbreviated; → client, ← engine):
 
 ```
 → run {script_id: s1, mode: step}
-← response ok {run_id: r-1}
 ← run_started                              seq 1
+← response ok {run_id: r-1}
 ← state_changed paused (reason: step)      seq 2
 → step_over {run_id: r-1}
 ← state_changed running (reason: step)     seq 3
-← step_started abrir_menu                  seq 4
+← step_started open_menu                   seq 4
 ← image_search found                       seq 5
 ← input_planned mouse, human               seq 6
 ← input_executed mouse                     seq 7
-← step_finished abrir_menu                 seq 8
+← step_finished open_menu                  seq 8
 ← state_changed paused (reason: step)      seq 9
 ```
 
-## Masters de mouse y teclado
+## Mouse and keyboard masters
 
-Hay un solo master por dispositivo, y él decide *cómo* se mueve el mouse o se escribe; el backend solo sabe ejecutar primitivas. Toda la conducta "humana" vive en el master y es idéntica en cualquier sistema operativo.
+There is one master per device, and it decides *how* the mouse moves or the text is typed; the backend only knows how to execute primitives. All human-like behaviour lives in the master and is identical on every operating system.
 
-**Interfaz del backend** (lo único que cambia por plataforma):
+**Backend interface** (the only part that changes per platform):
 
-| Primitiva | Notas |
+| Primitive | Notes |
 | --- | --- |
-| `pointer_position()` | Posición real del cursor, punto de partida de cada movimiento. Opcional: en Wayland no siempre se puede leer, y sin ella no hay detección de interferencia |
-| `move_abs(x, y)` o `move_rel(dx, dy)` | El backend declara cuál soporta; en Wayland con uinput suele ser solo relativo |
-| `button_down(b)`, `button_up(b)`, `scroll(dx, dy)` | Botones y rueda |
-| `key_down(k)`, `key_up(k)` | Teclas físicas; sirven para atajos y modificadores |
-| `char_down(c)`, `char_up(c)` | Presiona y suelta un carácter sin depender de la distribución del teclado (ñ, tildes, teclas muertas, símbolos). Van separados para que el perfil `human` controle cuánto dura cada pulsación |
-| `capabilities` | Qué de lo anterior existe; el master se adapta |
+| `pointer_position()` | Real cursor position, the starting point of every movement. Optional: Wayland cannot always report it, and without it there is no interference detection |
+| `move_abs(x, y)` or `move_rel(dx, dy)` | The backend declares which it supports; Wayland with uinput is usually relative only |
+| `button_down(b)`, `button_up(b)`, `scroll(dx, dy)` | Buttons and wheel |
+| `key_down(k)`, `key_up(k)` | Physical keys, for shortcuts and modifiers |
+| `char_down(c)`, `char_up(c)` | Press and release a character regardless of the keyboard layout (ñ, accents, dead keys, symbols). Separate calls so the `human` profile controls how long each key is held |
+| `capabilities` | Which of the above exist; the master adapts |
 
-**Planificar y luego ejecutar.** Cada acción de entrada pasa por tres fases:
+**Plan, then execute.** Every input action goes through three phases:
 
-1. **Plan.** Una función pura y con semilla produce la lista de puntos con tiempos (`t_ms`, `x`, `y`) o de pulsaciones (`t_ms`, `key`, `down` o `up`). No toca el sistema, así que se prueba sin pantalla. Se emite `input_planned`.
-2. **Ejecución.** Se recorre el plan con reloj monotónico: la posición se calcula según el tiempo transcurrido, no con pausas fijas, para que el error no se acumule y el movimiento dure lo planificado.
-3. **Cierre.** Se emite `input_executed` con la duración real.
+1. **Plan.** A pure, seeded function produces the timed points (`t_ms`, `x`, `y`) or key events (`t_ms`, `key`, `down` or `up`). It does not touch the system, so it is testable without a display. `input_planned` is emitted.
+2. **Execute.** The plan is replayed against a monotonic clock: the position is computed from the elapsed time, not from fixed sleeps, so errors never accumulate and the movement lasts what was planned.
+3. **Close.** `input_executed` is emitted with the actual duration.
 
-**Estrategias:**
+**Strategies:**
 
-| Estrategia | Mouse | Teclado |
+| Strategy | Mouse | Keyboard |
 | --- | --- | --- |
-| `direct` | Salta al destino | Escribe todo el texto de una vez |
-| `linear` | Interpolación recta a velocidad constante | Intervalo fijo entre teclas |
-| `human` | Curva con desviaciones al azar (Bézier o WindMouse), velocidad en campana, destino gaussiano dentro del objetivo, sobrepaso ocasional con corrección, microtemblor | Intervalos log-normales según WPM, pausas más largas tras espacios y puntuación, duración de pulsación variable con leve solapamiento |
+| `direct` | Jumps to the target | Types the whole text at once |
+| `linear` | Straight interpolation at constant speed | Fixed interval between keys |
+| `human` | Curve with random deviations (Bézier or WindMouse), bell-shaped speed, Gaussian target inside the matched area, occasional overshoot and correction, micro-jitter | Log-normal intervals from the WPM, longer pauses after spaces and punctuation, variable hold time with slight overlap |
 
-**Parámetros del perfil de entrada:**
+**Input profile parameters:**
 
-| Dispositivo | Parámetro | Significado |
+| Device | Parameter | Meaning |
 | --- | --- | --- |
-| Mouse | `strategy`, `speed` | Estrategia y multiplicador de velocidad (1.0 = normal) |
-| Mouse | `overshoot`, `jitter` | Probabilidad de sobrepasar (0 a 1) y amplitud del temblor en píxeles |
-| Mouse | `interference`, `tolerance` | Acción ante interferencia (`pause`, `stop` u `off`) y desviación permitida en píxeles (20 por defecto) |
-| Teclado | `strategy`, `wpm` | Estrategia y velocidad en palabras por minuto |
-| Teclado | `variance`, `typos` | Dispersión de los intervalos y errores con corrección (`false` por defecto) |
-| Ambos | `seed` | Semilla base de la ejecución |
+| Mouse | `strategy`, `speed` | Strategy and speed multiplier (1.0 = normal) |
+| Mouse | `overshoot`, `jitter` | Overshoot probability (0 to 1) and jitter amplitude in pixels |
+| Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
+| Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
+| Keyboard | `variance`, `typos` | Spread of the intervals, and typos with corrections (`false` by default) |
+| Both | `seed` | Base seed of the run |
 
-**Seguridad y reproducibilidad:**
+**Safety and reproducibility:**
 
-- **Estado retenido.** El master anota qué teclas y botones están presionados y emite `input_state` en cada cambio. Con `stop`, o ante un error, los suelta todos y emite `keys_released`.
-- **Si el motor muere.** El cliente que lo lanzó suelta lo que el último `input_state` reportaba retenido; así un fallo del motor no deja un Shift o un Ctrl pegado.
-- **Detección de interferencia, solo mouse en la v1.** Durante el movimiento se compara la posición real con la del plan; si se desvía más que la tolerancia, se emite `user_interference`. Requiere `pointer_position`. El teclado queda fuera porque en X11 no se distinguen bien las teclas inyectadas de las del usuario.
-- **Parada de emergencia.** Tecla global configurable, y como respaldo llevar el cursor a una esquina de la pantalla. En Wayland la captura global de teclas depende del compositor, por eso el respaldo importa.
-- **Semilla por acción.** Cada plan usa una subsemilla derivada de `seed`, `step_id`, `iterations` y el número de intento, así cada vuelta de un `loop` produce un recorrido distinto. Con la misma semilla, el mismo punto de partida y el mismo destino, el plan es idéntico; si cambia la posición del cursor o dónde se encontró la imagen, el plan cambia aunque la semilla sea la misma.
-- **Los errores de tipeo no cambian el resultado.** Si `typos` está activo, una prueba automática verifica que las pulsaciones del plan, correcciones incluidas, produzcan el texto original. No puede verificar la aplicación de destino (un autocompletado puede alterar el resultado), por eso `typos` va desactivado por defecto.
-- **Modo rápido.** `run` acepta `input_profile` con `direct` para depurar sin esperas.
+- **Held state.** The master tracks which keys and buttons are held and emits `input_state` on every change. On `stop`, or on an error, it releases them all and emits `keys_released`.
+- **If the engine dies.** The client that started it releases whatever the last `input_state` reported as held, so an engine crash never leaves Shift or Ctrl stuck.
+- **Interference detection, mouse only in v1.** During a movement the real position is compared with the planned one; beyond the tolerance, `user_interference` is emitted. It requires `pointer_position`. The keyboard is left out because on X11 injected keys are hard to tell apart from the user's.
+- **Emergency stop.** A configurable global hotkey, and as a fallback moving the cursor into a screen corner. On Wayland global hotkeys depend on the compositor, which is why the fallback matters.
+- **Per-action seeds.** Each plan, and each step's random choices, use a sub-seed derived (SHA-256) from `seed`, `step_id`, `iterations` and the attempt number, so every iteration of a `loop` moves differently. The same seed, start point and target give the same plan; if the cursor position or the matched image location changes, the plan changes even with the same seed.
+- **Typos never change the result.** With `typos` on, an automated test checks that the planned key events, corrections included, produce the original text. It cannot check the target application (autocomplete may interfere), which is why `typos` is off by default.
+- **Fast mode.** `run` accepts an `input_profile` with `direct` strategies to debug without waiting.
 
-## Formato de script y registro de pasos
+## Script format and step registry
 
-El script es YAML declarativo: cada paso es un dato con tipo, parámetros e id estable, y por eso una GUI puede leerlo, mostrarlo y reescribirlo sin perder comentarios (se parsea con `ruamel.yaml`).
+A script is declarative YAML: every step is data with a type, parameters and a stable id, so a GUI can read it, show it and rewrite it without losing comments (parsed with `ruamel.yaml`).
 
 ```yaml
 version: 1
-name: Guardar informe
+name: Save report
 input:
   mouse:    {strategy: human, speed: 1.0}
   keyboard: {strategy: human, wpm: 55}
 vars:
-  nombre: informe_octubre
+  filename: october_report
 steps:
-  - id: abrir_menu
-    click: {image: img/menu_archivo.png, threshold: 0.9}
-  - id: esperar_dialogo
-    wait_image: {image: img/dialogo_guardar.png, timeout: 10s}
+  - id: open_menu
+    click: {image: img/file_menu.png, threshold: 0.9}
+  - id: wait_dialog
+    wait_image: {image: img/save_dialog.png, timeout: 10s}
     on_error: stop
-  - type: {text: "${nombre}", keyboard: {strategy: direct}}
-  - id: confirmar
+  - type: {text: "${filename}", keyboard: {strategy: direct}}
+  - id: confirm
     break: true
     key: {press: enter}
   - loop:
@@ -272,108 +282,110 @@ steps:
         - if:
             when: {image_visible: img/error.png}
             then:
-              - click: {image: img/reintentar.png}
+              - click: {image: img/retry.png}
               - sleep: 2s
 ```
 
-**Reglas del formato:**
+**Format rules:**
 
-- **Un tipo por paso.** Cada paso es un mapa con una clave de tipo y campos comunes opcionales: `id`, `break`, `timeout`, `on_error` (`stop`, `continue`, `retry` o `pause`) e `input` para cambiar la estrategia solo en ese paso.
-- **Ids estables.** Si falta `id`, `load` genera uno desde el tipo y la posición (`click_3`) y avisa con un *warning*. Al guardar con `edit_script`, el motor escribe los ids, para que los breakpoints y el historial no se rompan al reordenar.
-- **Bloques.** `if` (`then` y `else`) y `loop` (`times`, `while`, `for_each`) contienen listas de pasos. `path` alterna la posición en la lista y el número de bloque del paso padre: `[3, 1, 0]` es el primer paso del segundo bloque (`else`) del cuarto paso. Los bloques se numeran en el orden que declara el tipo de paso (`if`: `then` 0, `else` 1; `loop`: `do` 0).
-- **Condiciones y expresiones.** `when` y `while` aceptan una expresión (comparaciones, aritmética, `and`, `or`, `not`, sin `eval` de Python) o una condición predefinida como `image_visible`. La interpolación usa `${nombre}`.
-- **Coordenadas.** `x`/`y` son píxeles físicos del escritorio virtual, que abarca todas las pantallas y puede tener valores negativos. Con `window: {title: ...}`, las coordenadas y la `region` pasan a ser relativas a esa ventana y sobreviven a que la muevas. En Windows el motor se declara consciente del DPI por monitor, para que el sistema no escale las coordenadas.
-- **Imágenes.** Rutas relativas al script, `threshold` (0.9 por defecto), `region` de búsqueda opcional y `scale` para compensar plantillas capturadas con otro escalado.
-- **Duraciones.** Se escriben con unidad (`2s`, `500ms`) y admiten variación (`2s±20%`) para pausas menos mecánicas.
+- **One type per step.** A step is a mapping with one step-type key and optional common fields: `id`, `break`, `timeout`, `on_error` (`stop`, `continue`, `retry` or `pause`) and `input` to override the input strategy for that step. The type's value is a mapping of parameters, a scalar for the type's shorthand parameter (`sleep: 2s`, `log: hello`), or nothing.
+- **Stable ids.** Ids match `[A-Za-z_][A-Za-z0-9_-]*` and are unique in the script. A missing `id` is generated from the type and position: the n-th step of a type, counting steps that have explicit ids, gets `<type>_n` (a clash with an explicit id adds a suffix, `<type>_n_2`), with a warning. Adding an id to one step therefore never renames the others. Saving through `edit_script` writes the ids, so breakpoints and history survive reordering.
+- **Blocks.** `if` (`then` and `else`) and `loop` (`times`, `while` or `for_each`, with `as`) contain step lists. `path` alternates the position in a list and the block slot of the parent step: `[3, 1, 0]` is the first step of the second block (`else`) of the fourth step. Slots are numbered in the order the step type declares them (`if`: `then` 0, `else` 1; `loop`: `do` 0).
+- **Conditions and expressions.** `when` and `while` take an expression or a predefined condition such as `image_visible` (available from milestone M3). Expressions support literals (`true`, `false`, `null` included), variables, lists and mappings, indexing, `+ - * / // %`, comparisons (chainable) and `in`, `and`/`or`/`not`, `a if c else b`, and calls to whitelisted functions (`len`, `str`, `int`, `float`, `bool`, `round`, `min`, `max`, `abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). There is no Python `eval`; attribute access, `**`, lambdas and comprehensions are rejected, and length, nesting and result sizes are capped.
+- **Interpolation.** String parameters may contain `${expression}`. A string that is a single `${...}` keeps the value's type (`x: "${pos_x}"` is an integer); otherwise values are rendered as text (`null` as empty, booleans as `true`/`false`). `$${` is a literal `${`. Parameters of type expression or condition are evaluated, never interpolated. Interpolated values are type-checked again before the step runs.
+- **Coordinates.** `x`/`y` are physical pixels on the virtual desktop, which spans every screen and may be negative. With `window: {title: ...}`, coordinates and `region` are relative to that window and survive it being moved. On Windows the engine declares per-monitor DPI awareness so the system never scales coordinates.
+- **Images.** Paths relative to the script, `threshold` (0.9 by default), an optional search `region`, and `scale` to compensate templates captured at another scaling.
+- **Durations.** Written with a unit (`2s`, `500ms`, `1.5m`, `1h`) and an optional variance (`2s±20%` or `2s+-20%`) for less mechanical pauses. A bare number means seconds. The common `timeout` field applies to waiting steps from milestone M3.
 
-**Tipos de paso de la v1:**
+**v1 step types:**
 
-| Paso | Parámetros principales |
+| Step | Main parameters |
 | --- | --- |
-| `click` | `image` o `x`/`y`, `window?`, `button`, `clicks`, `offset`, `threshold` |
-| `move` | `image` o `x`/`y`, `window?` |
+| `click` | `image` or `x`/`y`, `window?`, `button`, `clicks`, `offset`, `threshold` |
+| `move` | `image` or `x`/`y`, `window?` |
 | `drag` | `from`, `to`, `button` |
 | `scroll` | `dx`, `dy` |
 | `type` | `text`, `keyboard?` |
-| `key` | `press` (por ejemplo `ctrl+s`), `hold?` |
+| `key` | `press` (e.g. `ctrl+s`), `hold?` |
 | `wait_image` | `image`, `timeout`, `threshold`, `region?`, `window?` |
-| `sleep` | Duración, con variación opcional |
-| `if` | `when` (expresión o condición), `then`, `else?` |
-| `loop` | `times`, `while` o `for_each`, y `do` |
-| `set` | Variable y valor |
+| `sleep` | Duration, with optional variance |
+| `if` | `when` (expression or condition), `then`, `else?` |
+| `loop` | `times`, `while` or `for_each` (with `as`), and `do` |
+| `set` | `name`, and `value` or `expr` |
 | `log` | `message`, `level` |
-| `pause` | `message`; detiene la ejecución hasta `resume`, como un breakpoint escrito en el script |
+| `pause` | `message`; pauses the run until `resume`, like a breakpoint written in the script |
 
-**Registro de pasos.** Cada tipo se registra con su nombre, el esquema de sus parámetros (nombre, tipo, obligatorio, valor por defecto, documentación) y la función que lo ejecuta. De ese único registro salen:
+**Step registry.** Each type is registered with its name, its parameter schema (name, type, required, default, documentation), its cross-parameter checks and the function that executes it. From that single registry come:
 
-- la validación de `validate`,
-- un JSON Schema para autocompletar y validar en editores como VS Code,
-- la respuesta de `list_step_types`,
-- los formularios de parámetros de la GUI futura.
+- the validation of `load` and `validate`,
+- a JSON Schema for editor completion and validation (`j5 schema`, e.g. with the VS Code YAML extension),
+- the answer to `list_step_types`,
+- the parameter forms of the future GUI.
 
-Agregar un paso nuevo (o uno de un tercero, como plugin) es registrarlo; ni el intérprete ni la GUI cambian.
+Adding a step (including a third-party one, registered as a plugin through the `j5_macro.steps` entry point group) means registering it; neither the interpreter nor the GUI changes.
 
-## Gestión de scripts
+## Script management
 
-Ningún cliente parsea ni reescribe el YAML: le pide al motor ediciones estructuradas por `step_id`, y así el formato, los comentarios y la validación viven en un solo lugar, sea cual sea el lenguaje de la GUI.
+No client parses or rewrites YAML: it asks the engine for structured edits by `step_id`, so formatting, comments and validation live in one place, whatever language the GUI is written in.
 
-| Comando | Payload | Resultado y notas |
+| Command | Payload | Result and notes |
 | --- | --- | --- |
-| `list_scripts` | `root?` | Scripts de la carpeta de trabajo: ruta, nombre, fecha de cambio y si validan |
-| `create_script` | `path`, `name` | `script_id` de un script vacío |
-| `get_script` | `script_id` | Árbol de pasos con ids, parámetros y líneas, el texto YAML y su `version` |
-| `edit_script` | `script_id`, `base_version`, `edits` | Aplica las ediciones en orden, valida y guarda; responde la `version` nueva y los errores de validación. Si el archivo cambió desde `base_version`, responde `conflict` y no toca nada |
-| `list_runs` | `script_id?`, `limit?` | Ejecuciones guardadas: `run_id`, estado final, fecha y duración |
-| `get_run` | `run_id`, `from_seq?` | Eventos y rutas de capturas de una ejecución pasada, para revisarla después |
-| `delete_run` | `run_id` | Borra la carpeta de la ejecución |
+| `list_scripts` | `root?` | Scripts in the working folder: path, name, modification time and whether they validate |
+| `create_script` | `path`, `name` | `script_id` of an empty script |
+| `get_script` | `script_id` | Step tree with ids, parameters and lines, the YAML text and its `version` |
+| `edit_script` | `script_id`, `base_version`, `edits` | Applies the edits in order, validates and saves; answers the new `version` and validation errors. If the file changed since `base_version`, answers `conflict` and changes nothing |
+| `list_runs` | `script_id?`, `limit?` | Saved runs: `run_id`, final status, date and duration |
+| `get_run` | `run_id`, `from_seq?` | Events and screenshot paths of a past run, to review it later |
+| `delete_run` | `run_id` | Deletes the run's directory |
 
-Tipos de edición dentro de `edits`:
+Edit kinds inside `edits`:
 
-| Edición | Campos | Efecto |
+| Edit | Fields | Effect |
 | --- | --- | --- |
-| `insert` | `after_step_id` o `parent_path`, `step` | Agrega un paso; el motor le asigna el `id` |
-| `update` | `step_id`, `params` | Cambia parámetros de un paso |
-| `move` | `step_id`, `to` | Mueve un paso, también entre bloques |
-| `delete` | `step_id` | Borra un paso y, si es un bloque, su contenido |
-| `set_meta` | `name?`, `input?`, `vars?` | Cambia la cabecera del script |
+| `insert` | `after_step_id` or `parent_path`, `step` | Adds a step; the engine assigns its `id` |
+| `update` | `step_id`, `params` | Changes a step's parameters |
+| `move` | `step_id`, `to` | Moves a step, also across blocks |
+| `delete` | `step_id` | Deletes a step and, for a block, its content |
+| `set_meta` | `name?`, `input?`, `vars?` | Changes the script header |
 
-Reglas:
+Rules:
 
-- **Se conserva el archivo.** Cada edición mantiene los comentarios y el formato del resto del YAML.
-- **El motor vigila los archivos.** Si alguien edita un script en un editor de texto, el motor emite `script_changed` y la GUI recarga.
-- **Editar no afecta lo que corre.** Una ejecución en curso sigue con la versión que cargó; los cambios valen para la siguiente.
+- **The file is preserved.** Every edit keeps the comments and formatting of the rest of the YAML.
+- **The engine watches files.** If a script is edited in a text editor, the engine emits `script_changed` and the GUI reloads.
+- **Editing does not affect what is running.** A run keeps the version it loaded; changes apply to the next run.
 
-## Errores y decisiones abiertas
+**Run history.** Each run is saved in `<runs dir>/<run_id>/`: `events.jsonl` (one event per line, appended as emitted) and `run.json` (`run_id`, `script_id`, `script_name`, `script_path`, `mode`, `seed`, `started`, and on completion `finished`, `status`, `reason`, `duration_ms`, `error`). The runs dir is the engine's `--runs-dir` option, else `J5_RUNS_DIR`, else the platform state directory plus `j5-macro/runs` (`$XDG_STATE_HOME` or `~/.local/state` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). When a run starts, older runs are deleted so the newest 20 remain. A persistence failure never affects a run; it becomes an engine `log` warning.
 
-Todo error, en una respuesta o en un evento, tiene la forma `{code, message, step_id?, line?, details?}`; el `code` es estable y el `message` es solo para personas.
+## Errors and open decisions
 
-| Código | Cuándo |
+Every error, in a response or in an event, has the shape `{code, message, step_id?, line?, details?}`; the `code` is stable and the `message` is for people.
+
+| Code | When |
 | --- | --- |
-| `parse_error` | El YAML es inválido; incluye línea y columna |
-| `validation_failed` | Un parámetro falta, tiene tipo incorrecto o un `id` está duplicado |
-| `unknown_step_type` | El tipo de paso no está en el registro |
-| `script_not_found` | El `script_id` no existe o el archivo no se puede abrir |
-| `not_running` | Comando de control sin una ejecución activa |
-| `invalid_state` | Comando no permitido en el estado actual (por ejemplo `set_variable` con la ejecución en marcha). `details.reason` lo precisa: `hello_required` antes del saludo, `not_implemented` para comandos del contrato que el motor aún no implementa |
-| `busy` | `run` con otra ejecución activa |
-| `conflict` | El script cambió desde la `base_version` que trae `edit_script` |
-| `template_missing` | El archivo de imagen de un paso no existe |
-| `image_not_found` | `wait_image` o `click` con imagen agotó su `timeout`; incluye `best_score` |
-| `expression_error` | Una expresión o interpolación falló |
-| `backend_unavailable` | No hay backend para la sesión actual (por ejemplo Wayland sin soporte) |
-| `capability_missing` | El backend no ofrece algo que el paso o el perfil necesitan, por ejemplo `pointer_position` para detectar interferencia |
-| `input_denied` | El sistema rechazó la entrada o la captura por falta de permisos |
-| `internal_error` | Fallo inesperado del motor; incluye traza en `details` |
+| `parse_error` | The YAML is invalid; includes line and `details.column` |
+| `validation_failed` | A parameter is missing or has the wrong type, an id is duplicated, or a message is malformed; includes the field path |
+| `unknown_step_type` | The step type is not in the registry |
+| `script_not_found` | The `script_id` does not exist or the file cannot be opened |
+| `not_running` | A control command without an active run, or for an unknown or finished run |
+| `invalid_state` | The command is not allowed in the current state (e.g. `set_variable` while running). `details.reason` adds `hello_required` before the handshake and `not_implemented` for contract commands the engine does not implement yet |
+| `busy` | `run` while another run is active (`details.run_id`) |
+| `conflict` | The script changed since the `base_version` sent with `edit_script` |
+| `template_missing` | A step's image file does not exist |
+| `image_not_found` | `wait_image` or an image-based step ran out of time; includes `best_score` |
+| `expression_error` | An expression or an interpolation failed; `details` has the `expression` and, when known, the `column` |
+| `backend_unavailable` | No backend fits the current session (e.g. Wayland without support) |
+| `capability_missing` | The backend lacks something a step or profile needs, e.g. `pointer_position` for interference detection, or any input before the backends milestone |
+| `input_denied` | The system refused input or capture for lack of permissions |
+| `internal_error` | Unexpected engine failure; `details.traceback` holds the trace |
 
-**Supuestos ya tomados:** motor en proceso aparte (acordado), Python 3.11 o superior, scripts en YAML, v1 en Windows y Linux con X11, una sola ejecución activa a la vez.
+**Decisions already made:** the engine runs in its own process; Python 3.11 or later; scripts in YAML; v1 targets Windows and Linux with X11; one active run at a time.
 
-**Decisiones abiertas**, cada una con la recomendación para cerrarla:
+**Open decisions**, each with the recommendation to close it:
 
-| Decisión | Recomendación |
+| Decision | Recommendation |
 | --- | --- |
-| Paso `python:` como válvula de escape | No en la v1. Rompe la edición visual y ejecuta código arbitrario; los pasos de terceros entran como plugins registrados |
-| Varios clientes a la vez | Un controlador y observadores de solo lectura, pero después de la v1 |
-| Historial de ejecuciones | Carpeta `runs/<run_id>/` con `events.jsonl` y capturas, conservando las últimas 20; `list_runs` y `get_run` las exponen |
-| Interferencia del teclado | Fuera de la v1: en X11 no se distinguen bien las teclas inyectadas de las del usuario. En Windows sí es posible y puede llegar antes |
-| Disparadores (hora, imagen, ventana) | Fuera de la v1; el evento `trigger_fired` queda reservado |
-| Wayland | Backend experimental posterior, sobre libei o wdotool, detrás de la misma interfaz de backend. Sin `pointer_position` fiable, la detección de interferencia queda desactivada |
+| A `python:` step as an escape hatch | Not in v1. It breaks visual editing and runs arbitrary code; third-party steps come in as registered plugins |
+| Several clients at once | One controller plus read-only observers, after v1 |
+| Keyboard interference | Out of v1: on X11 injected keys are hard to tell apart from the user's. Windows can do it and may get it earlier |
+| Triggers (time, image, window) | Out of v1; the `trigger_fired` event is reserved |
+| Wayland | Experimental backend after v1, on libei or wdotool, behind the same backend interface. Without a reliable `pointer_position`, interference detection is disabled |
