@@ -28,8 +28,11 @@ from j5_macro.runtime.emitter import Emitter
 from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.machine import Machine, failure_info
 from j5_macro.runtime.resolve import ConditionFn
+from j5_macro.runtime.vision import RunVision
 from j5_macro.script.model import Script
+from j5_macro.steps.conditions import PREDEFINED_CONDITIONS
 from j5_macro.steps.registry import StepRegistry
+from j5_macro.vision.api import ToolkitFactory
 
 
 class Interpreter:
@@ -38,7 +41,8 @@ class Interpreter:
     def __init__(self, script: Script, registry: StepRegistry, emit: RunEventSink,
                  options: RunOptions, *, conditions: Mapping[str, ConditionFn] | None = None,
                  clock: Clock | None = None,
-                 session_factory: SessionFactory | None = None) -> None:
+                 session_factory: SessionFactory | None = None,
+                 vision_factory: ToolkitFactory | None = None) -> None:
         clock = clock or MonotonicClock()
         self._mode = options.mode
         self._events = Emitter(emit)
@@ -48,8 +52,14 @@ class Interpreter:
                                dry_run=options.mode == "dry", emit=emit, control=self._control,
                                factory=session_factory,
                                base=(script.input, options.input_profile))
+        self._vision = RunVision(factory=vision_factory, backend=options.backend,
+                                 backend_reason=options.backend_reason,
+                                 dry_run=options.mode == "dry", captures=options.captures,
+                                 run_dir=options.run_dir, script_path=script.source_path,
+                                 emit=emit, clock=clock)
+        predefined = {**PREDEFINED_CONDITIONS, **(conditions or {})}
         self._machine = Machine(script, registry, self._events, self._control, clock, options,
-                                dict(conditions or {}), self._input)
+                                predefined, self._input, self._vision)
 
     @property
     def backend(self) -> str | None:
@@ -79,6 +89,10 @@ class Interpreter:
             self._input.release()
         except Exception as exc:
             self._events.log("error", f"could not release held keys and buttons: {exc}")
+        try:
+            self._vision.close()
+        except Exception as exc:
+            self._events.log("warning", f"could not close the screen capture: {exc}")
 
     def pause(self) -> None:
         self._control.request_pause()
@@ -132,13 +146,17 @@ class Interpreter:
 def create_run(script: Script, registry: StepRegistry, emit: RunEventSink,
                options: RunOptions, *, conditions: Mapping[str, ConditionFn] | None = None,
                clock: Clock | None = None,
-               session_factory: SessionFactory | None = None) -> RunController:
+               session_factory: SessionFactory | None = None,
+               vision_factory: ToolkitFactory | None = None) -> RunController:
     """Create a run (the engine's ``RunFactory``).
 
-    ``conditions`` are the predefined conditions (``image_visible`` ...), empty in M1;
-    ``clock`` replaces the real clock in tests. ``session_factory`` creates the run's
-    input session when ``options.backend`` is set and the mode is not ``dry``; it
-    defaults to ``j5_macro.input.session.create_session``, imported on first use.
+    ``conditions`` add to (or replace) the predefined conditions
+    (``j5_macro.steps.conditions.PREDEFINED_CONDITIONS``: ``image_visible``); ``clock``
+    replaces the real clock in tests. ``session_factory`` creates the run's input
+    session when ``options.backend`` is set and the mode is not ``dry``; it defaults to
+    ``j5_macro.input.session.create_session``, imported on first use.
+    ``vision_factory`` creates the run's vision toolkit the first time a step searches
+    the screen; it defaults to ``j5_macro.vision.toolkit.create_toolkit``, imported then.
     """
     return Interpreter(script, registry, emit, options, conditions=conditions, clock=clock,
-                       session_factory=session_factory)
+                       session_factory=session_factory, vision_factory=vision_factory)

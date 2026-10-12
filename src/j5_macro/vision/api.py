@@ -119,5 +119,7 @@ class StepVision(Protocol):
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Search until found or ``timeout`` seconds pass (interruptible like any wait;
         a single attempt in dry runs). Raises StepError ``image_not_found`` with
-        ``details.best_score`` when it times out."""
+        ``details.best_score`` when it times out. The step's common ``timeout`` field,
+        when set, replaces ``timeout``; ``timeout=0`` makes a single attempt that fails
+        when the image is not found."""
         ...

@@ -155,6 +155,10 @@ class FakeContext:
     def input_for(self, overrides: Any) -> Any:
         raise StepError(ErrorCode.CAPABILITY_MISSING, "step 's1' needs an input backend")
 
+    @property
+    def vision(self) -> Any:
+        raise StepError(ErrorCode.CAPABILITY_MISSING, "vision is not available (test)")
+
 
 def run(name: str, params: dict[str, Any], ctx: FakeContext) -> Any:
     step_type = REGISTRY.get(name)
@@ -233,19 +237,21 @@ def test_input_placeholders_in_dry_run(name, params, text):
     ("drag", {"from": {"image": "a.png"}, "to": {"x": 1, "y": 1}}),
     ("wait_image", {"image": "img/ok.png", "timeout": "10s"}),
 ])
-def test_image_targets_warn_that_vision_is_pending(name, params):
+def test_image_targets_warn_when_vision_is_missing_in_dry_run(name, params):
     ctx = FakeContext(dry_run=True)
     result = run(name, params, ctx)
     assert result["dry_run"] is True
-    assert ctx.calls[1][0] == "log" and ctx.calls[1][1][0] == "warning"
-    assert "M3" in ctx.calls[1][1][1]
+    assert "found" not in result
+    assert ctx.calls[0][0] == "log" and ctx.calls[0][1][0] == "warning"
+    assert "not searched: vision is not available" in ctx.calls[0][1][1]
+    assert ctx.calls[1] == ("log", ("info", result["description"]))
 
 
 @pytest.mark.parametrize(("name", "params", "milestone"), [
     ("click", {"x": 1, "y": 2}, "input backend"),
     ("type", {"text": "x"}, "input backend"),
-    ("click", {"image": "a.png"}, "M3"),
-    ("wait_image", {"image": "a.png"}, "M3"),
+    ("click", {"image": "a.png"}, "input backend"),
+    ("wait_image", {"image": "a.png"}, "vision is not available"),
 ])
 def test_input_steps_fail_without_input_outside_dry_run(name, params, milestone):
     ctx = FakeContext()

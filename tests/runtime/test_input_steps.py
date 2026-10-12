@@ -87,11 +87,13 @@ def test_window_without_a_title_is_validation_failed():
     "wait_image: img/ok.png",
 ])
 def test_image_targets_need_vision_outside_dry_runs(step):
+    """Without the vision toolkit (not importable in this test environment)."""
     outcome, input_run, _ = one_step(step)
     assert outcome.error is not None
     assert outcome.error.code == "capability_missing"
-    assert "M3" in outcome.error.message
-    assert input_run.factory.sessions == []
+    assert "vision is disabled in these tests" in outcome.error.message
+    for session in input_run.factory.sessions:
+        assert not session.named("click") + session.named("move") + session.named("drag")
 
 
 def test_drag_between_points_in_windows():

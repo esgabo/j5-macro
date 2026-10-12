@@ -33,9 +33,11 @@ from j5_macro.runtime.failures import RunFailed, at_step, internal_error
 from j5_macro.runtime.frames import Frame, LoopState, iterations
 from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
+from j5_macro.runtime.vision import BoundVision, RunVision
 from j5_macro.script.model import Script, Step
 from j5_macro.steps.registry import StepRegistry
 from j5_macro.steps.spec import LogLevel, StepError, StepSpec
+from j5_macro.vision.api import StepVision
 
 MAX_ATTEMPTS = 3
 """Attempts in total for ``on_error: retry``."""
@@ -50,9 +52,11 @@ class Machine:
 
     def __init__(self, script: Script, registry: StepRegistry, events: Emitter,
                  control: RunControl, clock: Clock, options: RunOptions,
-                 conditions: Mapping[str, ConditionFn], run_input: RunInput) -> None:
+                 conditions: Mapping[str, ConditionFn], run_input: RunInput,
+                 vision: RunVision) -> None:
         self._script = script
         self._input = run_input
+        self._vision = vision
         self._registry = registry
         self._events = events
         self._control = control
@@ -92,6 +96,11 @@ class Machine:
     def step_input(self, step_id: str, rng: random.Random,
                    *overrides: Mapping[str, Any] | None) -> StepInput:
         return self._input.bind(step_id, rng, *overrides)
+
+    def step_vision(self, context: RunContext) -> StepVision:
+        return BoundVision(self._vision, step_id=context.step_id, step_timeout=context.timeout,
+                           wait=context.wait, check_stop=context.check_stop, log=context.log,
+                           paused=lambda: self._paused)
 
     def wait(self, seconds: float, depth: int) -> None:
         remaining = seconds
@@ -162,10 +171,11 @@ class Machine:
         """Run ``action(attempt)`` applying ``step.on_error``; None if the step is skipped."""
         attempt = 1
         while True:
+            screenshot: str | None = None
             try:
                 return action(attempt)
             except StepError as exc:
-                info = exc.info
+                info, screenshot = exc.info, exc.screenshot
             except ExpressionError as exc:
                 info = exc.info
             except EmergencyStop as exc:
@@ -178,7 +188,7 @@ class Machine:
             info = at_step(info, step, attempt)
             with self._control.lock:
                 self.position = step
-            self._events.step_failed(step, its, info)
+            self._events.step_failed(step, its, info, screenshot)
             if step.on_error == "continue":
                 self._events.log("warning", f"step '{step.id}' failed, continuing: "
                                  f"{info.message}", step.id)
@@ -230,7 +240,8 @@ class Machine:
 
     def _context(self, step: Step, its: Iterations, attempt: int, depth: int) -> RunContext:
         return RunContext(self, step_id=step.id, iterations=its, attempt=attempt, depth=depth,
-                          dry_run=self._dry_run, seed=self._seed, input_overrides=step.input)
+                          dry_run=self._dry_run, seed=self._seed, input_overrides=step.input,
+                          timeout=step.timeout)
 
     def _elapsed_ms(self, started: float, paused_before: float) -> int:
         active = self._clock.now() - started - (self._paused - paused_before)

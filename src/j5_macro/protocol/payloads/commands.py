@@ -54,6 +54,10 @@ class Capabilities(Payload):
     backend: str | None = None
     input_strategies: list[str] = field(default_factory=list)
     step_types: list[str] = field(default_factory=list)
+    vision: bool | None = None
+    """The vision toolkit and its extra are installed (image steps can search the
+    screen); capturing may still fail at run time, with ``capability_missing``. Omitted
+    by engines that predate it."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -4,6 +4,7 @@ not-yet-implemented stubs for the rest of the contract."""
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 from pathlib import Path
 
 from j5_macro.engine import runs as run_commands
@@ -32,14 +33,28 @@ CONTRACT_COMMANDS = (
 )
 
 
+VISION_MODULES = ("j5_macro.vision.toolkit", "cv2", "numpy")
+"""What image steps need installed (the toolkit and the ``vision`` extra)."""
+
+
+def vision_installed() -> bool:
+    """True when the vision toolkit and its extra can be imported. Cheap: it looks the
+    modules up without importing them."""
+    try:
+        return all(importlib.util.find_spec(name) is not None for name in VISION_MODULES)
+    except (ImportError, ValueError):
+        return False
+
+
 def capabilities(registry: StepRegistry | None = None,
                  backend: EngineBackend | None = None) -> JsonObject:
     """What this engine offers: the active backend (None without one), its input
-    strategies and the registered step types."""
+    strategies, the registered step types and whether vision is installed."""
     step_types = registry.names() if registry is not None else []
     return {"backend": None if backend is None else backend.name,
             "input_strategies": [] if backend is None else backend.input_strategies,
-            "step_types": step_types}
+            "step_types": step_types,
+            "vision": vision_installed()}
 
 
 def ready_payload(registry: StepRegistry | None = None,

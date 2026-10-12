@@ -187,3 +187,22 @@ def test_stop_key_precedence() -> None:
     assert stop_key_from("ctrl+f1", {STOP_KEY_ENV: "ctrl+f2"}) == "ctrl+f1"
     assert stop_key_from(None, {STOP_KEY_ENV: "ctrl+f2"}) == "ctrl+f2"
     assert stop_key_from(None, {}) == DEFAULT_STOP_KEY
+
+
+def test_capabilities_report_whether_vision_is_installed(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    from j5_macro.engine import commands
+
+    installed = {"j5_macro.vision.toolkit", "cv2", "numpy"}
+    monkeypatch.setattr(commands.importlib.util, "find_spec",
+                        lambda name: object() if name in installed else None)
+    assert commands.capabilities()["vision"] is True
+    installed.discard("cv2")
+    assert commands.capabilities()["vision"] is False
+    engine = Engine()
+    try:
+        hello = HelloResult.from_json(engine.ok("hello", {"v_min": 1, "v_max": 1,
+                                                          "client": "tests"}))
+        assert hello.capabilities.vision is False
+    finally:
+        engine.close()

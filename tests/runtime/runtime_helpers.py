@@ -31,6 +31,12 @@ TIMEOUT = 2.0
 Event = tuple[str, dict[str, Any]]
 
 
+def no_vision() -> Any:
+    """A vision factory for runs that must not depend on the vision extra being
+    installed: every search fails with capability_missing."""
+    raise ImportError("vision is disabled in these tests")
+
+
 def _rand(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     return {"value": ctx.rng.random()}
 
@@ -147,26 +153,28 @@ class Recorder:
 
 
 def run(script: Script | str, *, conditions: Mapping[str, ConditionFn] | None = None,
-        **options: Any) -> tuple[RunOutcome, Recorder]:
+        vision_factory: Any = no_vision, **options: Any) -> tuple[RunOutcome, Recorder]:
     """Run to completion on this thread."""
     if isinstance(script, str):
         script = load(script)
     recorder = Recorder()
     controller = create_run(script, REGISTRY, recorder, RunOptions(**options),
-                            conditions=conditions, clock=ScaledClock())
+                            conditions=conditions, clock=ScaledClock(),
+                            vision_factory=vision_factory)
     return controller.run(), recorder
 
 
 class Background:
     """A run on a worker thread, as the engine does it."""
 
-    def __init__(self, script: Script | str, *, scale: float = 100.0, **options: Any) -> None:
+    def __init__(self, script: Script | str, *, scale: float = 100.0,
+                 vision_factory: Any = no_vision, **options: Any) -> None:
         if isinstance(script, str):
             script = load(script)
         self.recorder = Recorder()
         self.clock = ScaledClock(scale)
         self.controller = create_run(script, REGISTRY, self.recorder, RunOptions(**options),
-                                     clock=self.clock)
+                                     clock=self.clock, vision_factory=vision_factory)
         self.outcome: RunOutcome | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
