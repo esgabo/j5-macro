@@ -25,6 +25,7 @@ from j5_macro.protocol.messages import ErrorInfo
 
 if TYPE_CHECKING:
     from j5_macro.input.api import StepInput
+    from j5_macro.vision.api import StepVision
 
 ParamType = Literal[
     "string", "integer", "number", "boolean", "duration", "expression", "condition",
@@ -252,6 +253,12 @@ class StepContext(Protocol):
     def check_stop(self) -> None:
         """Raise the interpreter's stop exception if the run must stop now. Long
         executors call it between units of work; never catch what it raises."""
+        ...
+
+    @property
+    def vision(self) -> StepVision:
+        """Screen searches for this step (``j5_macro.vision.api.StepVision``). Raises
+        ``StepError(capability_missing)`` when vision is not available."""
         ...
 
     @property

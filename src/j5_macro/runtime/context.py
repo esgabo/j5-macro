@@ -8,9 +8,11 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from j5_macro.input.api import StepInput
+from j5_macro.protocol.errors import ErrorCode
 from j5_macro.runtime.resolve import evaluated
 from j5_macro.runtime.seeding import derive_seed
-from j5_macro.steps.spec import LogLevel
+from j5_macro.steps.spec import LogLevel, StepError
+from j5_macro.vision.api import StepVision
 
 
 class ContextHost(Protocol):
@@ -86,6 +88,12 @@ class RunContext:
 
     def check_stop(self) -> None:
         self._host.check_stop()
+
+    @property
+    def vision(self) -> StepVision:
+        # Wired to the run's vision toolkit in milestone M3 (#22).
+        raise StepError(ErrorCode.CAPABILITY_MISSING,
+                        f"step '{self._step_id}' needs vision (milestone M3)")
 
     @property
     def input(self) -> StepInput:
