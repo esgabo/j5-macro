@@ -42,7 +42,7 @@ def test_response_requires_consistent_error():
 
 def test_event_roundtrip_and_engine_level_event():
     ev = Event(type="step_started", seq=14, ts="2026-10-12T10:15:03.412Z", t_ms=5120,
-               run_id="r-1", payload={"step_id": "abrir_menu", "path": [0, 2], "line": 12})
+               run_id="r-1", payload={"step_id": "open_menu", "path": [0, 2], "line": 12})
     ready = Event(type="ready", seq=1, ts="2026-10-12T10:15:00.000Z", t_ms=0,
                   payload={"v": PROTOCOL_VERSION})
     assert roundtrip(ev) == ev

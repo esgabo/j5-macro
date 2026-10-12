@@ -1,4 +1,4 @@
-"""Command payloads and results (docs/contract.md, "Comandos" and "Gestión de scripts")."""
+"""Command payloads and results (docs/contract.md, "Commands" and "Script management")."""
 
 from __future__ import annotations
 
@@ -150,6 +150,7 @@ class ScriptRef(Payload):
 class ValidateResult(Result):
     ok: bool
     errors: list[ErrorInfo] = field(default_factory=list)
+    warnings: list[Diagnostic] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -54,6 +55,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     """Entry point of ``python -m j5_macro.engine``."""
     args = parse_args(argv)
+    # Ctrl+C in a terminal reaches every process of the console, including this child.
+    # The client owns the user's intent: it sends ``stop`` and then closes our stdin,
+    # so the engine ignores SIGINT and ends on end of input instead of dying mid-run.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         return run(stdio_transport(), runs_dir=resolve_runs_dir(args.runs_dir))
     except KeyboardInterrupt:

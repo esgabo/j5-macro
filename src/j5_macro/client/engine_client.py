@@ -1,6 +1,6 @@
 """Asyncio client that launches the engine and speaks the JSON-lines protocol.
 
-See docs/contract.md, "Transporte y formato de mensajes". One background task
+See docs/contract.md, "Transport and message format". One background task
 reads stdout (responses and events), another drains stderr, and a monitor
 notices when the process goes away and fails whatever is still pending.
 """

@@ -210,7 +210,7 @@ def test_concatenation_and_repetition() -> None:
 
 
 def test_unicode() -> None:
-    assert ev("'héllo ' + nombre", nombre="Señor 日本") == "héllo Señor 日本"
+    assert ev("'héllo ' + filename", filename="Señor 日本") == "héllo Señor 日本"
     assert ev("len('日本語')") == 3
     assert ev("upper('ñandú')") == "ÑANDÚ"
     assert ev("año + 1", año=2025) == 2026
@@ -672,7 +672,7 @@ def test_whole_string_keeps_the_type() -> None:
 
 
 def test_mixed_text_renders_values() -> None:
-    assert interpolate("Hola ${name}!", VARS) == "Hola Ana!"
+    assert interpolate("Hello ${name}!", VARS) == "Hello Ana!"
     assert interpolate("${x},${y}", VARS) == "10,3"
     assert interpolate("x=${x} f=${f}", VARS) == "x=10 f=2.5"
     assert interpolate("${items} ${pos}", VARS) == "[1, 2, 3] {'x': 100, 'y': 200}"
@@ -745,7 +745,7 @@ def test_interpolate_with_caller_functions() -> None:
 
 
 def test_interpolate_unicode() -> None:
-    assert interpolate("¡Hola ${nombre}! ✓", {"nombre": "Señora 日本"}) == "¡Hola Señora 日本! ✓"
+    assert interpolate("¡Hola ${who}! ✓", {"who": "Señora 日本"}) == "¡Hola Señora 日本! ✓"
 
 
 @pytest.mark.parametrize("text", ["${x", "a ${x", "${ {'a': 1}", "${'}", "${x} ${"])

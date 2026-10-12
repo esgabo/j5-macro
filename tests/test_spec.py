@@ -62,14 +62,14 @@ def test_validate_params_defaults_and_problems():
 
 def test_interpolated_strings_are_checked_later():
     assert check_value(ParamSpec(name="x", type="integer"), "${pos_x}") is None
-    assert check_value(ParamSpec(name="d", type="duration"), "${espera}") is None
+    assert check_value(ParamSpec(name="d", type="duration"), "${wait_time}") is None
     assert check_value(ParamSpec(name="o", type="object"), "${obj}") == "expected a mapping"
 
 
 def test_bool_is_not_an_integer_and_conditions_have_one_key():
     assert check_value(ParamSpec(name="n", type="integer"), True) == "expected an integer"
     cond = ParamSpec(name="when", type="condition")
-    assert check_value(cond, "intentos < 3") is None
+    assert check_value(cond, "attempts < 3") is None
     assert check_value(cond, {"image_visible": "img/x.png"}) is None
     assert check_value(cond, {"a": 1, "b": 2}) is not None
 

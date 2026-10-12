@@ -18,7 +18,7 @@ VALIDATOR = Draft202012Validator(SCHEMA)
 
 def contract_example() -> object:
     text = CONTRACT.read_text(encoding="utf-8")
-    section = text.split("## Formato de script", 1)[1]
+    section = text.split("## Script format", 1)[1]
     match = re.search(r"```yaml\n(.*?)```", section, re.S)
     assert match is not None
     return YAML(typ="safe").load(match[1])

@@ -1,4 +1,4 @@
-"""YAML script loader (docs/contract.md, "Formato de script y registro de pasos").
+"""YAML script loader (docs/contract.md, "Script format and step registry").
 
 Turns script text into a :class:`~j5_macro.script.model.Script`, keeping the 1-based
 line of every step, assigning stable ids and collecting every problem it finds instead

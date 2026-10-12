@@ -1,4 +1,4 @@
-"""Stable error codes (docs/contract.md, "Errores y decisiones abiertas").
+"""Stable error codes (docs/contract.md, "Errors and open decisions").
 
 Codes are part of the protocol: clients branch on them, so a code is never
 renamed or reused. Human-readable detail goes in ``ErrorInfo.message``.

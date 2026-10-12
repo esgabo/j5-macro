@@ -1,0 +1,27 @@
+version: 1
+name: Hello j5
+vars:
+  greeting: hello
+  attempts: 0
+steps:
+  - id: start
+    log: "${greeting}, need input!"
+  - id: open_menu
+    click: {x: 120, y: 40}
+  - id: retry_loop
+    loop:
+      times: 3
+      do:
+        - id: count
+          set: {name: attempts, expr: "attempts + 1"}
+        - id: check
+          if:
+            when: "attempts == 2"
+            then:
+              - log: "second attempt"
+            else:
+              - sleep: 100ms±20%
+  - id: type_name
+    type: "report_${attempts}.txt"
+  - id: save
+    key: ctrl+s

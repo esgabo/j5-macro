@@ -43,7 +43,7 @@ CONTRACT_EVENTS = {
 }
 
 RUN = {"run_id": "r-1"}
-STEP = {"step_id": "abrir_menu", "path": [0, 2], "line": 12}
+STEP = {"step_id": "open_menu", "path": [0, 2], "line": 12}
 CAPS = {"backend": "x11", "input_strategies": ["direct", "linear", "human"],
         "step_types": ["click", "sleep"]}
 NODE = {"id": "s1", "type": "loop", "path": [0], "line": 3, "params": {"times": 3},

@@ -2,7 +2,7 @@
 
 Backends expose primitives only. Every "human-like" behaviour lives in the
 mouse and keyboard masters (``j5_macro.input``), which plan and then drive
-these primitives. See docs/contract.md, "Masters de mouse y teclado".
+these primitives. See docs/contract.md, "Mouse and keyboard masters".
 """
 
 from __future__ import annotations
