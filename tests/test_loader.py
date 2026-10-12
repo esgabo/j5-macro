@@ -135,8 +135,8 @@ def test_contract_example_loads() -> None:
         ("confirmar", "log", 15, (3,)),
         ("loop_1", "loop", 18, (4,)),
         ("if_1", "if", 21, (4, 0, 0)),
-        ("click_1", "click", 24, (4, 0, 0, 0, 0)),
-        ("sleep_1", "sleep", 25, (4, 0, 0, 0, 1)),
+        ("click_2", "click", 24, (4, 0, 0, 0, 0)),
+        ("sleep_2", "sleep", 25, (4, 0, 0, 0, 1)),
     ]
     steps = by_id(script)
     assert steps["abrir_menu"].params == {"image": "img/menu_archivo.png", "threshold": 0.9,
@@ -149,15 +149,15 @@ def test_contract_example_loads() -> None:
     assert steps["loop_1"].params == {"times": 3}
     assert list(steps["loop_1"].blocks) == ["do"]
     assert steps["if_1"].params == {"when": {"image_visible": "img/error.png"}}
-    assert [c.id for c in steps["if_1"].blocks["then"]] == ["click_1", "sleep_1"]
-    assert script.find("sleep_1") is steps["sleep_1"]
+    assert [c.id for c in steps["if_1"].blocks["then"]] == ["click_2", "sleep_2"]
+    assert script.find("sleep_2") is steps["sleep_2"]
 
 
 def test_contract_example_warns_about_generated_ids() -> None:
     script = ok(CONTRACT_EXAMPLE)
     warned = [(w.step_id, w.line) for w in script.warnings]
-    assert warned == [("type_1", 14), ("loop_1", 18), ("if_1", 21), ("click_1", 24),
-                      ("sleep_1", 25)]
+    assert warned == [("type_1", 14), ("loop_1", 18), ("if_1", 21), ("click_2", 24),
+                      ("sleep_2", 25)]
     for warning in script.warnings:
         assert warning.code == ErrorCode.VALIDATION_FAILED
         assert "add an explicit id" in warning.message
@@ -415,9 +415,9 @@ steps:
   - sleep: 1s
 """)
     assert [s.id for s in script.steps] == [
-        "sleep_1", "sleep_2", "sleep_4", "log_1", "sleep_3", "sleep_5"]
+        "sleep_1", "sleep_2", "sleep_3_2", "log_1", "sleep_3", "sleep_4"]
     assert [(w.step_id, w.line) for w in script.warnings] == [
-        ("sleep_1", 2), ("sleep_4", 5), ("log_1", 6), ("sleep_5", 9)]
+        ("sleep_1", 2), ("sleep_3_2", 5), ("log_1", 6), ("sleep_4", 9)]
 
 
 def test_explicit_ids_mean_no_warnings() -> None:
