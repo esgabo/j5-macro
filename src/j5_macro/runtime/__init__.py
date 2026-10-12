@@ -8,6 +8,7 @@ from j5_macro.runtime.api import (
     RunOptions,
     RunOutcome,
 )
+from j5_macro.runtime.interpreter import create_run
 
 __all__ = [
     "ControlError",
@@ -16,4 +17,5 @@ __all__ = [
     "RunFactory",
     "RunOptions",
     "RunOutcome",
+    "create_run",
 ]
