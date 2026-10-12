@@ -8,13 +8,15 @@ import re
 from typing import Any
 
 from j5_macro.engine.app import create_server
-from j5_macro.engine.commands import CONTRACT_COMMANDS, ready_payload
+from j5_macro.engine.commands import CONTRACT_COMMANDS
 from j5_macro.engine.events import EventSequencer
 from j5_macro.engine.server import EVENT_BUFFER_SIZE, EngineServer
 from j5_macro.engine.transport import LineTransport
 from j5_macro.protocol.messages import Command
+from j5_macro.steps import default_registry
 
-CAPABILITIES = {"backend": None, "input_strategies": [], "step_types": []}
+CAPABILITIES = {"backend": None, "input_strategies": [],
+                "step_types": default_registry().names()}
 HELLO = {"v_min": 1, "v_max": 1, "client": "tests"}
 
 
@@ -32,7 +34,7 @@ def serve(*lines: str, server_setup: Any = None) -> tuple[int, list[dict[str, An
     server = create_server(transport)
     if server_setup is not None:
         server_setup(server)
-    code = server.serve(ready_payload())
+    code = server.serve()
     text = output.getvalue()
     assert text.endswith("\n")
     return code, [json.loads(line) for line in text.splitlines()]
@@ -134,8 +136,13 @@ def test_event_buffer_is_bounded() -> None:
     assert kept[-1].seq == EVENT_BUFFER_SIZE + 5
 
 
+SCRIPT_MANAGEMENT = ("list_scripts", "create_script", "get_script", "edit_script",
+                     "list_runs", "get_run", "delete_run")
+
+
 def test_not_implemented_commands() -> None:
-    pending = [name for name in CONTRACT_COMMANDS if name not in ("hello", "get_events")]
+    pending = [name for name in CONTRACT_COMMANDS if name in SCRIPT_MANAGEMENT]
+    assert len(pending) == len(SCRIPT_MANAGEMENT)
     _, out = serve(cmd("hello", "h", HELLO), *(cmd(name, name, {}) for name in pending))
     resp = responses(out)
     for name in pending:

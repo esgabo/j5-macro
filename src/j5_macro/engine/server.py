@@ -5,12 +5,14 @@ from __future__ import annotations
 import threading
 import traceback
 from collections import deque
+from collections.abc import Callable
 
 from j5_macro.engine.dispatch import CommandError, Handler, HandlerSpec
 from j5_macro.engine.events import EventSequencer
 from j5_macro.engine.transport import LineTransport
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import (
+    PROTOCOL_VERSION,
     Command,
     ErrorInfo,
     Event,
@@ -41,6 +43,13 @@ class EngineServer:
         self._handlers: dict[str, HandlerSpec] = {}
         self._buffer: deque[Event] = deque(maxlen=EVENT_BUFFER_SIZE)
         self._emit_lock = threading.Lock()
+        self.ready_payload: JsonObject = {
+            "v": PROTOCOL_VERSION, "backend": None,
+            "capabilities": {"backend": None, "input_strategies": [], "step_types": []},
+        }
+        """Payload of the ``ready`` event; command modules fill in the capabilities."""
+        self._after_response: list[Callable[[], None]] = []
+        self._shutdown_hooks: list[Callable[[], None]] = []
 
     # -- registration -----------------------------------------------------
 
@@ -50,6 +59,18 @@ class EngineServer:
 
     def is_registered(self, type: str) -> bool:
         return type in self._handlers
+
+    def after_response(self, callback: Callable[[], None]) -> None:
+        """Run ``callback`` once the response to the command being handled is written.
+
+        Only for handlers on the protocol thread; e.g. ``run`` starts its worker here so
+        no run event can precede the ``run`` response on the wire.
+        """
+        self._after_response.append(callback)
+
+    def on_shutdown(self, hook: Callable[[], None]) -> None:
+        """Run ``hook`` at end of input, before :meth:`serve` returns."""
+        self._shutdown_hooks.append(hook)
 
     # -- output -----------------------------------------------------------
 
@@ -77,12 +98,20 @@ class EngineServer:
 
     # -- loop -------------------------------------------------------------
 
-    def serve(self, ready_payload: JsonObject) -> int:
-        """Emit ``ready``, then handle lines until end of input. Returns the exit code."""
-        self.emit("ready", ready_payload)
-        while (line := self.transport.read_line()) is not None:
-            if line.strip():
-                self.handle_line(line)
+    def serve(self, ready_payload: JsonObject | None = None) -> int:
+        """Emit ``ready``, then handle lines until end of input. Returns the exit code.
+
+        ``ready_payload`` defaults to :attr:`ready_payload`. At end of input the
+        shutdown hooks run (e.g. stopping an active run) before returning.
+        """
+        self.emit("ready", ready_payload if ready_payload is not None else self.ready_payload)
+        try:
+            while (line := self.transport.read_line()) is not None:
+                if line.strip():
+                    self.handle_line(line)
+        finally:
+            for hook in self._shutdown_hooks:
+                hook()
         return 0
 
     def handle_line(self, line: str) -> None:
@@ -99,7 +128,12 @@ class EngineServer:
         if not isinstance(message.type, str) or not isinstance(message.id, str):
             self.log("error", "ignored malformed command: 'type' and 'id' must be strings")
             return
-        self.respond(self.dispatch(message))
+        try:
+            self.respond(self.dispatch(message))
+        finally:
+            callbacks, self._after_response = self._after_response, []
+            for callback in callbacks:
+                callback()
 
     def dispatch(self, command: Command) -> Response:
         """Run the handler for ``command`` and build its response."""
