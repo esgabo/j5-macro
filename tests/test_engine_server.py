@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from j5_macro.engine.app import create_server
-from j5_macro.engine.commands import CONTRACT_COMMANDS
+from j5_macro.engine.commands import CONTRACT_COMMANDS, vision_installed
 from j5_macro.engine.events import EventSequencer
 from j5_macro.engine.server import EVENT_BUFFER_SIZE, EngineServer
 from j5_macro.engine.transport import LineTransport
@@ -16,7 +16,7 @@ from j5_macro.protocol.messages import Command
 from j5_macro.steps import default_registry
 
 CAPABILITIES = {"backend": None, "input_strategies": [],
-                "step_types": default_registry().names()}
+                "step_types": default_registry().names(), "vision": vision_installed()}
 HELLO = {"v_min": 1, "v_max": 1, "client": "tests"}
 
 

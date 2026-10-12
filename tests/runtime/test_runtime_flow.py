@@ -280,14 +280,14 @@ def test_unknown_predefined_condition_fails_in_normal_mode():
         steps:
           - id: look
             if:
-              when: {image_visible: img/x.png}
+              when: {text_visible: hello}
               then:
                 - log: seen
     """)
     assert outcome.status == "failed"
     assert outcome.error is not None
     assert outcome.error.code == "expression_error"
-    assert "not available yet (vision arrives in M3)" in outcome.error.message
+    assert "unknown predefined condition 'text_visible'" in outcome.error.message
 
 
 def test_injected_condition_receives_interpolated_argument():

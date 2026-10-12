@@ -6,7 +6,7 @@ import random
 import threading
 from typing import Any
 
-from runtime_helpers import REGISTRY, TIMEOUT, Recorder, ScaledClock, load
+from runtime_helpers import REGISTRY, TIMEOUT, Recorder, ScaledClock, load, no_vision
 
 from j5_macro.backends.base import Button, Rect, UnknownKey
 from j5_macro.backends.fake import FakeBackend
@@ -37,6 +37,8 @@ class FakeSession:
         self.abort = abort
         self.calls: list[tuple[str, Any, Any]] = []
         self.rngs: list[random.Random] = []
+        self.targets: list[Rect | None] = []
+        """The ``target`` area of each move and click, in order."""
         self._held: list[str] = []
         self._lock = threading.Lock()
 
@@ -49,11 +51,13 @@ class FakeSession:
     def move(self, x: int, y: int, *, profile: MouseProfile, rng: random.Random,
              target: Rect | None = None) -> None:
         self.calls.append(("move", (x, y), profile))
+        self.targets.append(target)
         self.rngs.append(rng)
 
     def click(self, x: int, y: int, *, button: Button, clicks: int, profile: MouseProfile,
               rng: random.Random, target: Rect | None = None) -> None:
         self.calls.append(("click", (x, y, button, clicks), profile))
+        self.targets.append(target)
         self.rngs.append(rng)
         if (x, y) == (0, 0):
             raise EmergencyStop("cursor pushed into the top-left corner")
@@ -131,14 +135,16 @@ class InputRun:
     """A run with a fake session factory, on a worker thread."""
 
     def __init__(self, script: Script | str, *, factory: SessionFactory | None = None,
-                 scale: float = 100.0, **options: Any) -> None:
+                 scale: float = 100.0, vision_factory: Any = no_vision,
+                 **options: Any) -> None:
         if isinstance(script, str):
             script = load(script)
         options.setdefault("backend", backend())
         self.factory = factory if factory is not None else SessionFactory()
         self.recorder = Recorder()
         self.controller = create_run(script, REGISTRY, self.recorder, RunOptions(**options),
-                                     clock=ScaledClock(scale), session_factory=self.factory)
+                                     clock=ScaledClock(scale), session_factory=self.factory,
+                                     vision_factory=vision_factory)
         self.outcome: RunOutcome | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()

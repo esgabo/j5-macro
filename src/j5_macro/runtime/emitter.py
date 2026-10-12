@@ -57,8 +57,10 @@ class Emitter:
         self._send("step_finished", StepFinishedEvent(**self._where(step, its),
                                                       duration_ms=duration_ms, result=result))
 
-    def step_failed(self, step: Step, its: Iterations, error: ErrorInfo) -> None:
-        self._send("step_failed", StepFailedEvent(**self._where(step, its), error=error))
+    def step_failed(self, step: Step, its: Iterations, error: ErrorInfo,
+                    screenshot: str | None = None) -> None:
+        self._send("step_failed", StepFailedEvent(**self._where(step, its), error=error,
+                                                  screenshot=screenshot))
 
     def step_skipped(self, step: Step, its: Iterations,
                      reason: Literal["user", "condition"]) -> None:

@@ -8,10 +8,9 @@ from types import MappingProxyType
 from typing import Any, Protocol
 
 from j5_macro.input.api import StepInput
-from j5_macro.protocol.errors import ErrorCode
 from j5_macro.runtime.resolve import evaluated
 from j5_macro.runtime.seeding import derive_seed
-from j5_macro.steps.spec import LogLevel, StepError
+from j5_macro.steps.spec import LogLevel
 from j5_macro.vision.api import StepVision
 
 
@@ -32,14 +31,19 @@ class ContextHost(Protocol):
     def step_input(self, step_id: str, rng: random.Random,
                    *overrides: Mapping[str, Any] | None) -> StepInput: ...
 
+    def step_vision(self, context: RunContext) -> StepVision: ...
+
 
 class RunContext:
     """One attempt of one step."""
 
     def __init__(self, host: ContextHost, *, step_id: str, iterations: list[int] | None,
                  attempt: int, depth: int, dry_run: bool, seed: int,
-                 input_overrides: Mapping[str, Any] | None = None) -> None:
+                 input_overrides: Mapping[str, Any] | None = None,
+                 timeout: float | None = None) -> None:
         self._host = host
+        self.timeout = timeout
+        """The step's common ``timeout`` field in seconds (None when not set)."""
         self._input_overrides = input_overrides
         self._step_id = step_id
         self._iterations = iterations
@@ -91,9 +95,7 @@ class RunContext:
 
     @property
     def vision(self) -> StepVision:
-        # Wired to the run's vision toolkit in milestone M3 (#22).
-        raise StepError(ErrorCode.CAPABILITY_MISSING,
-                        f"step '{self._step_id}' needs vision (milestone M3)")
+        return self._host.step_vision(self)
 
     @property
     def input(self) -> StepInput:

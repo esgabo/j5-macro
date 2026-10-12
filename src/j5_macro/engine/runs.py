@@ -243,6 +243,9 @@ class RunManager:
                 breakpoints=entry.breakpoints,
                 input_profile=payload.input_profile,
                 captures=payload.captures,
+                # Created by _create_files before the run starts; artifacts (captures)
+                # are only written there if that succeeded.
+                run_dir=None if self.store is None else self.store.root / run_id,
                 backend=None if self.backend is None else self.backend.backend,
                 backend_reason=None if self.backend is None else self.backend.reason,
             )

@@ -207,9 +207,12 @@ def parse_duration(value: Any) -> Duration:
 class StepError(Exception):
     """A step failed in an expected way; the interpreter applies ``on_error``."""
 
-    def __init__(self, code: ErrorCode, message: str, details: dict[str, Any] | None = None):
+    def __init__(self, code: ErrorCode, message: str, details: dict[str, Any] | None = None,
+                 *, screenshot: str | None = None):
         super().__init__(message)
         self.info = ErrorInfo(code=code.value, message=message, details=details)
+        self.screenshot = screenshot
+        """Capture of the failure, relative to the run's directory (``step_failed``)."""
 
 
 class StepContext(Protocol):

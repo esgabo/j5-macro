@@ -68,7 +68,7 @@ def resolve_params(registry: StepRegistry, spec: StepSpec, params: Mapping[str, 
 
 
 def unavailable_condition(name: str) -> str:
-    return f"predefined condition {name!r} is not available yet (vision arrives in M3)"
+    return f"unknown predefined condition {name!r}"
 
 
 def check_condition(condition: Any, ctx: StepContext,

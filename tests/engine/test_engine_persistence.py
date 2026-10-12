@@ -179,3 +179,24 @@ def test_platform_state_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_engine_runs_dir_option() -> None:
     assert parse_args(["--runs-dir", "somewhere"]).runs_dir == "somewhere"
     assert parse_args([]).runs_dir is None
+
+
+def test_runs_get_their_directory_for_artifacts(tmp_path: Path) -> None:
+    factory = FakeFactory(Behaviour(block=True))
+    engine = Engine(run_factory=factory, runs_dir=tmp_path)
+    run_id = engine.start(engine.load_source(SCRIPT))
+    run_dir = factory.last.options.run_dir
+    assert run_dir == tmp_path / run_id
+    assert run_dir.is_dir()  # created before the run's first step
+    factory.last.release()
+    engine.wait_finished(run_id)
+    engine.close()
+
+
+def test_runs_without_persistence_have_no_directory() -> None:
+    factory = FakeFactory()
+    engine = Engine(run_factory=factory)
+    run_id = engine.start(engine.load_source(SCRIPT))
+    engine.wait_finished(run_id)
+    engine.close()
+    assert factory.last.options.run_dir is None
