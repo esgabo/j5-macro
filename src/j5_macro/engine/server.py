@@ -20,6 +20,7 @@ from j5_macro.protocol.messages import (
     decode,
     encode,
 )
+from j5_macro.protocol.payloads import PayloadError
 
 EVENT_BUFFER_SIZE = 1000
 """Engine-level events kept in memory for ``get_events``."""
@@ -106,6 +107,8 @@ class EngineServer:
             result = self._invoke(command)
         except CommandError as exc:
             return Response(type=command.type, id=command.id, ok=False, error=exc.info)
+        except PayloadError as exc:
+            return Response(type=command.type, id=command.id, ok=False, error=exc.error)
         except Exception as exc:
             info = ErrorInfo(
                 code=ErrorCode.INTERNAL_ERROR.value,

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from j5_macro.engine.dispatch import CommandError, require_int, require_str
+from j5_macro.engine.dispatch import CommandError
 from j5_macro.engine.server import EngineServer
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import PROTOCOL_VERSION, Command, JsonObject
+from j5_macro.protocol.payloads import GetEventsPayload, HelloPayload
 
 SUPPORTED_VERSIONS = frozenset({PROTOCOL_VERSION})
 
@@ -33,9 +34,8 @@ def install(server: EngineServer) -> None:
     """Register the core handlers; every other contract command answers not_implemented."""
 
     def hello(command: Command) -> JsonObject:
-        v_min = require_int(command.payload, "v_min")
-        v_max = require_int(command.payload, "v_max")
-        require_str(command.payload, "client")
+        payload = HelloPayload.from_json(command.payload)
+        v_min, v_max = payload.v_min, payload.v_max
         if v_min > v_max:
             raise CommandError(ErrorCode.VALIDATION_FAILED,
                                f"v_min ({v_min}) is greater than v_max ({v_max})")
@@ -52,8 +52,8 @@ def install(server: EngineServer) -> None:
         return {"v": server.negotiated_version, "capabilities": capabilities()}
 
     def get_events(command: Command) -> JsonObject:
-        run_id = require_str(command.payload, "run_id", nullable=True)
-        from_seq = require_int(command.payload, "from_seq")
+        payload = GetEventsPayload.from_json(command.payload)
+        run_id, from_seq = payload.run_id, payload.from_seq
         if run_id is not None:
             raise CommandError(ErrorCode.NOT_RUNNING, f"unknown run_id: {run_id!r}")
         return {"events": [event.to_json() for event in server.buffered_events(from_seq)]}
