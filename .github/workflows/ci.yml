@@ -21,9 +21,9 @@ jobs:
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb
       - if: runner.os == 'Linux'
-        run: python -m pip install -e ".[dev,x11]"
+        run: python -m pip install -e ".[dev,x11,vision]"
       - if: runner.os != 'Linux'
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,vision]"
       - run: ruff check .
       - run: mypy
       # X11 backend tests (marked x11) run against Xvfb; elsewhere they are skipped.

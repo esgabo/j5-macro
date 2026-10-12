@@ -1,0 +1,40 @@
+"""Builds the :class:`~j5_macro.vision.api.VisionToolkit` (the
+:data:`~j5_macro.vision.api.ToolkitFactory`).
+
+This module imports without the ``vision`` extra; OpenCV, numpy and mss are imported
+when :func:`create_toolkit` runs.
+"""
+
+from __future__ import annotations
+
+from j5_macro.backends.base import Rect
+from j5_macro.vision.api import VisionToolkit
+
+INSTALL_HINT = 'install the vision extra: pip install "j5-macro[vision]"'
+
+
+def create_toolkit() -> VisionToolkit:
+    """Screen capture, cached template loading, matching and PNG saving.
+
+    Raises ``ImportError`` (with an install hint) when OpenCV, numpy or mss are missing
+    and ``RuntimeError`` when the screen cannot be captured (e.g. no display).
+    """
+    try:
+        from j5_macro.vision.capture import MssCapturer
+        from j5_macro.vision.drawing import save_png
+        from j5_macro.vision.matching import locate
+        from j5_macro.vision.templates import TemplateCache
+    except ImportError as exc:
+        raise ImportError(f"image matching needs OpenCV, numpy and mss ({exc}); "
+                          f"{INSTALL_HINT}") from exc
+
+    capturer = MssCapturer()
+    try:
+        desktop = capturer.desktop()
+        capturer.grab(Rect(desktop.x, desktop.y, 1, 1))
+    except Exception as exc:
+        capturer.close()
+        message = str(exc) if isinstance(exc, RuntimeError) else f"screen capture failed: {exc}"
+        raise RuntimeError(message) from exc
+    return VisionToolkit(capturer=capturer, load_template=TemplateCache(),
+                         locate=locate, save_image=save_png)
