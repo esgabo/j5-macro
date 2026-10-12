@@ -24,7 +24,7 @@ dependencies = [
 x11 = ["python-xlib>=0.33", "mss>=9.0"]
 windows = ["mss>=9.0"]
 vision = ["opencv-python-headless>=4.9", "numpy>=1.26"]
-dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10", "jsonschema>=4.18"]
 
 [project.scripts]
 j5 = "j5_macro.cli.main:main"
