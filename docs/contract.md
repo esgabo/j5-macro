@@ -71,7 +71,7 @@ Every message is a JSON object on a single line (JSON Lines), identical over std
 Example event:
 
 ```json
-{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-151051-d36f","seq":14,"ts":"2026-10-12T15:10:53.412Z","t_ms":2120,"payload":{"step_id":"open_menu","path":[0],"line":9,"type":"click","params":{"x":120,"y":40}}}
+{"v":1,"kind":"event","type":"step_started","run_id":"r-20261012-151051-d36f","seq":14,"ts":"2026-10-12T15:10:53.412Z","t_ms":2120,"payload":{"step_id":"open_menu","path":[0],"line":9,"type":"click","params":{"x":120,"y":40,"button":"left","clicks":1,"threshold":0.9,"scale":1.0}}}
 ```
 
 Rules:
@@ -126,7 +126,7 @@ Events describe everything the engine does, so a debugger or a GUI is built by l
 | `run_started` | First event of a run | `script_id`, `script_name` (the script's `name`), `mode`, `seed` (generated when the client gave none), `backend` (the engine's backend name, `none` without one), `input_profile` |
 | `state_changed` | On every state change | `state` (`running`, `paused`, `stopping`), `reason?` (`breakpoint`, `step`, `user`, `error`, `interference`) |
 | `run_finished` | Last event of a run | `status` (`completed`, `stopped`, `failed`), `reason?` (`user`, `interference`), `duration_ms`, `error?` |
-| `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved |
+| `step_started` | Before a step runs, before any effect; once per attempt | `step_id`, `type`, `params` with variables already resolved and every declared default filled in (an `x`/`y` `click` also reports `threshold` and `scale`) |
 | `step_finished` | When the step completes | `step_id`, `duration_ms` (time spent paused excluded), `result` |
 | `step_skipped` | A step was skipped | `step_id`, `reason` (`user`) |
 | `step_failed` | Error or timeout in a step | `step_id`, `error` (`code`, `message`, `details.attempt`), `screenshot?` (the capture of a failed image search, relative to the run's directory) |
@@ -282,9 +282,9 @@ Physical keys are named in lowercase: modifiers `ctrl`, `shift`, `alt`, `super`;
 | Mouse | `interference`, `tolerance` | Action on interference (`pause`, `stop` or `off`) and allowed deviation in pixels (20 by default) |
 | Keyboard | `strategy`, `wpm` | Strategy and speed in words per minute |
 | Keyboard | `variance`, `typos` | Spread of the intervals (log-normal sigma; `0` is fully regular, without pauses), and typos (`false` by default): about 3% of ASCII letters hit a neighbouring QWERTY key, noticed at once or one or two characters later, then erased with `backspace` and retyped |
-| Both | `seed` | Base seed of the run |
-
 Each step's effective profile is the defaults, then the script's `input`, the run's `input_profile`, the step's `input` and, last, step parameters such as `type`'s `keyboard`; an invalid profile fails the step with `validation_failed`.
+
+The seed is not a profile parameter: it belongs to the whole run and comes only from `run`'s `seed` (`j5 run --seed`), else the engine generates one. A `seed` in any profile layer is an unknown field (`validation_failed`, with a message pointing to the run's seed). There is no per-step seed because each step attempt already gets its own sub-seed derived from the run seed (see "Per-action seeds" below); a seed set on one step would either break that scheme or need rules for combining the two.
 
 **Safety and reproducibility:**
 
@@ -349,13 +349,13 @@ steps:
 
 | Step | Main parameters |
 | --- | --- |
-| `click` | `image` or `x`/`y`, `window?`, `button`, `clicks`, `offset`, `threshold`, `scale?`, `region?` |
-| `move` | `image` or `x`/`y`, `window?`, `threshold?`, `scale?`, `region?` |
+| `click` | `image` or `x`/`y`, `window?`, `button`, `clicks`, `offset?`, `threshold`, `scale`, `region?` |
+| `move` | `image` or `x`/`y`, `window?`, `threshold`, `scale`, `region?` |
 | `drag` | `from`, `to` (each `{x, y, window?}` or `{image, threshold?, scale?, region?, window?}`), `button` |
 | `scroll` | `dx`, `dy` |
 | `type` | `text`, `keyboard?` |
 | `key` | `press` (e.g. `ctrl+s`), `hold?` |
-| `wait_image` | `image`, `timeout` (10 s by default), `threshold`, `region?`, `window?`, `scale?`; the result is `{found, score, bbox}` |
+| `wait_image` | `image`, `timeout` (10 s by default), `threshold`, `region?`, `window?`, `scale`; the result is `{found, score, bbox}` |
 | `sleep` | Duration, with optional variance |
 | `if` | `when` (expression or condition), `then`, `else?` |
 | `loop` | `times`, `while` or `for_each` (with `as`), and `do` |
@@ -365,7 +365,7 @@ steps:
 
 **Key combinations** (`key` steps and the stop key) are written as modifiers then one key, joined by `+`, case-insensitive: `ctrl+shift+s`, `alt+f4`, `super+e`. A final single ASCII character is the physical key that types it on a US layout. The `+` and `-` keys are written `plus` and `minus` (`ctrl+plus`). Aliases: `esc`, `return`, `control`/`ctl`, `cmd`/`win`/`meta`, `option`, `del`, `ins`, `pgup`, `pgdn`. To type text, including non-ASCII characters, use `type`, where `\n` and `\r` press Enter (`\r\n` presses it once), `\t` Tab and `\b` Backspace; other control characters (U+0000 to U+001F and U+007F to U+009F) are rejected before any input is sent, in every mode: literal text when the script is loaded, interpolated text after interpolation, with `validation_failed`, `details.param: text`, and the first offending character's `details.index` (0-based, in the text after interpolation) and `details.code_point` (`U+0007`). The message names the index and code point, never the text, which may be a secret. Some keymaps lack `f13` to `f24`; using one then fails with `validation_failed`.
 
-**Step registry.** Each type is registered with its name, its parameter schema (name, type, required, default, documentation), its cross-parameter checks and the function that executes it. From that single registry come:
+**Step registry.** Each type is registered with its name, its parameter schema (name, type, required, default, documentation), its cross-parameter checks and the function that executes it. Every parameter that has an effective default declares it in the schema (e.g. `threshold` 0.9 and `scale` 1 on every step with an `image`), so every client sees the value the executor uses; loading fills declared defaults in, so cross-parameter checks treat a default as not written (`scale` 1 is accepted on an `x`/`y` target, another `scale` is not). Parameters without a default (`offset`, `region`, `window`, `hold`, ...) mean "none" when absent. The image targets nested in `drag`'s `from` and `to`, and `image_visible`, use the same defaults. From that single registry come:
 
 - the validation of `load` and `validate`,
 - a JSON Schema for editor completion and validation (`j5 schema`, e.g. with the VS Code YAML extension),

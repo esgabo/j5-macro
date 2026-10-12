@@ -6,6 +6,9 @@ import pytest
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.steps import StepError, validate_params
 from j5_macro.steps.builtins import default_registry
+from j5_macro.steps.images import image_visible
+from j5_macro.steps.spec import parse_duration
+from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 
 REGISTRY = default_registry()
 
@@ -50,9 +53,12 @@ def test_defaults():
         return validate_params(spec, params)[0]
 
     assert defaults("click", {"x": 1, "y": 2}) == {"x": 1, "y": 2, "button": "left",
-                                                   "clicks": 1, "threshold": 0.9}
+                                                   "clicks": 1, "threshold": 0.9,
+                                                   "scale": 1.0}
+    assert defaults("move", {"x": 1, "y": 2}) == {"x": 1, "y": 2, "threshold": 0.9,
+                                                  "scale": 1.0}
     assert defaults("wait_image", {"image": "a.png"}) == {"image": "a.png", "timeout": "10s",
-                                                          "threshold": 0.9}
+                                                          "threshold": 0.9, "scale": 1.0}
     assert defaults("scroll", {}) == {"dx": 0, "dy": 0}
     assert defaults("log", {"message": "m"}) == {"message": "m", "level": "info"}
     assert defaults("loop", {"times": 2}) == {"times": 2, "as": "item"}
@@ -88,6 +94,9 @@ def _problems(name, params):
     ("click", {"x": 1, "y": 2, "clicks": 0}, "clicks"),
     ("click", {"x": 1, "y": 2, "offset": [1]}, "offset"),
     ("click", {"image": "a.png", "threshold": 1.5}, "threshold"),
+    ("click", {"x": 1, "y": 2, "scale": 2}, "scale"),
+    ("move", {"x": 1, "y": 2, "scale": "${s}"}, "scale"),
+    ("click", {"x": 1, "y": 2, "region": [0, 0, 5, 5]}, "region"),
     ("move", {"y": 3}, "x"),
     ("drag", {"from": {"x": 1}, "to": {"x": 1, "y": 1}}, "from.y"),
     ("drag", {"from": {"x": 1, "y": 1}, "to": {}}, "to"),
@@ -110,6 +119,8 @@ def test_cross_field_problems(name, params, param):
     ("set", {"name": "x", "value": None}),
     ("set", {"name": "x", "expr": "a + 1"}),
     ("click", {"image": "a.png", "offset": [5, -5]}),
+    ("click", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1.0}),
+    ("move", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1}),
     ("key", {"press": "${combo}"}),
     ("key", {"press": "enter"}),
     ("type", {"text": "a\tb\nc\r\nd\re\bñ😀"}),
@@ -266,3 +277,125 @@ def test_input_steps_fail_without_input_outside_dry_run(name, params, milestone)
     assert info.value.info.code == "capability_missing"
     assert milestone in info.value.info.message
     assert ctx.calls == []
+
+
+# --- declared defaults are the ones the executors use -----------------------------------
+
+
+class RecordingVision:
+    """Records the options of every search; never finds anything."""
+
+    def __init__(self) -> None:
+        self.searches: list[dict[str, Any]] = []
+
+    def find(self, image: str, **options: Any) -> Match:
+        self.searches.append({"image": image, **options})
+        return Match(found=False, score=0.0, bbox=None)
+
+    def wait(self, image: str, *, timeout: float, **options: Any) -> Match:
+        return self.find(image, timeout=timeout, **options)
+
+
+class VisionContext(FakeContext):
+    def __init__(self, *, dry_run: bool = True) -> None:
+        super().__init__(dry_run=dry_run)
+        self.recorder = RecordingVision()
+
+    @property
+    def vision(self) -> Any:
+        return self.recorder
+
+
+def _searches(name: str, params: dict[str, Any], *,
+              dry_run: bool = True) -> list[dict[str, Any]]:
+    ctx = VisionContext(dry_run=dry_run)
+    run(name, params, ctx)
+    return ctx.recorder.searches
+
+
+def _defaulted(name: str, params: dict[str, Any]) -> dict[str, Any]:
+    """``params`` as the loader keeps them: declared defaults filled in, and valid."""
+    spec = REGISTRY.spec(name)
+    assert spec is not None
+    defaulted, problems = validate_params(spec, params)
+    assert problems == []
+    assert REGISTRY.check_params(name, defaulted) == []
+    return defaulted
+
+
+IMAGE_STEPS = [name for name in REGISTRY.names()
+               if REGISTRY.spec(name).param("image") is not None]  # type: ignore[union-attr]
+IMAGE_DEFAULTS = {"threshold": DEFAULT_THRESHOLD, "scale": DEFAULT_SCALE}
+
+
+def _options(search: dict[str, Any]) -> dict[str, Any]:
+    return {name: search[name] for name in IMAGE_DEFAULTS}
+
+
+def test_image_steps_are_the_expected_ones():
+    assert IMAGE_STEPS == ["click", "move", "wait_image"]
+
+
+@pytest.mark.parametrize("name", IMAGE_STEPS)
+def test_image_param_defaults_are_declared_and_used(name):
+    spec = REGISTRY.spec(name)
+    assert spec is not None
+    declared = {p: spec.param(p).default for p in IMAGE_DEFAULTS}  # type: ignore[union-attr]
+    assert declared == IMAGE_DEFAULTS
+    # As written (no defaults filled in) and as loaded (defaults filled in), the search
+    # uses the declared values.
+    for params in ({"image": "a.png"}, _defaulted(name, {"image": "a.png"})):
+        assert [_options(s) for s in _searches(name, params)] == [declared]
+        if name == "wait_image":  # outside dry runs too
+            searches = _searches(name, params, dry_run=False)
+            assert [_options(s) for s in searches] == [declared]
+
+
+def test_nested_and_condition_image_targets_use_the_same_defaults():
+    searches = _searches("drag", {"from": {"image": "a.png"}, "to": {"image": "b.png"}})
+    assert [_options(s) for s in searches] == [IMAGE_DEFAULTS, IMAGE_DEFAULTS]
+    ctx = VisionContext()
+    assert image_visible(ctx, "a.png") is False
+    assert [_options(s) for s in ctx.recorder.searches] == [IMAGE_DEFAULTS]
+
+
+def test_wait_image_timeout_default_is_the_one_used():
+    spec = REGISTRY.spec("wait_image")
+    assert spec is not None
+    seconds = parse_duration(spec.param("timeout").default).seconds  # type: ignore[union-attr]
+    for params in ({"image": "a.png"}, _defaulted("wait_image", {"image": "a.png"})):
+        for dry_run in (True, False):
+            searches = _searches("wait_image", params, dry_run=dry_run)
+            assert [s["timeout"] for s in searches] == [seconds]
+
+
+@pytest.mark.parametrize(("name", "params"), [
+    ("click", {"x": 1, "y": 2}),
+    ("move", {"x": 1, "y": 2}),
+    ("drag", {"from": {"x": 0, "y": 0}, "to": {"x": 9, "y": 9}}),
+    ("scroll", {}),
+    ("log", {"message": "hi"}),
+])
+def test_filling_in_defaults_does_not_change_what_a_step_does(name, params):
+    """A step run as written and with its declared defaults filled in (as the loader
+    keeps it) does the same, so the declared defaults are the executors' ones. An
+    ``x``/``y`` target stays valid with the image defaults filled in."""
+    first, second = FakeContext(dry_run=True), FakeContext(dry_run=True)
+    assert run(name, dict(params), first) == run(name, _defaulted(name, params), second)
+    assert first.calls == second.calls
+
+
+@pytest.mark.parametrize(("name", "param", "default"), [
+    ("click", "button", "left"),
+    ("click", "clicks", 1),
+    ("drag", "button", "left"),
+    ("scroll", "dx", 0),
+    ("scroll", "dy", 0),
+    ("wait_image", "timeout", "10s"),
+    ("log", "level", "info"),
+    ("loop", "as", "item"),
+])
+def test_other_declared_defaults(name, param, default):
+    spec = REGISTRY.spec(name)
+    assert spec is not None
+    assert spec.param(param).default == default  # type: ignore[union-attr]

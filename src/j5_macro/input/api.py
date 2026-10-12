@@ -65,7 +65,7 @@ class InputProfile:
             return self
         unknown = set(overrides) - {"mouse", "keyboard"}
         if unknown:
-            raise ValueError(f"unknown input profile keys: {', '.join(sorted(unknown))}")
+            raise ValueError(_unknown("keys", unknown))
         return InputProfile(
             mouse=_override(self.mouse, overrides.get("mouse")),
             keyboard=_override(self.keyboard, overrides.get("keyboard")),
@@ -80,12 +80,22 @@ def _override(profile: Any, values: Any) -> Any:
     fields = {f for f in profile.__dataclass_fields__}
     unknown = set(values) - fields
     if unknown:
-        raise ValueError(f"unknown input profile fields: {', '.join(sorted(unknown))}")
+        raise ValueError(_unknown("fields", unknown))
     current = {name: getattr(profile, name) for name in fields}
     current.update(values)
     result = type(profile)(**current)
     _validate(result)
     return result
+
+
+SEED_HINT = ("the seed is not an input profile setting: it belongs to the whole run "
+             "(the run command's seed, j5 run --seed), and each step attempt derives its "
+             "own sub-seed from it")
+
+
+def _unknown(kind: str, names: set[str]) -> str:
+    message = f"unknown input profile {kind}: {', '.join(sorted(names))}"
+    return f"{message}; {SEED_HINT}" if "seed" in names else message
 
 
 def _validate(profile: MouseProfile | KeyboardProfile) -> None:

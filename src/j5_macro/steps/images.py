@@ -14,7 +14,7 @@ from typing import Any
 from j5_macro.backends.base import Rect
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.steps.spec import StepContext, StepError
-from j5_macro.vision.api import DEFAULT_THRESHOLD, Match
+from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
 """Search failures a dry run reports as a warning instead of failing the step."""
@@ -25,7 +25,7 @@ def search_options(target: Mapping[str, Any]) -> dict[str, Any]:
     threshold, scale = target.get("threshold"), target.get("scale")
     options: dict[str, Any] = {
         "threshold": DEFAULT_THRESHOLD if threshold is None else threshold,
-        "scale": 1.0 if scale is None else scale,
+        "scale": DEFAULT_SCALE if scale is None else scale,
     }
     for name in ("region", "window"):
         if target.get(name) is not None:

@@ -33,6 +33,7 @@ from j5_macro.runtime.clock import Clock
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
     DEFAULT_INTERVAL,
+    DEFAULT_SCALE,
     DEFAULT_THRESHOLD,
     Frame,
     Match,
@@ -214,15 +215,16 @@ class BoundVision:
         self._log = log
         self._paused = paused
 
-    def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD, scale: float = 1.0,
-             region: list[int] | None = None, window: dict[str, Any] | None = None) -> Match:
+    def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
+             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             window: dict[str, Any] | None = None) -> Match:
         """One attempt; not finding the image is not a failure (no capture under
         ``on_failure``)."""
         search = self._prepare(image, threshold, scale, region, window)
         return self._attempt(search, 1, final_miss_fails=False)
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = 1.0, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
              window: dict[str, Any] | None = None,
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common

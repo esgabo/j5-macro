@@ -45,7 +45,7 @@ from j5_macro.steps.spec import (
     StepType,
     parse_duration,
 )
-from j5_macro.vision.api import DEFAULT_THRESHOLD
+from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD
 
 BUTTONS = ("left", "right", "middle")
 
@@ -300,8 +300,10 @@ def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
     if isinstance(scale, int | float) and not isinstance(scale, bool) and scale <= 0:
         problems.append(ParamProblem("scale", "must be greater than 0"))
     if "image" not in params:
+        # ``scale`` is filled in with its default, so only another value is a mistake.
         problems += [ParamProblem(name, "only applies to 'image' targets")
-                     for name in ("region", "scale") if name in params]
+                     for name in ("region", "scale")
+                     if name in params and not (name == "scale" and scale == DEFAULT_SCALE)]
     return problems
 
 
@@ -401,9 +403,9 @@ WINDOW = ParamSpec(name="window", type="object",
                    doc="Window to work in, e.g. {title: ...}; coordinates become relative.")
 THRESHOLD = ParamSpec(name="threshold", type="number", default=DEFAULT_THRESHOLD,
                       doc="Minimum image match score, from 0 to 1.")
-SCALE = ParamSpec(name="scale", type="number",
-                  doc="Scale applied to the image before searching (default 1), to "
-                      "compensate images captured at another display scaling.")
+SCALE = ParamSpec(name="scale", type="number", default=DEFAULT_SCALE,
+                  doc="Scale applied to the image before searching, to compensate images "
+                      "captured at another display scaling.")
 REGION = ParamSpec(name="region", type="list",
                    doc="[x, y, width, height] to search in (relative to 'window' when "
                        "given); defaults to the window, else the whole desktop.")
@@ -426,10 +428,7 @@ CLICK = StepType(StepSpec(
 MOVE = StepType(StepSpec(
     name="move",
     doc="Move the mouse to an image or to x/y.",
-    params=(_image(), X, Y, WINDOW,
-            ParamSpec(name="threshold", type="number",
-                      doc="Minimum image match score, from 0 to 1 (default 0.9)."),
-            SCALE, REGION),
+    params=(_image(), X, Y, WINDOW, THRESHOLD, SCALE, REGION),
 ), input_step(lambda p: f"move to {_target(p)}", perform_move))
 
 DRAG = StepType(StepSpec(
