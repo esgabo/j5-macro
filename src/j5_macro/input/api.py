@@ -156,6 +156,16 @@ class KeyPlan:
 # --- runtime hooks ----------------------------------------------------------------------
 
 
+class EmergencyStop(Exception):
+    """Raised by a master when the user triggers the failsafe mid-action (cursor pushed
+    into a screen corner). The master has already released what it held; the
+    interpreter stops the run with reason ``user``."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class AbortSignal(Protocol):
     """How masters notice ``stop`` without ever pausing mid-action.
 

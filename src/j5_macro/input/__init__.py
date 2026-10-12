@@ -2,6 +2,7 @@
 
 from j5_macro.input.api import (
     AbortSignal,
+    EmergencyStop,
     InputEventSink,
     InputProfile,
     InputSession,
@@ -19,6 +20,7 @@ from j5_macro.input.api import (
 
 __all__ = [
     "AbortSignal",
+    "EmergencyStop",
     "InputEventSink",
     "InputProfile",
     "InputSession",
