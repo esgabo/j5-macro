@@ -21,7 +21,7 @@ from j5_macro.engine.persistence import RUNS_DIR_ENV, resolve_runs_dir
 from j5_macro.engine.server import EngineServer
 from j5_macro.engine.transport import LineTransport, stdio_transport
 from j5_macro.runtime.api import RunFactory
-from j5_macro.steps import StepRegistry, default_registry
+from j5_macro.steps import StepRegistry, registry_with_plugins
 
 
 def create_server(
@@ -34,13 +34,25 @@ def create_server(
 ) -> EngineServer:
     """A server with every core command registered.
 
-    ``registry`` defaults to the built-in steps, ``run_factory`` to the interpreter, and
-    ``runs_dir`` None keeps run history in memory only (nothing is written to disk).
-    ``backend`` None leaves input unconfigured (see :func:`commands.install`).
+    ``registry`` defaults to the built-in steps plus the installed step plugins (a plugin
+    that cannot be loaded becomes a ``warning`` log right after ``ready``),
+    ``run_factory`` to the interpreter, and ``runs_dir`` None keeps run history in memory
+    only (nothing is written to disk). ``backend`` None leaves input unconfigured (see
+    :func:`commands.install`).
     """
     server = EngineServer(transport)
-    commands.install(server, registry if registry is not None else default_registry(),
-                     run_factory=run_factory, runs_dir=runs_dir, backend=backend)
+    skipped: list[str] = []
+    if registry is None:
+        registry, report = registry_with_plugins()
+        skipped = [str(problem) for problem in report.skipped]
+    commands.install(server, registry, run_factory=run_factory, runs_dir=runs_dir,
+                     backend=backend)
+    if skipped:
+        def warn_skipped_plugins() -> None:
+            for message in skipped:
+                server.log("warning", message)
+
+        server.on_ready(warn_skipped_plugins)
     return server
 
 

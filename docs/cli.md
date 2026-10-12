@@ -192,7 +192,8 @@ j5 steps [-h] [--json]
 ```
 
 Lists the registered step types, their parameters, types, defaults and documentation, as
-the engine reports them. `--json` prints the engine's full answer, including each type's
+the engine reports them: the built-in ones and those of installed
+[step plugins](development.md#writing-a-step-plugin). `--json` prints the engine's full answer, including each type's
 JSON Schema.
 
 ```console
@@ -213,8 +214,9 @@ click  Click on an image or at x/y.
 j5 schema [-h] [-o FILE]
 ```
 
-Prints the JSON Schema of j5 scripts, for completion and validation in editors. It does
-not start the engine. `-o FILE` writes it to a file instead of standard output.
+Prints the JSON Schema of j5 scripts, for completion and validation in editors, including
+the steps of installed step plugins (a plugin that cannot be loaded is left out with a
+warning on standard error). It does not start the engine. `-o FILE` writes it to a file instead of standard output.
 
 With the VS Code YAML extension (`redhat.vscode-yaml`):
 

@@ -329,12 +329,19 @@ keyboard masters) and `ctx.vision` (image searches); see
 changes for a new step: validation, `list_step_types` and the JSON Schema come from the
 spec.
 
-Current state: `StepRegistry.load_plugins()` runs the entry points and
-`default_registry(plugins=True)` calls it, but the engine process builds its registry
-with `default_registry()`, which does not load plugins. Until that is wired up, plugin
-steps are available to code that embeds the engine with its own registry
-(`create_server(transport, registry=...)` in
-[engine/app.py](../src/j5_macro/engine/app.py)).
+The engine process builds its registry with `registry_with_plugins()`
+([steps/builtins.py](../src/j5_macro/steps/builtins.py)): the built-ins first, then
+`StepRegistry.load_plugins()`, which runs the entry points in order of name. Names
+already taken win, so a plugin can never replace a built-in. Each plugin is loaded
+atomically: if it cannot be imported, raises, or registers a step that breaks the plugin
+rules (action steps only, a valid name, a spec that describes itself), whatever it
+registered is rolled back and a `PluginProblem` is returned instead of raising. The
+engine turns each one into a `warning` log right after `ready`; `j5 schema`, which builds
+the same registry without an engine, prints it on stderr. `default_registry()` stays
+built-ins only, for tests and the bundled schema. Code that embeds the engine can still
+pass its own registry (`create_server(transport, registry=...)` in
+[engine/app.py](../src/j5_macro/engine/app.py)). How to write one:
+[development.md](development.md#writing-a-step-plugin).
 
 ### Backends
 

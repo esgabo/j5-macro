@@ -76,8 +76,15 @@ def test_load_plugins_runs_entry_points(monkeypatch):
     def register(registry):
         registry.register(NOOP)
 
-    fake = SimpleNamespace(name="demo", load=lambda: register)
+    fake = SimpleNamespace(name="demo", value="demo:register", load=lambda: register)
     monkeypatch.setattr(registry_module, "entry_points",
                         lambda group: [fake] if group == "j5_macro.steps" else [])
-    registry = default_registry(plugins=True)
+    registry = default_registry()
+    report = registry.load_plugins()
+    assert report.loaded == ["demo"] and report.skipped == []
     assert registry.names()[-1] == "noop"
+
+
+def test_register_rejects_objects_that_are_not_step_types():
+    with pytest.raises(TypeError, match="StepType"):
+        StepRegistry().register(NOOP.spec)  # type: ignore[arg-type]

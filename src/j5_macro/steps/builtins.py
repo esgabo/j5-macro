@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from j5_macro.steps import basic, control, input_steps
-from j5_macro.steps.registry import ParamCheck, StepRegistry
+from j5_macro.steps.registry import ParamCheck, PluginReport, StepRegistry
 from j5_macro.steps.spec import StepType
 
 BUILTINS: tuple[tuple[StepType, ParamCheck | None], ...] = (
@@ -24,11 +24,20 @@ BUILTINS: tuple[tuple[StepType, ParamCheck | None], ...] = (
 """Step types with their cross-field checks, in the contract's table order."""
 
 
-def default_registry(*, plugins: bool = False) -> StepRegistry:
-    """A registry with every built-in step; ``plugins`` also loads entry-point steps."""
+def default_registry() -> StepRegistry:
+    """A registry with every built-in step and nothing else (tests, the bundled schema)."""
     registry = StepRegistry()
     for step_type, check in BUILTINS:
         registry.register(step_type, check)
-    if plugins:
-        registry.load_plugins()
     return registry
+
+
+def registry_with_plugins() -> tuple[StepRegistry, PluginReport]:
+    """The built-in steps plus every installed ``j5_macro.steps`` plugin.
+
+    What the engine process and ``j5 schema`` use. Built-ins are registered first, so
+    they win any name clash; the report lists the plugins that were skipped, for the
+    caller to warn about.
+    """
+    registry = default_registry()
+    return registry, registry.load_plugins()

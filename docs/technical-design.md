@@ -595,8 +595,6 @@ pull request and every push to `main`, on Ubuntu and Windows with Python 3.11, 3
   (`direct`) movements.
 - **Secrets**: the masked value's length is visible through `type`, transformed values
   are not masked, and the screen shows whatever the target application shows.
-- **Step plugins are not loaded by the engine process**: the registry supports the
-  `j5_macro.steps` entry point group, but the engine builds its registry without it.
 - **One client per engine**, over stdio only. Sockets or named pipes for a long-lived
   engine, with read-only observers, are planned after v1.
 - **Reserved, not implemented**: `input_planned.plan_ref` (the points or key events of a

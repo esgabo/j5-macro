@@ -138,18 +138,142 @@ examples (`sleep`, `set`, `log`, `pause`).
    Schema of `j5 schema` all come from the registry; the interpreter does not change.
 6. **Tests**: validation in `tests/test_steps_builtins.py`, behaviour in `tests/runtime/`.
 
-**Third-party steps.** `StepRegistry.load_plugins()` loads every entry point of the
-`j5_macro.steps` group; each must be a callable that takes the registry and registers its
-step types:
+## Writing a step plugin
 
-```toml
-[project.entry-points."j5_macro.steps"]
-my_steps = "my_package.steps:register"
+Step types can also live in a separate package, installed next to j5-macro, without
+changing j5-macro itself. The engine process and `j5 schema` load every installed plugin
+at startup, after the built-in steps; `j5 steps`, `j5 validate` and `j5 run` then see the
+plugin's steps like any other. The rules are in the
+[contract](contract.md#script-format-and-step-registry) ("Step plugins").
+
+**The interface.** A plugin is an entry point in the `j5_macro.steps` group. It must
+resolve to a callable that takes the `StepRegistry` and calls
+`registry.register(StepType(spec, executor), check=None)` for each of its step types. The
+spec, the executor and the optional cross-parameter check are written exactly like a
+built-in's (steps 2 to 4 above). In addition, a plugin step must:
+
+- be an action step with an executor (`if` and `loop` style steps with blocks are only
+  built in),
+- have a name made of letters, digits and `_`, not one of the common step fields (`id`,
+  `break`, `timeout`, `on_error`, `input`), and not one already taken. Built-in names
+  always win, and between plugins the first entry point by name wins,
+- use only the parameter types of `ParamType` (`j5_macro.steps.spec`), with a
+  `shorthand` that names one of its parameters,
+- respect dry runs: an executor that sends input checks `ctx.dry_run` and, when it is set,
+  returns a description instead (see `j5_macro.steps.input_steps`).
+
+A plugin that cannot be imported, is not callable, raises while registering, or breaks
+these rules is skipped as a whole (none of its steps stay registered), and the engine
+carries on: it logs a `warning` such as
+`step plugin 'greet = j5_greet:register' skipped: ImportError: ...` right after `ready`,
+which `j5 run` shows, and `j5 schema` prints the same warning on standard error.
+
+**A minimal plugin.** A package `j5-greet` with one step type, `greet`:
+
+```text
+j5-greet/
+  pyproject.toml
+  src/j5_greet/__init__.py
 ```
 
-Note that the engine and `j5 schema` currently build the registry with
-`default_registry()`, which leaves plugins out (`default_registry(plugins=True)` loads
-them), so plugin steps are not available in `j5 run` yet.
+```toml
+# pyproject.toml
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "j5-greet"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["j5-macro"]
+
+[project.entry-points."j5_macro.steps"]
+greet = "j5_greet:register"
+```
+
+```python
+# src/j5_greet/__init__.py
+"""j5-greet: a j5-macro step plugin with one step type, ``greet``."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from j5_macro.steps import (
+    ParamProblem,
+    ParamSpec,
+    StepContext,
+    StepRegistry,
+    StepSpec,
+    StepType,
+)
+
+GREET = StepSpec(
+    name="greet",
+    doc="Log a greeting.",
+    params=(
+        ParamSpec(name="who", type="string", required=True, doc="Who to greet."),
+        ParamSpec(name="times", type="integer", default=1, doc="How many times."),
+    ),
+    shorthand="who",  # allows `greet: world`
+)
+
+
+def run_greet(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
+    """Log the greeting; the returned dict becomes ``step_finished.result``."""
+    message = f"hello, {params['who']}"
+    times = params.get("times", 1)
+    for _ in range(times):
+        ctx.check_stop()
+        ctx.log("info", message)
+    return {"message": message, "times": times}
+
+
+def check_greet(params: Mapping[str, Any]) -> list[ParamProblem]:
+    """Cross-parameter rules, checked when the script is loaded."""
+    times = params.get("times", 1)
+    if isinstance(times, int) and times < 1:
+        return [ParamProblem("times", "must be at least 1")]
+    return []
+
+
+def register(registry: StepRegistry) -> None:
+    """The entry point: register every step type of the plugin."""
+    registry.register(StepType(GREET, run_greet), check_greet)
+```
+
+Install it in the same environment as j5-macro (`pip install -e ./j5-greet` while working
+on it). `j5 steps` now lists `greet`, `j5 schema` completes it in editors, and scripts can
+use it:
+
+```yaml
+steps:
+  - id: hello
+    greet: world
+  - id: twice
+    greet: {who: j5, times: 2}
+```
+
+```console
+$ j5 steps
+...
+greet  Log a greeting.
+  who: string (required)  Who to greet.
+  times: integer = 1  How many times.
+$ j5 run greet.yaml
+...
+  0.001s  ▶ hello  greet  {"who": "world", "times": 1}
+  0.001s    [info] hello, world
+  0.001s  ✓ hello  0ms  {"message": "hello, world", "times": 1}
+...
+```
+
+Test the executor like the built-in steps, with a registry that has your step
+(`registry.register(...)` on a `default_registry()`) and `create_run` from
+`j5_macro.runtime`; `tests/test_step_plugins.py` loads this very example as an installed
+plugin and runs it through the engine.
 
 ## Adding a backend
 

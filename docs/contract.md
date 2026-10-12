@@ -78,7 +78,7 @@ Rules:
 
 - **Command and response.** The client sends a command with an `id`; the engine answers with `kind: response`, the same `id`, and either `ok: true` with `result` or `ok: false` with `error` (see the codes at the end).
 - **Events are not acknowledged.** The engine emits them in order. If a client sees a gap in `seq`, it fetches the missing ones with `get_events`.
-- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types and `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`). Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key. Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
+- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types and `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`). Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key, and then a `warning` for each step plugin it skipped (see "Step plugins" below). Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
 - **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
 - **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
 - **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
@@ -373,6 +373,12 @@ steps:
 - the parameter forms of the future GUI.
 
 Adding a step (including a third-party one, registered as a plugin through the `j5_macro.steps` entry point group) means registering it; neither the interpreter nor the GUI changes.
+
+**Step plugins.** Third-party packages add step types through the `j5_macro.steps` entry point group. Each entry point resolves to a callable that receives the registry and registers its step types. The engine process loads every installed plugin at startup, after the built-ins, in order of entry point name; so does `j5 schema`, which builds the registry without an engine. Plugin steps are then like any other: they are validated, listed by `list_step_types` and `capabilities.step_types`, described in the JSON Schema and run. Rules:
+
+- A plugin step is an action step with an executor (control steps with blocks stay built-in), named with letters, digits and `_` only, and not after a common step field (`id`, `break`, `timeout`, `on_error`, `input`).
+- Names already taken win: a plugin that registers a built-in name, or the name of a plugin loaded before it, is skipped.
+- A plugin is loaded entirely or not at all. One that cannot be imported, is not callable, raises while registering, or registers a step that breaks the rules is skipped, along with every step it registered, and never stops the engine: the engine logs a `warning` naming the entry point and the error right after `ready` (`j5 schema` writes it to standard error). A script using a skipped plugin's steps fails to load with `unknown_step_type`.
 
 ## Script management
 

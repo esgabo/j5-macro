@@ -241,10 +241,13 @@ def _stdin_is_tty() -> bool:
 
 
 def _schema(output: str | None) -> int:
-    from j5_macro.steps.builtins import default_registry
+    from j5_macro.steps.builtins import registry_with_plugins
     from j5_macro.steps.schema import script_json_schema
 
-    text = json.dumps(script_json_schema(default_registry()), indent=2, ensure_ascii=False)
+    registry, report = registry_with_plugins()
+    for problem in report.skipped:
+        print(f"j5: warning: {problem}", file=sys.stderr)
+    text = json.dumps(script_json_schema(registry), indent=2, ensure_ascii=False)
     if output is None:
         print(text)
         return ExitCode.OK
