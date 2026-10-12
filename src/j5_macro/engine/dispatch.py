@@ -25,26 +25,3 @@ class CommandError(Exception):
         super().__init__(message)
         self.info = ErrorInfo(code=code.value, message=message, details=details)
 
-
-def require_int(payload: JsonObject, name: str) -> int:
-    """Return ``payload[name]`` if it is an integer, else raise ``validation_failed``."""
-    value = payload.get(name)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise CommandError(ErrorCode.VALIDATION_FAILED, f"'{name}' must be an integer",
-                           {"field": name})
-    return value
-
-
-def require_str(payload: JsonObject, name: str, *, nullable: bool = False) -> str | None:
-    """Return ``payload[name]`` if it is a string (or null when allowed)."""
-    if name not in payload:
-        raise CommandError(ErrorCode.VALIDATION_FAILED, f"'{name}' is required",
-                           {"field": name})
-    value = payload[name]
-    if value is None and nullable:
-        return None
-    if not isinstance(value, str):
-        kind = "a string or null" if nullable else "a string"
-        raise CommandError(ErrorCode.VALIDATION_FAILED, f"'{name}' must be {kind}",
-                           {"field": name})
-    return value

@@ -119,7 +119,9 @@ def test_get_events_validation_and_unknown_run() -> None:
     resp = responses(out)
     assert resp["run"]["error"]["code"] == "not_running"
     assert resp["noseq"]["error"]["code"] == "validation_failed"
-    assert resp["norun"]["error"]["code"] == "validation_failed"
+    # A missing run_id means the engine-level stream (typed payloads omit null fields).
+    assert resp["norun"]["ok"] is True
+    assert resp["norun"]["result"]["events"][0]["type"] == "ready"
 
 
 def test_event_buffer_is_bounded() -> None:

@@ -78,9 +78,10 @@ Reglas:
 
 - **Comando y respuesta.** El cliente envía un comando con `id`; el motor responde con `kind: response`, el mismo `id` y `ok: true` con `result`, o `ok: false` con `error` (ver códigos al final).
 - **Eventos sin acuse.** El motor los emite en orden. Si el cliente nota un salto en `seq`, pide los faltantes con `get_events`.
-- **Saludo inicial.** El motor emite `ready` al arrancar. Luego el cliente envía `hello` con el rango de versiones que entiende, y el motor responde con la versión elegida y sus capacidades: backend activo, estrategias de entrada disponibles y tipos de paso registrados.
+- **Saludo inicial.** El motor emite `ready` al arrancar. Luego el cliente envía `hello` con el rango de versiones que entiende, y el motor responde con la versión elegida y sus capacidades: backend activo, estrategias de entrada disponibles y tipos de paso registrados. Cualquier otro comando antes de `hello` responde `invalid_state` con `details.reason: hello_required`.
 - **Sin binarios en los mensajes.** Capturas y recortes se guardan en `runs/<run_id>/` y el evento lleva la ruta relativa.
-- **Compatibilidad.** Los campos desconocidos se ignoran. Un cliente nunca debe fallar por un evento o campo nuevo.
+- **Compatibilidad.** Los campos desconocidos se ignoran. Un cliente nunca debe fallar por un evento o campo nuevo. Los campos opcionales con valor `null` se omiten al serializar, así que omitido y `null` significan lo mismo.
+- **Líneas inválidas.** Una línea que no es un comando válido no puede responderse (no tiene `id` confiable): el motor emite un evento `log` de nivel `error` y sigue.
 - **El cliente supervisa al motor.** Si el proceso del motor muere, el cliente que lo lanzó suelta las teclas y botones que el último evento `input_state` reportaba retenidos, y lo informa.
 - **Canales.** v1: stdio, con el cliente lanzando el motor como subproceso. Después: socket Unix o *named pipe* en Windows para un motor persistente, y WebSocket si hace falta una GUI web. Como esos canales permiten inyectar entrada, solo aceptan al mismo usuario (permisos del socket) y exigen un token entregado al lanzar el motor.
 
@@ -105,7 +106,7 @@ Hay 16 comandos de ejecución y depuración; los de gestión de scripts están e
 | `get_state` | `run_id` | Estado, paso actual, ruta de bloques anidados y variables |
 | `set_variable` | `run_id`, `name`, `value` | Solo en pausa |
 | `evaluate` | `run_id`, `expression` | Valor de una expresión sobre las variables; solo en pausa |
-| `get_events` | `run_id`, `from_seq` | Reenvía eventos desde `from_seq`; se usa al detectar un salto |
+| `get_events` | `run_id?`, `from_seq` | Devuelve en `result.events` los eventos con `seq >= from_seq`, sin reemitirlos; se usa al detectar un salto. `run_id` omitido o `null` pide el flujo del motor, del que se guardan los últimos 1000 eventos |
 
 Reglas de diseño:
 
@@ -353,7 +354,7 @@ Todo error, en una respuesta o en un evento, tiene la forma `{code, message, ste
 | `unknown_step_type` | El tipo de paso no está en el registro |
 | `script_not_found` | El `script_id` no existe o el archivo no se puede abrir |
 | `not_running` | Comando de control sin una ejecución activa |
-| `invalid_state` | Comando no permitido en el estado actual (por ejemplo `set_variable` con la ejecución en marcha) |
+| `invalid_state` | Comando no permitido en el estado actual (por ejemplo `set_variable` con la ejecución en marcha). `details.reason` lo precisa: `hello_required` antes del saludo, `not_implemented` para comandos del contrato que el motor aún no implementa |
 | `busy` | `run` con otra ejecución activa |
 | `conflict` | El script cambió desde la `base_version` que trae `edit_script` |
 | `template_missing` | El archivo de imagen de un paso no existe |
