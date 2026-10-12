@@ -150,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
         description=SCHEMA_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     schema.add_argument("-o", "--output", metavar="FILE",
                         help="write the schema to FILE instead of stdout")
+
+    sub.add_parser("dap", help="serve the Debug Adapter Protocol on stdio (for VS Code)",
+                   description="Debug Adapter Protocol server on standard input and output, "
+                               "started by an editor such as VS Code (see editors/vscode).")
     return parser
 
 
@@ -213,6 +217,10 @@ def _schema(output: str | None) -> int:
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "schema":
         return _schema(args.output)
+    if args.command == "dap":
+        from j5_macro.dap.server import main as dap_main
+
+        return dap_main()
     try:
         cmd = engine_command()
     except ValueError as exc:

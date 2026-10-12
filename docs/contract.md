@@ -204,6 +204,37 @@ A run starts in `running` (normal and dry modes) or `paused` (step mode) and alw
 ← state_changed paused (reason: step)      seq 9
 ```
 
+## Debug Adapter Protocol
+
+`j5 dap` (or `python -m j5_macro.dap`) is a [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) server on stdio (`Content-Length` framed JSON, binary streams), so editors such as VS Code debug scripts with breakpoints on the YAML lines (extension skeleton in `editors/vscode`). It is an ordinary client of the engine: it starts it like the CLI (`J5_ENGINE_CMD` included), one engine and one run per debug session, with a single thread, `j5 run`. Lines and columns follow the client's `linesStartAt1`/`columnsStartAt1`; the engine's are 1-based.
+
+| DAP request | Engine | Notes |
+| --- | --- | --- |
+| `initialize` | — | Capabilities: `supportsConfigurationDoneRequest`, `supportsEvaluateForHovers`, `supportsSetVariable`, `supportsTerminateRequest`; no restart, step back or exception filters. The `initialized` event follows the response |
+| `launch` | starts the engine, `hello`, `load` | Arguments: `program` (the YAML, relative to `cwd`), `stopOnEntry` (`step` mode), `dryRun` (`dry` mode), `noDebug`, `params`, `paramsFromEnv` (param name to environment variable of the adapter), `seed`, `fast` (`direct` mouse and keyboard `input_profile`); others are ignored. Load errors are sent as `output` events (`path:line: message`) and fail the launch, as do missing required params |
+| `setBreakpoints` | `set_breakpoints` | Lines become step ids (see below); before `launch` they stay unverified and a `breakpoint` event (`changed`) reports each one after the script loads. Breakpoints in another file are not verified |
+| `configurationDone` | `run` | Starts the run once the script is loaded |
+| `continue`, `next`, `stepIn`, `stepOut`, `pause` | `resume`, `step_over`, `step_into`, `step_out`, `pause` | |
+| `stackTrace` | `get_state` | The current step (`<id> (<type>)`, its line) and its enclosing `loop`/`if` steps, innermost first; loops add `iteration <n> of <total>` (1-based), from `get_state`'s `iterations` when reported, else the latest `loop_iteration`. Paused before the first step, the first step |
+| `scopes`, `variables` | `get_state` | One `Variables` scope; values as JSON (secrets arrive as `***` and are shown so); lists and maps expand, with `evaluateName`s such as `data["list"][0]` |
+| `setVariable` | `set_variable` | The value is parsed as JSON, else taken as text; an item inside a list or map replaces the whole variable, refused when the variable holds a masked secret |
+| `evaluate` (`repl`, `watch`, `hover`) | `evaluate` | Only while paused |
+| `terminate` | `stop` | The run ends through `run_finished` |
+| `disconnect` | `stop`, then close the engine | Waits up to 5 s for `run_finished` |
+
+| Engine event | DAP event |
+| --- | --- |
+| `state_changed` `paused` | `stopped` with reason `entry` (the first pause with `stopOnEntry`), `step`, `breakpoint`, `pause` (reason `user`), `exception` (reason `error`, with the failed step's error message as `text`), or `pause` with description `user moved the mouse` (reason `interference`) |
+| `state_changed` `running` | `continued` |
+| `run_started`, `step_started`, `step_skipped`, `log` (`info`, `debug`) | `output`, category `console`, with the step's source and line when known |
+| `step_failed`, `user_interference`, `log` (`warning`, `error`) | `output`, category `stderr` |
+| `run_finished` | `output`, then `exited` (`exitCode` 0 completed, 1 failed, 3 stopped) and `terminated` |
+| `loop_iteration` | none; feeds the iteration shown in the call stack |
+
+**Breakpoint lines.** A line where a step starts is that step. A blank or comment line counts as the next line with content. A content line inside a step (indented deeper than the step's `-` and not closed by a line at or left of it) is the innermost step containing it, so a breakpoint on `click:` or on an `if`'s `else:` works. Any other line before a step (the header) is the first step after it. A line past the last step has no step and stays unverified. Verified breakpoints report the step's line, which moves the marker there.
+
+**Dry runs and `noDebug`.** `dry` mode cannot start paused, so `dryRun` with `stopOnEntry` adds a breakpoint on the first step and removes it at the entry stop. With `noDebug` no breakpoints are sent and the adapter resumes every pause on its own (breakpoint steps, `pause:` steps); a pause for an error or interference stops the run instead, since nobody can decide.
+
 ## Mouse and keyboard masters
 
 There is one master per device, and it decides *how* the mouse moves or the text is typed; the backend only knows how to execute primitives. All human-like behaviour lives in the master and is identical on every operating system.

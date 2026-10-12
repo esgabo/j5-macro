@@ -137,6 +137,29 @@ standard input, so a session can be scripted; when they run out the run continue
 end: `printf 'n\nvars\n' | j5 run --step script.yaml`. With `--json`, events stay on
 stdout and the debugger talks on stderr.
 
+### Debugging in VS Code
+
+`j5 dap` is a Debug Adapter Protocol server, and [`editors/vscode`](editors/vscode) is a
+small extension (no build step) that registers it as the `j5` debugger. Install it as its
+README explains, open a script and press F5: it stops before the first step, and you can set
+breakpoints in the YAML gutter, step over, into and out of `loop` and `if` blocks, inspect
+and change variables (secrets show as `***`) and evaluate expressions in the Debug Console.
+
+```json
+{
+  "type": "j5",
+  "request": "launch",
+  "name": "Debug j5 script",
+  "program": "${file}",
+  "stopOnEntry": true,
+  "params": {"customer": "ACME #42"},
+  "paramsFromEnv": {"password": "FORM_PASSWORD"}
+}
+```
+
+Add `"dryRun": true` to step through a script without sending any input, or `"fast": true`
+to skip the human-like movement while debugging.
+
 ## Layout
 
 ```
@@ -152,7 +175,9 @@ src/j5_macro/
   backends/   platform primitives: x11, windows (M2, M6); wayland later
   vision/     screen capture and image matching (M3)
   cli/        the `j5` command
+  dap/        Debug Adapter Protocol server (`j5 dap`) for editors
 docs/contract.md
+editors/vscode/   VS Code extension for the j5 debugger
 examples/
 ```
 

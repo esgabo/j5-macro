@@ -1,0 +1,175 @@
+{
+  "name": "j5-macro-debug",
+  "displayName": "j5 Macro Debugger",
+  "description": "Debug j5-macro YAML scripts in VS Code: breakpoints on steps, stepping, variables and expressions.",
+  "version": "0.0.1",
+  "publisher": "j5-macro",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/esgabo/j5-macro"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Debuggers"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onDebugResolve:j5",
+    "onDebugInitialConfigurations",
+    "onDebugDynamicConfigurations:j5"
+  ],
+  "contributes": {
+    "breakpoints": [
+      {
+        "language": "yaml"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "j5",
+        "label": "j5 Macro",
+        "languages": [
+          "yaml"
+        ],
+        "runtime": "j5",
+        "runtimeArgs": [
+          "dap"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Path of the j5 YAML script to debug.",
+                "default": "${file}"
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Pause before the first step (the engine's step mode).",
+                "default": true
+              },
+              "params": {
+                "type": "object",
+                "description": "Values for the script's declared params, by name. Prefer paramsFromEnv for secrets.",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "integer",
+                    "boolean"
+                  ]
+                },
+                "default": {}
+              },
+              "paramsFromEnv": {
+                "type": "object",
+                "description": "Params read from environment variables of the adapter process: param name to variable name.",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "default": {}
+              },
+              "seed": {
+                "type": "integer",
+                "description": "Seed of the run, to repeat the same human-like input."
+              },
+              "dryRun": {
+                "type": "boolean",
+                "description": "Send no input: input steps describe what they would do, image searches run once.",
+                "default": false
+              },
+              "fast": {
+                "type": "boolean",
+                "description": "Use the direct input strategy for mouse and keyboard (no human-like movement).",
+                "default": false
+              },
+              "noDebug": {
+                "type": "boolean",
+                "description": "Run without stopping at breakpoints (also set by Run Without Debugging).",
+                "default": false
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Directory a relative program path is resolved against.",
+                "default": "${workspaceFolder}"
+              },
+              "python": {
+                "type": "string",
+                "description": "Python interpreter with j5-macro installed; the adapter is started as '<python> -m j5_macro.dap' instead of 'j5 dap'."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "j5",
+            "request": "launch",
+            "name": "Debug j5 script",
+            "program": "${file}",
+            "stopOnEntry": true
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "j5: Debug script",
+            "description": "Debug the j5 YAML script in the active editor.",
+            "body": {
+              "type": "j5",
+              "request": "launch",
+              "name": "Debug j5 script",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "j5: Dry run",
+            "description": "Step through a script without sending any input.",
+            "body": {
+              "type": "j5",
+              "request": "launch",
+              "name": "Dry run j5 script",
+              "program": "^\"\\${file}\"",
+              "dryRun": true,
+              "stopOnEntry": true
+            }
+          },
+          {
+            "label": "j5: Debug script with params",
+            "description": "Pass the script's params, secrets from the environment.",
+            "body": {
+              "type": "j5",
+              "request": "launch",
+              "name": "Debug j5 script with params",
+              "program": "^\"\\${workspaceFolder}/${1:script.yaml}\"",
+              "params": {
+                "${2:customer}": "${3:ACME}"
+              },
+              "paramsFromEnv": {
+                "${4:password}": "${5:FORM_PASSWORD}"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "j5 Macro",
+      "properties": {
+        "j5.adapterCommand": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Command that starts the j5 debug adapter, e.g. [\"/path/to/venv/bin/j5\", \"dap\"]. Empty: 'j5 dap' from the PATH. A launch configuration's 'python' wins over this."
+        }
+      }
+    }
+  }
+}
