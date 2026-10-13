@@ -24,7 +24,8 @@ whole document, records problems per step and returns them all, sorted by line, 
 **The model.** A loaded script is an immutable
 [`Script`](../src/j5_macro/script/model.py) of `Step`s. Each step has its `id`, `type`,
 defaulted `params`, `path`, `line`, the common fields (`breakpoint`, `on_error`,
-`timeout` already parsed to seconds, `input`) and its child `blocks`. `path` alternates
+`timeout` already parsed to seconds, `input`, and `store_as` for `as`) and its child
+`blocks`. `path` alternates
 list positions and block slots (`(3, 1, 0)` is the first step of the `else` block of the
 fourth top-level step), so it is a static address of the step in the tree; loop
 iterations are runtime data and travel separately as `iterations`.
@@ -166,11 +167,13 @@ expression language evaluated by [expr/evaluator.py](../src/j5_macro/expr/evalua
 **A whitelisting AST evaluator.** The text is parsed with `ast.parse(mode="eval")` and
 evaluated by walking the tree in j5 code; Python's `eval` is never called. Only listed
 node types are accepted: constants, names (with `true`, `false` and `null` as aliases),
-lists, tuples, dicts, subscripts, unary and binary operators (`+ - * / // %`),
+lists, tuples, dicts, subscripts, attributes (`label.bbox`, which only reads a
+mapping's key: no Python attribute is ever looked up), unary and binary operators
+(`+ - * / // %`),
 `and`/`or`/`not`, chained comparisons including `in`, `a if c else b`, and calls to
 whitelisted functions (`len`, `str`, `int`, `float`, `bool`, `round`, `min`, `max`,
-`abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). Attribute
-access, `**`, bitwise operators, lambdas, comprehensions, f-strings, slices, `:=` and
+`abs`, `lower`, `upper`, `strip`, `contains`, `startswith`, `endswith`). Method calls,
+attributes of anything but a mapping, `**`, bitwise operators, lambdas, comprehensions, f-strings, slices, `:=` and
 starred expressions are rejected with a specific message. Operand types are checked too,
 so an expression cannot reach Python internals through an object's methods.
 
@@ -514,6 +517,16 @@ of a run's secret params (longest first) and masks every occurrence with `***`:
 - in every run event, before it is stamped, so the wire and `events.jsonl` agree;
 - in the `get_state` and `evaluate` answers and in control-command errors;
 - in `run.json`, which takes the masked `run_finished` payload.
+
+**Secrets found during the run.** A step with `as: {name, secret: true}` makes its result
+a secret: before emitting the step's `step_finished`, the interpreter hands every string
+in the result (and its stripped form; blank strings left out, since they would mask every
+space) to the engine through `RunOptions.add_secrets`. `Run.add_secrets` merges them into
+the run's list under the publishing lock, replacing the list rather than changing it, so
+every event published afterwards, the step's own result included, and every later answer
+is masked. Events already published are not rewritten; nothing secret has been in them,
+since the value did not exist before the step finished. Without an engine (the
+interpreter in tests) nothing is masked.
 
 Masking replaces the exact text in strings, mapping keys and nested containers, and a
 number equal to a secret's text. Top-level position fields (`path`, `iterations`,

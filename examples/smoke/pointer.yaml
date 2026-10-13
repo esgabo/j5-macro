@@ -14,9 +14,11 @@ steps:
   - id: start
     log: "pointer smoke test against '${target}'"
 
-  # The pattern is found on screen (image_search with a score near 1).
+  # The pattern is found on screen (image_search with a score near 1), and the result is
+  # kept: pattern = {found, score, bbox, center, window, window_bbox}.
   - id: wait_pattern
     wait_image: {image: img/pattern.png, window: {title: "${target}"}, timeout: 5s}
+    as: pattern
 
   # "pattern clicked at (x, y)" with x and y between 20 and 67: the human strategy
   # lands anywhere on the match (exactly its centre, (44, 44), with --fast).
@@ -40,6 +42,15 @@ steps:
   # The offset is added to the image centre: "left down at (54, 44)".
   - id: click_with_offset
     click: {image: img/pattern.png, window: {title: "${target}"}, offset: [10, 0]}
+
+  # The kept result, without searching again: "pattern clicked at (x, y)", anywhere on
+  # the pattern like click_pattern. It follows the window if it moved since wait_pattern.
+  - id: click_kept_pattern
+    click: {at: "${pattern}"}
+
+  # An offset from the kept result's centre (44, 44): "left down at (144, 64)" on the pad.
+  - id: click_next_to_pattern
+    click: {at: "${pattern}", offset: [100, 20]}
 
   # "left down at (120, 40)" then "left up at (280, 100)".
   - id: drag_across_pad
@@ -78,6 +89,17 @@ steps:
       else:
         - id: not_elsewhere
           log: pattern correctly absent from the event log area
+
+  # A region placed at the kept result: logs "pattern visible where it was kept".
+  - id: check_kept_region
+    if:
+      when: {image_visible: {image: img/pattern.png, region: {at: "${pattern}"}}}
+      then:
+        - id: seen_kept
+          log: pattern visible where it was kept
+      else:
+        - id: unseen_kept
+          log: {message: pattern not found where it was kept, level: error}
 
   - id: done
     log: pointer smoke test finished

@@ -122,12 +122,14 @@ coding agents alike:
 A step type is data plus a function. Look at `src/j5_macro/steps/basic.py` for small
 examples (`sleep`, `set`, `log`, `pause`).
 
-1. **Contract.** Add the step to the "v1 step types" table of the
-   [contract](contract.md#script-format-and-step-registry), with its parameters and
-   behaviour (dry run included).
+1. **Contract.** Add the step to the "v1 step types" and "Step results" tables of the
+   [contract](contract.md#script-format-and-step-registry), with its parameters, result
+   and behaviour (dry run included).
 2. **Spec.** Declare a `StepSpec` (`j5_macro.steps.spec`): `name`, `doc`, its
-   `ParamSpec`s (name, type, required, default, doc, choices), block slots for control
-   steps, and an optional `shorthand` parameter for the scalar form (`sleep: 2s`).
+   `ParamSpec`s (name, type, required, default, doc, choices), the `ResultField`s of its
+   result (name, type, doc, optional; what `as` keeps, shown by `list_step_types` and
+   `j5 schema`), block slots for control steps, and an optional `shorthand` parameter
+   for the scalar form (`sleep: 2s`).
 3. **Executor.** Write `run_<name>(ctx, params) -> dict | None`. `params` are already
    interpolated and type-checked; the returned dict becomes `step_finished.result`. Talk
    to the run only through `StepContext`: `ctx.rng` (the step's seeded generator),
@@ -157,7 +159,7 @@ built-in's (steps 2 to 4 above). In addition, a plugin step must:
 - be an action step with an executor (`if` and `loop` style steps with blocks are only
   built in),
 - have a name made of letters, digits and `_`, not one of the common step fields (`id`,
-  `break`, `timeout`, `on_error`, `input`), and not one already taken. Built-in names
+  `break`, `timeout`, `on_error`, `input`, `as`), and not one already taken. Built-in names
   always win, and between plugins the first entry point by name wins,
 - use only the parameter types of `ParamType` (`j5_macro.steps.spec`), with a
   `shorthand` that names one of its parameters,

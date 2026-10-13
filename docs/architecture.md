@@ -259,7 +259,9 @@ logs an engine warning; the run carries on.
 before it is stamped, so the client and `events.jsonl` see the same masked event.
 `get_state`, `evaluate` and control-command error messages are masked in the command
 handlers, and `run.json` gets the masked `run_finished` payload. The interpreter itself
-works with the real values. Details and limits are in
+works with the real values; when a step keeps its result with `as: {secret: true}`, it
+registers the result's strings with the engine (`RunOptions.add_secrets`) before
+emitting the step's `step_finished`. Details and limits are in
 [technical-design.md, "Secret masking"](technical-design.md#secret-masking).
 
 ## Threads and concurrency

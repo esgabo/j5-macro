@@ -94,6 +94,7 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 | `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Other steps ignore it |
 | `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
 | `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
+| `as` | name or mapping | none | Keep the step's result in a variable: `as: label`, or `as: {name: token, secret: true}` (see [Keeping a result](#keeping-a-result-as)) |
 
 `on_error`:
 
@@ -107,6 +108,40 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 
 On an `if` or a `loop`, `on_error` applies to evaluating its condition or list, not to
 the steps inside it.
+
+### Keeping a result: `as`
+
+Every step reports a result when it finishes (shown after `✓` in `j5 run`; see
+[Step results](#step-results)). `as` keeps it in a variable, so later steps can use it:
+
+```yaml
+- id: find_label
+  wait_image: {image: img/email_label.png, window: {title: Login}, timeout: 10s}
+  as: label                     # label = {found, score, bbox, center, window, window_bbox}
+- id: click_email_field
+  click: {at: "${label}", offset: [0, 40]}      # 40 px below the label, wherever it is now
+- id: show
+  log: "label found with score ${label.score}"
+```
+
+- The name follows the rules of variable names: letters, digits and `_`, not starting
+  with a digit. It may replace an existing variable.
+- The variable is written when the step succeeds, right after its result. A step that
+  fails (also with `on_error: continue`) or is skipped writes nothing, so a later
+  `${label}` fails with `expression_error` (unknown variable). An `if` or a `loop` writes
+  its result (`{branch}`, `{iterations}`) after the steps inside it.
+- In a dry run the dry result is kept (`dry_run: true`, a `description` and, when an
+  image was searched, `found`, `bbox` and the rest), so the steps after it still check.
+- Read items of a kept result with `.` or `[...]`: `label.bbox`, `label.center[0]`,
+  `token["stdout"]`.
+
+**Secret results.** `as: {name: token, secret: true}` treats the result as a secret of
+the run from the moment the step finishes, its own result included: every string in it
+(and the same string without leading and trailing spaces or line breaks) shows as `***`
+in the output, the run history and the debugger, like a [secret param](#params-and-secrets).
+Numbers, booleans and empty strings are not masked. Use the value as it is
+(`type: "${token.stdout}"`), or with `strip(...)` when the trailing line break matters:
+any other transformation (`upper(token.stdout)`) is not recognised and would show.
 
 ### Stable ids
 
@@ -146,19 +181,21 @@ parameter is optional and has no default value. Any string parameter can contain
 
 ### click
 
-Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
+Clicks on an image, on a kept image result or at `x`/`y`. Give one of `image`, `at`, or
+both `x` and `y`.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `image` | string | - | Template image to click on, relative to the script file |
 | `x`, `y` | integer | - | Position in physical pixels (relative to `window` when given) |
-| `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text |
+| `at` | kept result | - | An image result kept with `as`, usually `"${label}"`: click on its area, where it is now (see [Targets](#targets-and-coordinates)) |
+| `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text (not with `at`) |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 | `clicks` | integer | `1` | Number of clicks (2 for a double click) |
 | `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
 | `threshold` | number | `0.9` | Minimum image match score, from 0 to 1 |
 | `scale` | number | `1` | Scale applied to the template before searching (image targets only) |
-| `region` | `[x, y, width, height]` | - | Area to search in (image targets only; relative to `window` when given) |
+| `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only; relative to `window` when given), or [next to a kept result](#images) |
 
 ```yaml
 - id: open_file_menu
@@ -169,24 +206,25 @@ Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
 
 ### move
 
-Moves the pointer to an image or to `x`/`y`, without clicking.
+Moves the pointer to an image, a kept image result or `x`/`y`, without clicking.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `image` | string | - | Template image |
 | `x`, `y` | integer | - | Position in physical pixels |
-| `window` | mapping | - | `{title: ...}`; coordinates become relative to it |
+| `at` | kept result | - | An image result kept with `as` |
+| `window` | mapping | - | `{title: ...}`; coordinates become relative to it (not with `at`) |
+| `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
 | `threshold` | number | `0.9` | Minimum image match score |
 | `scale` | number | `1` | Template scale (image targets only) |
-| `region` | `[x, y, width, height]` | - | Area to search in (image targets only) |
+| `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only) |
 
 ```yaml
 - id: hover_tooltip
   move: {image: img/help_icon.png}
 ```
 
-`move` has no `offset`. Unlike `click`, a `move` always moves, even if the pointer is
-already over the target.
+Unlike `click`, a `move` always moves, even if the pointer is already over the target.
 
 ### drag
 
@@ -194,7 +232,7 @@ Presses a button at one point, moves to another and releases it.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `from` | mapping | required | Start point: `{x, y, window?}` or `{image, threshold?, scale?, region?, window?}` |
+| `from` | mapping | required | Start point: `{x, y, window?}`, `{image, threshold?, scale?, region?, window?}` or `{at}`, each with an optional `offset` |
 | `to` | mapping | required | End point, same forms as `from` |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 
@@ -280,8 +318,9 @@ Waits until an image is on screen, checking every 0.25 s.
 | `window` | mapping | - | `{title: ...}`: search only in that window |
 | `scale` | number | `1` | Template scale |
 
-The result is `{found, score, bbox}`, with `bbox` as `[x, y, width, height]` on the
-desktop.
+The result is `{found, score, bbox, center}` and, with a `window`, `window` (its title)
+and `window_bbox` (the match inside the window); keep it with `as` to act on the match
+later (`click: {at: "${dialog}"}`).
 
 ```yaml
 - id: wait_dialog
@@ -406,6 +445,32 @@ Enter resumes it; without one, the run resumes on its own and says so.
   pause: Check the totals before saving
 ```
 
+## Step results
+
+What each step reports when it finishes, and so what `as` keeps. `bbox`, `window_bbox`
+and `window_area` are `[x, y, width, height]`; points and `center` are `[x, y]`, all in
+physical pixels.
+
+| Step | Result |
+| --- | --- |
+| `click` | `x`, `y` (the point clicked), `button`, `clicks`; an image or `at` target adds `bbox`, `center` and, in a window, `window` (the title) and `window_bbox`; an image target adds `image` and `score`; an `x`/`y` target in a window adds `window` and `window_area` (the window's content area used) |
+| `move` | `x`, `y` and the same target fields as `click` |
+| `drag` | `from`, `to`, `button`, and each point's target fields prefixed with `from_` or `to_` |
+| `scroll` | `dx`, `dy` |
+| `type` | `chars` (never the text) |
+| `key` | `press`, and `hold` (seconds) when given |
+| `wait_image` | `found`, `score`, `bbox`, `center`, and `window`, `window_bbox` with a window |
+| `sleep` | `seconds` |
+| `if` | `branch` (`then` or `else`) |
+| `loop` | `iterations` |
+| `set` | `name`, `value` |
+| `log` | `level`, `message` |
+| `pause` | `message` |
+
+In a dry run, input steps report `dry_run: true` and a `description` instead, plus the
+image fields when an image was searched (or the kept area, for `at`). `j5 schema`
+describes these fields too (`$defs/<type>_result`).
+
 ## Targets and coordinates
 
 - **Coordinates.** `x` and `y` are physical pixels on the virtual desktop, which spans
@@ -414,13 +479,26 @@ Enter resumes it; without one, the run resumes on its own and says so.
   top-left corner of the window's content area (inside its title bar and borders), looked
   up when the step runs. The first visible window whose title contains the text is used
   (case-sensitive). No match fails the step with `window_not_found`.
-- **Offset.** `offset: [dx, dy]` (on `click`) is added to the final point.
+- **Offset.** `offset: [dx, dy]` (on `click`, `move` and each point of `drag`) is added
+  to the final point.
 - **Image targets.** `click`, `move` and the points of `drag` can take an `image`. It is
   searched once (or until the step's common `timeout`), and a miss fails the step with
   `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
   `human` strategy lands somewhere natural inside the matched area, and a `human` click
   whose pointer is already inside it clicks without moving; with an `offset`, the pointer
   goes to the exact point.
+- **Kept results (`at`).** Instead of searching again, `click`, `move` and the points of
+  `drag` can take `at: "${label}"`, an image result kept with [`as`](#keeping-a-result-as)
+  (from `wait_image`, or from an image or `at` target of `click` or `move`). It is aimed
+  at like an image target's match, with the same `offset` rules. A result found in a
+  `window` remembers the window's title and where the match was inside it: the window is
+  looked up again when the step runs, so the action follows it if it moved, and
+  `window_not_found` if it closed. `at` cannot be combined with `image`, `x`/`y` or
+  `window`. A result that was not found, or is not an image result, fails with
+  `validation_failed`.
+- **Coordinates from a result.** `label.center[0]` and `label.bbox` are desktop
+  coordinates from when the result was kept: use them without `window`, and prefer `at`
+  when the window may move.
 
 ## Images
 
@@ -435,6 +513,11 @@ Enter resumes it; without one, the run resumes on its own and says so.
 - **Region.** `region: [x, y, width, height]` limits the search. Without it j5 searches
   the `window`, else the whole desktop. A region is clipped to the desktop; a region
   entirely outside it fails with `validation_failed`.
+- **Region next to a kept result.** `region: {at: "${label}", offset: [dx, dy], size:
+  [width, height]}` searches an area the size of the kept result (or `size`), centred on
+  its centre plus `offset`. It follows the result's window like an `at` target and is
+  never relative to the step's `window`. For example, the field to the right of a label:
+  `region: {at: "${label}", offset: [150, 0], size: [250, 40]}`.
 - **Scale.** `scale` (greater than 0; 1 by default) resizes the template before
   searching, to use a template captured at another display scaling. On an `x`/`y`
   target any `scale` other than 1 is an error.
@@ -488,6 +571,7 @@ Expressions appear in `set`'s `expr`, in `when` and `while`, in `for_each`, and 
 | Literals | `3`, `2.5`, `"text"`, `'text'`, `true`, `false`, `null`, `[1, 2]`, `{"k": 1}` |
 | Variables | `attempts`, `customer` (an unknown name is an `expression_error`) |
 | Indexing | `rows[0]`, `rows[-1]`, `data["name"]` (no slices) |
+| Keys as attributes | `label.bbox`, `token.stdout` (only for mappings: `data.name` is `data["name"]`) |
 | Arithmetic | `+ - * / // %` (`+` also joins text and lists; `"ab" * 3` repeats) |
 | Comparison | `== != < <= > >=`, chainable (`1 < n <= 10`), `in`, `not in` |
 | Logic | `and`, `or`, `not`, `a if condition else b` |
@@ -507,8 +591,8 @@ Expressions appear in `set`'s `expr`, in `when` and `while`, in `for_each`, and 
 | `contains(x, item)` | Whether a text, list or mapping contains `item` |
 | `startswith(t, prefix)`, `endswith(t, suffix)` | Text tests |
 
-Attribute access (`name.upper()`), `**`, lambdas, comprehensions and slices are
-rejected. Expressions are limited to 2000 characters, and the values they build to
+Methods (`name.upper()`; use `upper(name)`), attributes of anything but a mapping, `**`,
+lambdas, comprehensions and slices are rejected. Expressions are limited to 2000 characters, and the values they build to
 100,000 items or characters.
 
 In YAML, quote expressions that contain `:`, `#`, quotes or start with `{` or `[`:
@@ -639,7 +723,9 @@ with `j5 run --param`, `--param-file`, `--param-env` or `--params-file` (see
 - An undeclared param fails too: `the script declares no param 'x'`.
 
 **Secrets.** Every occurrence of a secret's value is replaced with `***` in the events,
-the output and the run history, whatever step or variable carries it. Only the exact text
+the output and the run history, whatever step or variable carries it. Results kept with
+`as: {name: ..., secret: true}` are secrets too (see
+[Keeping a result](#keeping-a-result-as)). Only the exact text
 is masked: a value transformed by an expression (`upper(password)`) is not recognised, so
 use secrets as they are. `type` reports only the number of characters it typed. Pass
 secrets with `--param-env`, `--param-file` or the prompt: a `--param` value stays in your
