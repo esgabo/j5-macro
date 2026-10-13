@@ -112,6 +112,7 @@ Tracked as [GitHub milestones](https://github.com/esgabo/j5-macro/milestones):
 | M5 | Human-like mouse and keyboard | Done |
 | M6 | Windows backend, manual test plan | Done |
 | M7 | Script management for a GUI, run history | Done |
+| M8 | Authoring: capture templates, pick points, test matches; self-contained scripts | Next |
 
 ## Contributing
 

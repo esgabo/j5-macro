@@ -323,8 +323,10 @@ Work is tracked as GitHub milestones:
 | M5 | Human-like mouse and keyboard, interference detection | Done |
 | M6 | Windows backend: input through SendInput, window-relative coordinates and capture, a manual test plan for both platforms | Done |
 | M7 | Script management for the GUI and the run history | Done |
+| M8 | Authoring: capture templates, pick points and test matches from the engine and CLI ([#94](https://github.com/esgabo/j5-macro/issues/94)); self-contained scripts with embedded images ([#93](https://github.com/esgabo/j5-macro/issues/93)) | Open |
 
-After v1: an experimental Wayland backend, triggers, and the GUI. The open design
+After v1: an experimental Wayland backend, triggers, and the standalone GUI
+([#95](https://github.com/esgabo/j5-macro/issues/95)). The open design
 decisions are listed at the end of the [contract](contract.md#errors-and-open-decisions).
 
 ## Contributing
