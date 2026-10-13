@@ -27,9 +27,10 @@ works and how it is built.
 | Page | Read it to |
 | --- | --- |
 | [Architecture](architecture.md) | See the processes, layers, packages, threads and extension points |
-| [Technical design](technical-design.md) | Understand the internals and the reasons behind them: interpreter, input planning, X11, vision, persistence, editing |
+| [Technical design](technical-design.md) | Understand the internals and the reasons behind them: interpreter, input planning, X11 and Windows, vision, persistence, editing |
 | [Contract](contract.md) | The protocol between the engine and its clients, and the source of truth for behaviour: commands, events, run states, script format, errors |
 | [Development](development.md) | Set up a development environment, run the checks and tests, add steps or backends, contribute |
+| [Manual test plan](manual-testing.md) | Check a release by hand on Xfce and Windows with the smoke scripts |
 
 ## Other resources
 

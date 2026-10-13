@@ -99,10 +99,21 @@ def test_complete_scripts_in_the_docs_validate(where: str, block: str) -> None:
     assert result.ok, [e.message for e in result.errors]
 
 
-@pytest.mark.parametrize("script", sorted((ROOT / "examples").glob("*.yaml")),
-                         ids=lambda p: p.name)
+@pytest.mark.parametrize("script", sorted((ROOT / "examples").rglob("*.yaml")),
+                         ids=lambda p: p.relative_to(ROOT / "examples").as_posix())
 def test_examples_validate(script: Path) -> None:
     registry = default_registry()
     result = load_script(script.read_text(encoding="utf-8"), lookup=registry.spec,
                          check=registry.check_params, source_path=str(script))
     assert result.ok, [e.message for e in result.errors]
+
+
+def test_smoke_template_is_what_the_target_draws() -> None:
+    """examples/smoke/img/pattern.png is regenerated with
+    ``python examples/smoke/target.py --write-template examples/smoke/img/pattern.png``."""
+    namespace: dict[str, object] = {"__name__": "smoke_target"}
+    target = ROOT / "examples" / "smoke" / "target.py"
+    exec(compile(target.read_text(encoding="utf-8"), str(target), "exec"), namespace)
+    pattern_png = namespace["pattern_png"]
+    assert callable(pattern_png)
+    assert (ROOT / "examples" / "smoke" / "img" / "pattern.png").read_bytes() == pattern_png()

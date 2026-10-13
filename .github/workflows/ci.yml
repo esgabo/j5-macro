@@ -36,7 +36,7 @@ jobs:
       - if: runner.os == 'Linux'
         run: python -m pip install -e ".[dev,x11,vision]"
       - if: runner.os != 'Linux'
-        run: python -m pip install -e ".[dev,vision]"
+        run: python -m pip install -e ".[dev,windows,vision]"
       # The same script developers run locally: ruff, mypy and pytest (under Xvfb with
       # the X11 tests required on Linux; X11 tests are skipped elsewhere).
       - run: scripts/check.sh

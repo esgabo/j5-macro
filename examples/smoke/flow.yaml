@@ -1,0 +1,58 @@
+# Smoke test: control flow, variables, params, pauses and timing. Needs no window and
+# sends no input, so it also runs with --dry-run and without a backend:
+#   j5 run examples/smoke/flow.yaml --param name=Ana
+version: 1
+name: Smoke - flow
+params:
+  name: {description: Who to greet}
+  rounds: {type: integer, default: 3, description: Iterations of the counting loop}
+vars:
+  count: 0
+  seen: []
+steps:
+  - id: greet
+    log: "hello ${name}"
+
+  - id: count_up
+    loop:
+      times: "${rounds}"
+      do:
+        - id: add_one
+          set: {name: count, expr: "count + 1"}
+        - id: short_nap
+          sleep: 50ms±20%
+
+  - id: until_five
+    loop:
+      while: "count < 5"
+      do:
+        - id: add_more
+          set: {name: count, expr: "count + 1"}
+
+  - id: each_fruit
+    loop:
+      for_each: [apple, banana, cherry]
+      as: fruit
+      do:
+        - id: remember
+          set: {name: seen, expr: "seen + [upper(fruit)]"}
+
+  - id: check
+    if:
+      when: "count == 5 and len(seen) == 3"
+      then:
+        - id: ok
+          log: "count ${count}, seen ${seen}"
+      else:
+        - id: wrong
+          log: {message: "unexpected count ${count} or seen ${seen}", level: error}
+
+  # In a terminal, Enter resumes; the debugger (j5 run --step) stops here too.
+  - id: checkpoint
+    pause: Press Enter to continue
+
+  - id: warn
+    log: {message: "a warning, as expected", level: warning}
+
+  - id: done
+    log: flow smoke test finished

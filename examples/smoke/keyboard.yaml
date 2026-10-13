@@ -1,0 +1,60 @@
+# Smoke test: typing in any layout and physical keys.
+#
+# Start the target window first (python examples/smoke/target.py), then run:
+#   j5 run examples/smoke/keyboard.yaml
+# The last line of the target's event log (F5 logs the text box) must read:
+#   text 'Hello, j5! 1+1=2 (ok) [x] {y} <z> ~`@#$%^&*_|\\/?;:\'"\nÑandú, café, über,
+#   Ærøskøbing, €100, ¿qué? ¡sí!\n日本語 Ελληνικά Русский 😀\nreplaced line\nfast end'
+# (one line in the log; see docs/manual-testing.md).
+version: 1
+name: Smoke - keyboard
+input:
+  mouse: {strategy: human, speed: 1.5}
+  keyboard: {strategy: human, wpm: 90}
+params:
+  extra: {description: Extra text to type at the end, default: ""}
+vars:
+  target: j5 smoke target
+steps:
+  - id: focus_text
+    click: {window: {title: "${target}"}, x: 160, y: 200}
+
+  # Clear the box: select everything (Tk's select-all is Ctrl+/, not Ctrl+A), then
+  # delete it.
+  - id: select_all
+    key: ctrl+/
+  - id: clear
+    key: delete
+
+  - id: ascii
+    type: "Hello, j5! 1+1=2 (ok) [x] {y} <z> ~`@#$%^&*_|\\/?;:'\"\n"
+  - id: accents
+    type: "Ñandú, café, über, Ærøskøbing, €100, ¿qué? ¡sí!\n"
+  - id: other_scripts
+    type: "日本語 Ελληνικά Русский 😀\n"
+  - id: tab_and_backspace
+    type: "tab:\there; oops\b\b\b\bfixed\n"
+
+  # Physical keys: Home, Shift+End selects the line just typed, then it is replaced.
+  - id: up_one_line
+    key: up
+  - id: line_start
+    key: home
+  - id: select_line
+    key: shift+end
+  - id: replace_line
+    type: {text: "replaced line", keyboard: {strategy: direct}}
+  - id: to_end
+    key: ctrl+end
+
+  - id: hold_shift
+    key: {press: shift, hold: 300ms}
+  - id: fast_typing
+    type: {text: "fast ${extra}", keyboard: {strategy: direct}}
+
+  # F5 makes the target log the whole text box.
+  - id: show_text
+    key: f5
+
+  - id: done
+    log: "keyboard smoke test finished; the box should end with 'fast ${extra}'"

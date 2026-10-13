@@ -111,7 +111,7 @@ flowchart TB
   subgraph BK["backends"]
     X11["x11"]
     FK["fake"]
-    WIN["windows<br/>planned, M6"]
+    WIN["windows<br/>SendInput"]
   end
   subgraph VI["vision"]
     CAP["capture<br/>mss"]
@@ -376,7 +376,7 @@ fake clock, the `FakeBackend` and fake vision.
 | Platform | Backend | Status |
 | --- | --- | --- |
 | Linux, X11 session | `x11` (XTest via python-xlib) | Supported; tested on XFCE and under Xvfb in CI. Needs the `x11` extra. |
-| Windows | `windows` | Planned for milestone M6. Today `select_backend` returns no backend with the reason "the Windows backend arrives in milestone M6". |
+| Windows | `windows` (SendInput via ctypes) | Supported (Windows 10 and 11); tested against a simulated Win32 layer on every platform and against the real system on Windows in CI, plus the [manual test plan](manual-testing.md). The engine declares per-monitor DPI awareness at startup. |
 | Linux, Wayland session | none | Later, as an experimental backend. A Wayland session gets no backend even if `DISPLAY` is set; `J5_BACKEND=x11` forces X11 (it then only reaches XWayland applications). |
 | macOS | none | Not supported. |
 | Any | `fake` | `J5_BACKEND=fake` records input and touches nothing; for tests and demos. |

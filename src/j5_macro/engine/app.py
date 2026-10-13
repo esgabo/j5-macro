@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from j5_macro.backends.select import select_backend
+from j5_macro.backends.windows.dpi import declare_dpi_awareness
 from j5_macro.engine import commands
 from j5_macro.engine.backend import (
     DEFAULT_STOP_KEY,
@@ -95,6 +96,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # The client owns the user's intent: it sends ``stop`` and then closes our stdin,
     # so the engine ignores SIGINT and ends on end of input instead of dying mid-run.
     signal.signal(signal.SIGINT, signal.SIG_IGN)
+    # Before any window, pointer or capture call, so Windows never scales coordinates.
+    declare_dpi_awareness()
     backend = EngineBackend(select_backend(), stop_key_from(args.stop_key))
     try:
         return run(stdio_transport(), runs_dir=resolve_runs_dir(args.runs_dir),

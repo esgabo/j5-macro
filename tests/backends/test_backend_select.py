@@ -11,7 +11,7 @@ from j5_macro.backends import select as select_module
 from j5_macro.backends.fake import FakeBackend
 from j5_macro.backends.select import (
     WAYLAND_REASON,
-    WINDOWS_REASON,
+    WINDOWS_ONLY_REASON,
     XLIB_MISSING_REASON,
     select_backend,
 )
@@ -38,6 +38,22 @@ def opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return calls
 
 
+class _OpenedWindows:
+    name = "windows"
+
+
+@pytest.fixture
+def windows(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    calls: list[str] = []
+
+    def fake_open() -> Any:
+        calls.append("opened")
+        return _OpenedWindows()
+
+    monkeypatch.setattr(select_module, "_open_windows", fake_open)
+    return calls
+
+
 def _fail_with(monkeypatch: pytest.MonkeyPatch, exc: BaseException) -> None:
     def fail(display_name: str) -> Any:
         raise exc
@@ -61,11 +77,28 @@ def test_fake_works_everywhere(platform: str) -> None:
     assert isinstance(choice.backend, FakeBackend)
 
 
-@pytest.mark.parametrize("platform", ["linux", "win32"])
-def test_windows_is_not_available_yet(platform: str, opened: list[str]) -> None:
-    choice = select_backend({"J5_BACKEND": "windows", "DISPLAY": ":0"}, platform)
-    assert (choice.name, choice.backend, choice.reason) == (None, None, WINDOWS_REASON)
-    assert opened == []
+def test_explicit_windows_needs_windows(opened: list[str], windows: list[str]) -> None:
+    choice = select_backend({"J5_BACKEND": "windows", "DISPLAY": ":0"}, "linux")
+    assert (choice.name, choice.backend, choice.reason) == (None, None, WINDOWS_ONLY_REASON)
+    assert opened == [] and windows == []
+
+
+def test_explicit_windows(opened: list[str], windows: list[str]) -> None:
+    choice = select_backend({"J5_BACKEND": "windows", "DISPLAY": ":0"}, "win32")
+    assert choice.name == "windows"
+    assert isinstance(choice.backend, _OpenedWindows)
+    assert choice.reason == "selected by J5_BACKEND=windows"
+    assert opened == [] and windows == ["opened"]
+
+
+def test_windows_failure_gives_a_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail() -> Any:
+        raise OSError("no user32")
+
+    monkeypatch.setattr(select_module, "_open_windows", fail)
+    choice = select_backend({}, "win32")
+    assert (choice.name, choice.backend) == (None, None)
+    assert choice.reason == "cannot start the Windows backend: no user32"
 
 
 def test_unknown_value() -> None:
@@ -139,10 +172,10 @@ def test_auto_without_display(env: dict[str, str], opened: list[str]) -> None:
     assert opened == []
 
 
-def test_auto_on_windows(opened: list[str]) -> None:
+def test_auto_on_windows(opened: list[str], windows: list[str]) -> None:
     choice = select_backend({"DISPLAY": ":0"}, "win32")
-    assert (choice.backend, choice.reason) == (None, WINDOWS_REASON)
-    assert opened == []
+    assert (choice.name, choice.reason) == ("windows", "Windows session")
+    assert opened == [] and windows == ["opened"]
 
 
 def test_auto_on_macos() -> None:

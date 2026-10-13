@@ -30,12 +30,12 @@ The extras matter:
 - `vision` adds screen capture and image matching (OpenCV), which you need for the
   image steps in chapter 4.
 
-**Which desktops work.** Today j5 drives real input on **Linux with an X11 session**
-(it is tested on Xfce). On a **Wayland** session j5 has no input backend yet: log out and
-pick an X11 session at the login screen (for example "Ubuntu on Xorg"). The **Windows**
-backend is planned (milestone M6). Until then, on Windows or Wayland you can still
-validate scripts and use `--dry-run`, but steps that click or type fail with
-`capability_missing`:
+**Which desktops work.** j5 drives real input on **Windows** (install the `windows` extra
+instead of `x11`: `pip install -e ".[windows,vision]"`) and on **Linux with an X11
+session** (it is tested on Xfce). On a **Wayland** session j5 has no input backend yet:
+log out and pick an X11 session at the login screen (for example "Ubuntu on Xorg").
+Until then, on Wayland you can still validate scripts and use `--dry-run`, but steps
+that click or type fail with `capability_missing`:
 
 ```console
 $ j5 run type_note.yaml
