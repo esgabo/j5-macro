@@ -1,0 +1,118 @@
+# Smoke test: every pointer step, window-relative coordinates and image search, with
+# the template embedded in the script instead of read from img/pattern.png.
+#
+# Made from pointer.yaml with: j5 pack examples/smoke/pointer.yaml -o
+# examples/smoke/pointer_embedded.yaml (the only differences are this header, the name,
+# the "#pattern" references and the images section at the end). It needs no file next
+# to it, so it can be copied anywhere or loaded from text.
+#
+# Start the target window first (python examples/smoke/target.py), leave it visible,
+# then run: j5 run examples/smoke/pointer_embedded.yaml
+# Each step's expected line in the target's event log is in its comment; see
+# docs/manual-testing.md for the whole checklist.
+version: 1
+name: Smoke - pointer (embedded image)
+input:
+  mouse: {strategy: human, speed: 1.5, interference: pause}
+vars:
+  target: j5 smoke target
+steps:
+  - id: start
+    log: "pointer smoke test against '${target}'"
+
+  # The pattern is found on screen (image_search with a score near 1), and the result is
+  # kept: pattern = {found, score, bbox, center, window, window_bbox}.
+  - id: wait_pattern
+    wait_image: {image: "#pattern", window: {title: "${target}"}, timeout: 5s}
+    as: pattern
+
+  # "pattern clicked at (x, y)" with x and y between 20 and 67: the human strategy
+  # lands anywhere on the match (exactly its centre, (44, 44), with --fast).
+  - id: click_pattern
+    click: {image: "#pattern", window: {title: "${target}"}}
+
+  # "left down at (150, 50)" then "left up at (150, 50)": an exact point.
+  - id: click_pad
+    click: {window: {title: "${target}"}, x: 150, y: 50}
+
+  # Two clicks at (160, 60).
+  - id: double_click_pad
+    click: {window: {title: "${target}"}, x: 160, y: 60, clicks: 2}
+
+  # "right down" / "right up" and "middle down" / "middle up" at (200, 70).
+  - id: right_click_pad
+    click: {window: {title: "${target}"}, x: 200, y: 70, button: right}
+  - id: middle_click_pad
+    click: {window: {title: "${target}"}, x: 200, y: 70, button: middle}
+
+  # The offset is added to the image centre: "left down at (54, 44)".
+  - id: click_with_offset
+    click: {image: "#pattern", window: {title: "${target}"}, offset: [10, 0]}
+
+  # The kept result, without searching again: "pattern clicked at (x, y)", anywhere on
+  # the pattern like click_pattern. It follows the window if it moved since wait_pattern.
+  - id: click_kept_pattern
+    click: {at: "${pattern}"}
+
+  # An offset from the kept result's centre (44, 44): "left down at (144, 64)" on the pad.
+  - id: click_next_to_pattern
+    click: {at: "${pattern}", offset: [100, 20]}
+
+  # "left down at (120, 40)" then "left up at (280, 100)".
+  - id: drag_across_pad
+    drag:
+      from: {window: {title: "${target}"}, x: 120, y: 40}
+      to: {window: {title: "${target}"}, x: 280, y: 100}
+
+  # Hover over the pad, then "wheel down" twice and "wheel right" once (in any order).
+  - id: hover_pad
+    move: {window: {title: "${target}"}, x: 250, y: 90}
+  - id: scroll_pad
+    scroll: {dy: 2, dx: 1}
+
+  # The image condition: logs "pattern visible".
+  - id: check_pattern
+    if:
+      when: {image_visible: {image: "#pattern", window: {title: "${target}"}}}
+      then:
+        - id: seen
+          log: pattern visible
+      else:
+        - id: unseen
+          log: {message: pattern not visible, level: error}
+
+  # A region that does not contain the pattern: the condition is false.
+  - id: check_elsewhere
+    if:
+      when:
+        image_visible:
+          image: "#pattern"
+          window: {title: "${target}"}
+          region: [320, 20, 300, 240]
+      then:
+        - id: seen_elsewhere
+          log: {message: pattern found in the event log area, level: error}
+      else:
+        - id: not_elsewhere
+          log: pattern correctly absent from the event log area
+
+  # A region placed at the kept result: logs "pattern visible where it was kept".
+  - id: check_kept_region
+    if:
+      when: {image_visible: {image: "#pattern", region: {at: "${pattern}"}}}
+      then:
+        - id: seen_kept
+          log: pattern visible where it was kept
+      else:
+        - id: unseen_kept
+          log: {message: pattern not found where it was kept, level: error}
+
+  - id: done
+    log: pointer smoke test finished
+images:
+  pattern:
+    png: |
+      iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAkUlEQVR42u3XoQ2FQBBF0a0Ai0SC
+      oC9KQNIEBVAEFlr47rcDDcwVKwgJczdPbmaOetkt/34Icy1NHDjdvIdZpyNMoSNIkKB0oPb8haEF
+      T98XJEhQPtC4jWGot6joaAEVKRWvIEGC8oFq30k0CIuucr4gQYLygajoaDEVKYHoI1pqm1eQIEGf
+      BdGgtyJIkKB0oBvc2aEmmX2YaQAAAABJRU5ErkJggg==

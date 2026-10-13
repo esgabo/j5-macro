@@ -237,7 +237,9 @@ needs the `vision` extra (`pip install j5-macro[vision]`).
 - **Templates.** A template is a PNG (or other image) file, relative to the script's
   folder. Crop it tightly around something with texture or an edge: a template of a single
   flat colour never matches. Transparent pixels of a PNG (alpha below 128) are ignored, so
-  a cut-out icon matches on any background.
+  a cut-out icon matches on any background. A PNG can also be embedded in the script
+  itself (its `images` section, referred to as `"#name"`), so a script can be shared as
+  one file; see [Embedded images](scripts.md#embedded-images).
 - **Score and threshold.** j5 compares the template with every position on the screen
   using normalised cross-correlation and reports the **best score**, from 0 to 1. The image
   is found when the best score reaches `threshold` (0.9 by default). The score ignores
@@ -289,6 +291,10 @@ control back:
   (`stop`), or j5 ignores it (`off`). Only the mouse is watched: on X11, injected keys are
   hard to tell apart from yours.
 - **Ctrl+C** in the terminal stops the run; a second Ctrl+C quits without waiting.
+- **Programs only on request.** An `exec` step runs a program only when you allow it for
+  that run with `j5 run --allow-exec`; otherwise it fails before starting anything.
+  Stopping the run kills a program the step is waiting for, with its children; programs
+  started without `wait` keep running (see [scripts.md](scripts.md#exec)).
 - **Held keys are always released.** j5 tracks every key and button it holds. Stopping a
   run, a failed step, interference and the end of the run all release them. If the
   engine process dies, `j5` releases whatever it last reported as held, from its own

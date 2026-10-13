@@ -327,6 +327,14 @@ def test_run_fast_and_dry(engine, script, record):
     assert run["input_profile"] == {"mouse": {"strategy": "direct"},
                                     "keyboard": {"strategy": "direct"}}
     assert "seed" not in run
+    assert "allow_exec" not in run
+
+
+def test_run_allow_exec(engine, script, record):
+    engine("valid")
+    assert main(["run", script, "--allow-exec"]) == 0
+    (run,) = sent(record, "run")
+    assert run["allow_exec"] is True
 
 
 def test_run_json(engine, script, capsys):

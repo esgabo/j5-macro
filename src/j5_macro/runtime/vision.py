@@ -9,8 +9,10 @@ docs/contract.md, "Script format and step registry" (images, coordinates), "Even
   ``j5_macro.vision.toolkit.create_toolkit``). If it cannot be created, every search of
   the run fails with ``capability_missing`` giving the reason.
 - Image paths are relative to the script file's directory (the current directory for a
-  script without a file). ``window: {title}`` is looked up with the engine's backend;
-  ``region`` is relative to that window when given, else absolute. A region placed
+  script without a file); ``#name`` is an image embedded in the script, decoded with the
+  toolkit's ``decode_template`` the first time the run uses it and kept for the rest of
+  the run. ``window: {title}`` is looked up with the engine's backend; ``region`` is
+  relative to that window when given, else absolute. A region placed
   ``{at: <stored result>, ...}`` is on the desktop, following the stored result's own
   window (:func:`~j5_macro.steps.positions.anchored_region`).
 - Matches carry the client area of the window searched in (``Match.frame``), so image
@@ -35,6 +37,8 @@ from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads.events import ImageSearchEvent
 from j5_macro.runtime.api import RunEventSink
 from j5_macro.runtime.clock import Clock
+from j5_macro.script.images import reference_name
+from j5_macro.script.model import EmbeddedImage
 from j5_macro.steps.positions import anchored_region
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
@@ -75,7 +79,7 @@ class RunVision:
     def __init__(self, *, factory: ToolkitFactory | None, backend: Backend | None,
                  backend_reason: str | None, dry_run: bool, captures: CapturePolicy,
                  run_dir: Path | None, script_path: str | None, emit: RunEventSink,
-                 clock: Clock) -> None:
+                 clock: Clock, images: Mapping[str, EmbeddedImage] | None = None) -> None:
         self._factory = factory
         self._backend = backend
         self._backend_reason = backend_reason
@@ -83,6 +87,9 @@ class RunVision:
         self.captures = captures
         self.run_dir = run_dir
         self._script_dir = Path(script_path).parent if script_path else None
+        self._images: Mapping[str, EmbeddedImage] = images or {}
+        self._embedded: dict[str, Template] = {}
+        """Embedded templates decoded so far in this run, by name."""
         self._emit = emit
         self.clock = clock
         self._toolkit: VisionToolkit | None = None
@@ -127,6 +134,9 @@ class RunVision:
         if not isinstance(image, str) or not image:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'image' must be a non-empty path",
                             {"param": "image"})
+        name = reference_name(image)
+        if name is not None:
+            return self.embedded_template(image, name)
         path = self.template_path(image)
         details = {"template": image, "path": str(path)}
         # Checked before the toolkit, so a script error is reported wherever it runs.
@@ -142,6 +152,30 @@ class RunVision:
         except ValueError as exc:
             raise StepError(ErrorCode.TEMPLATE_MISSING,
                             f"{path} is not a readable image: {exc}", details) from exc
+
+    def embedded_template(self, image: str, name: str) -> Template:
+        """The template of ``images[name]``, decoded once per run. No path is reported:
+        the image lives in the script."""
+        cached = self._embedded.get(name)
+        if cached is not None:
+            return cached
+        details = {"template": image}
+        entry = self._images.get(name)
+        # Checked before the toolkit, like a missing file.
+        if entry is None:
+            raise StepError(ErrorCode.TEMPLATE_MISSING,
+                            f"the script has no embedded image named {name!r}", details)
+        toolkit = self.toolkit()
+        if toolkit.decode_template is None:
+            raise StepError(ErrorCode.CAPABILITY_MISSING,
+                            "this vision toolkit cannot load images embedded in a script")
+        try:
+            template = toolkit.decode_template(entry.data, image)
+        except ValueError as exc:
+            raise StepError(ErrorCode.TEMPLATE_MISSING,
+                            f"{image} is not a readable image: {exc}", details) from exc
+        self._embedded[name] = template
+        return template
 
     def window_rect(self, window: Any) -> Rect:
         title = window.get("title") if isinstance(window, Mapping) else None

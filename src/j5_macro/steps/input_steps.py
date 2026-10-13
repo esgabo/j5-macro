@@ -444,7 +444,8 @@ def check_key(params: Mapping[str, Any]) -> list[ParamProblem]:
 
 def _image(required: bool = False) -> ParamSpec:
     return ParamSpec(name="image", type="string", required=required,
-                     doc="Template image, relative to the script file.")
+                     doc="Template image: a path relative to the script file, or \"#name\" "
+                         "of an image embedded in the script.")
 
 
 X = ParamSpec(name="x", type="integer", doc="Horizontal position in physical pixels.")

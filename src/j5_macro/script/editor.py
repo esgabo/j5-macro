@@ -24,6 +24,10 @@ line the edits left alone, so untouched lines stay byte for byte. Formatting cho
 - The comment lines right above a step (indented no deeper than the step) belong to it:
   they move and go away with it. Comments after the last entry of a block stay after
   that block when entries are added, removed or moved.
+- Embedded images (``set_meta``'s ``images``) are block mappings whose base64 is a
+  literal block (``|``) wrapped at 76 columns; a new ``images`` section goes at the end
+  of the file, after ``steps``. An entry whose base64 only differs in whitespace is
+  unchanged.
 
 Ids are written: before any edit, every step without an id gets the id the loader
 generates for it (:mod:`j5_macro.script.loader`, "ids"), so existing breakpoints by id
@@ -38,11 +42,16 @@ import io
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import CommentMark, YAMLError
+from ruamel.yaml.scalarstring import (
+    DoubleQuotedScalarString,
+    LiteralScalarString,
+    PlainScalarString,
+)
 from ruamel.yaml.tokens import CommentToken
 
 from j5_macro.protocol.errors import ErrorCode
@@ -55,6 +64,8 @@ from j5_macro.protocol.payloads import (
     SetMetaEdit,
     UpdateEdit,
 )
+from j5_macro.script.images import FORMATS as IMAGE_FORMATS
+from j5_macro.script.images import compact_base64, image_slots, wrap_base64
 from j5_macro.script.loader import _TOP_LEVEL, ID_PATTERN, _parse_error, _plain
 from j5_macro.steps.spec import StepLookup, StepSpec
 
@@ -86,6 +97,38 @@ def apply_edits(text: str, edits: Sequence[Edit], *, lookup: StepLookup) -> str:
     Raises :class:`EditError` for the first edit that cannot apply; nothing is applied
     then (the input text is never modified, there is no partial result).
     """
+    text, yaml, tree = _open(text, lookup)
+    tree.write_ids()
+    for index, edit in enumerate(edits):
+        try:
+            tree.apply(edit)
+        except _Refused as exc:
+            raise EditError(f"edit {index} ({edit.op}): {exc}", index) from exc
+    return _restore_untouched(text, _dump(yaml, yaml.load(text)), _dump(yaml, tree.data))
+
+
+def rewrite_images(text: str, references: Mapping[str, str], *, lookup: StepLookup,
+                   add: Mapping[str, Any] | None = None,
+                   remove_section: bool = False) -> str:
+    """The edits behind ``j5 pack`` and ``j5 unpack``: replace image parameters (a value
+    as written, key of ``references``, becomes its value), add or replace entries of
+    the ``images`` section (``add``), and drop that section (``remove_section``).
+
+    Same round trip as :func:`apply_edits` (comments and formatting survive), except
+    that no step id is written. Raises :class:`EditError` when ``text`` is not a YAML
+    mapping."""
+    text, yaml, tree = _open(text, lookup)
+    tree.rewrite_references(references)
+    if remove_section:
+        tree.remove_header("images")
+    elif add:
+        tree.set_images(add, replace=False)
+    return _restore_untouched(text, _dump(yaml, yaml.load(text)), _dump(yaml, tree.data))
+
+
+def _open(text: str, lookup: StepLookup) -> tuple[str, YAML, _Tree]:
+    """The text with ``\\n`` line ends, the YAML instance that keeps its formatting, and
+    its tree; raises :class:`EditError` when it is not valid YAML or not a mapping."""
     text = text.replace("\r\n", "\n")
     indent = detect_indent(text)
     yaml = _yaml_for(text, indent)
@@ -100,14 +143,7 @@ def apply_edits(text: str, edits: Sequence[Edit], *, lookup: StepLookup) -> str:
     if not isinstance(data, CommentedMap):
         raise EditError("the script must be a mapping with a 'steps' list", line=1,
                         details={"reason": "not_a_mapping"})
-    tree = _Tree(data, lookup, indent)
-    tree.write_ids()
-    for index, edit in enumerate(edits):
-        try:
-            tree.apply(edit)
-        except _Refused as exc:
-            raise EditError(f"edit {index} ({edit.op}): {exc}", index) from exc
-    return _restore_untouched(text, _dump(yaml, yaml.load(text)), _dump(yaml, data))
+    return text, yaml, _Tree(data, lookup, indent)
 
 
 def _dump(yaml: YAML, data: Any) -> str:
@@ -808,13 +844,20 @@ class _Tree:
         if edit.name is not None:
             self._set_header("name", edit.name)
         for key, value in (("input", edit.input), ("params", edit.params),
-                           ("vars", edit.vars)):
+                           ("vars", edit.vars), ("images", edit.images)):
             if value is None:
                 continue
-            if value:
+            if not value:
+                self.remove_header(key)  # an empty mapping removes the section
+            elif key == "images":
+                self.set_images(value, replace=True)
+            else:
                 self._set_header(key, value)
-            elif (existing := _key_in(self.data, key)) is not None:
-                _map_delete(self.data, existing)  # an empty mapping removes the section
+
+    def remove_header(self, key: str) -> None:
+        existing = _key_in(self.data, key)
+        if existing is not None:
+            _map_delete(self.data, existing)
 
     def _set_header(self, key: str, value: Any) -> None:
         existing = _key_in(self.data, key)
@@ -824,9 +867,109 @@ class _Tree:
         node = to_node(value)
         if isinstance(node, CommentedMap):
             node.fa.set_block_style()  # header sections are blocks, one entry per line
+        self._place_header(key, node)
+
+    def _place_header(self, key: str, node: Any) -> None:
+        """Add a new top-level section before the first section that follows it in
+        the format's order (``images`` goes last)."""
         later = _TOP_LEVEL[_TOP_LEVEL.index(key) + 1:]
         place = next((i for i, k in enumerate(self.data) if k in later), len(self.data))
         _map_set(self.data, key, node, place)
+
+    # --- embedded images --------------------------------------------------------------
+
+    def set_images(self, value: Mapping[str, Any], *, replace: bool) -> None:
+        """Write entries of the ``images`` section. With ``replace`` the section holds
+        exactly ``value``; otherwise ``value``'s entries are added or replaced and the
+        others stay. An entry equal to the one in the file (base64 compared without
+        whitespace) keeps its formatting."""
+        existing = _key_in(self.data, "images")
+        current = None if existing is None else self.data[existing]
+        if not isinstance(current, CommentedMap):
+            node = CommentedMap()
+            for name, entry in value.items():
+                node[str(name)] = image_entry_node(entry)
+            node.fa.set_block_style()
+            if existing is not None:
+                _map_set(self.data, existing, node)
+            else:
+                self._place_header("images", node)
+            return
+        if replace:
+            for key in [k for k in current if str(k) not in value]:
+                _map_delete(current, key)
+        for position, (name, entry) in enumerate(value.items()):
+            key = _key_in(current, str(name))
+            if key is None:
+                current.fa.set_block_style()  # literal blocks cannot go in a flow mapping
+                _map_set(current, str(name), image_entry_node(entry),
+                         position if replace else None)
+            elif not _same_image(current[key], entry):
+                current.fa.set_block_style()
+                _map_set(current, key, image_entry_node(entry))
+
+    def rewrite_references(self, references: Mapping[str, str]) -> int:
+        """Replace every image parameter whose value (as written) is a key of
+        ``references`` with its value; returns how many were replaced."""
+        count = 0
+        for ref in self._walk(self.data.get("steps")):
+            if ref.spec is None:
+                continue
+            key = _type_key(ref.node)
+            body = ref.node[key]
+            if isinstance(body, CommentedMap):
+                for mapping, slot, _ in list(image_slots(body, ref.spec)):
+                    new = references.get(str(mapping[slot]))
+                    if new is not None:
+                        _map_set(cast(CommentedMap, mapping), slot, _image_value(new))
+                        count += 1
+            elif (isinstance(body, str) and ref.spec.shorthand == "image"
+                    and (new := references.get(str(body))) is not None):
+                _map_set(ref.node, key, _image_value(new))
+                count += 1
+        return count
+
+
+def image_entry_node(entry: Any) -> Any:
+    """An ``images`` entry as a block mapping whose base64 is a literal block (``|``)
+    wrapped at 76 columns, so diffs stay line-based."""
+    if not isinstance(entry, Mapping):
+        return to_node(entry)
+    node = CommentedMap()
+    for key, value in entry.items():
+        if str(key) in IMAGE_FORMATS and isinstance(value, str):
+            wrapped = wrap_base64(value)
+            node[str(key)] = LiteralScalarString(wrapped) if wrapped else ""
+        else:
+            node[str(key)] = to_node(value)
+    node.fa.set_block_style()
+    return node
+
+
+def _same_image(old: Any, new: Any) -> bool:
+    """Whether an ``images`` entry in the file already holds ``new``."""
+    plain = _plain(old)
+    if not isinstance(plain, Mapping) or not isinstance(new, Mapping):
+        return _same(plain, new)
+    if set(plain) != {str(k) for k in new}:
+        return False
+    for key, value in new.items():
+        before = plain[str(key)]
+        if str(key) in IMAGE_FORMATS and isinstance(value, str) and isinstance(before, str):
+            if compact_base64(before) != compact_base64(value):
+                return False
+        elif not _same(before, value):
+            return False
+    return True
+
+
+def _image_value(value: str) -> Any:
+    """A reference is double-quoted (a bare ``#`` would start a comment); a path is
+    written plain when YAML allows it. (A bare ``str`` would inherit the style of the
+    value it replaces.)"""
+    if value.startswith("#"):
+        return DoubleQuotedScalarString(value)
+    return PlainScalarString(value)
 
 
 def _style_like_new(node: CommentedMap) -> None:

@@ -56,7 +56,7 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_step_types": {},
     "load": {"path": "scripts/a.yaml"},
     "validate": {"script_id": "s"},
-    "run": {"script_id": "s", "mode": "step", "captures": "on_failure"},
+    "run": {"script_id": "s", "mode": "step", "captures": "on_failure", "allow_exec": True},
     "pause": RUN, "resume": RUN, "step_over": RUN, "step_into": RUN, "step_out": RUN,
     "stop": {"run_id": "r-1", "reason": "user"},
     "set_breakpoints": {"script_id": "s", "step_ids": ["a", "b"]},
@@ -73,7 +73,7 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
         {"op": "move", "step_id": "a", "to": {"parent_step_id": "c", "block": "else",
                                              "index": 0}},
         {"op": "delete", "step_id": "b"},
-        {"op": "set_meta", "vars": {"k": "v"}},
+        {"op": "set_meta", "vars": {"k": "v"}, "images": {"b": {"png": "iVBORw0K"}}},
     ]},
     "list_runs": {"limit": 5},
     "get_run": {"run_id": "r-1", "from_seq": 0},
@@ -90,6 +90,8 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "load": {"script_id": "s", "steps": [NODE],
              "params": [{"name": "who", "type": "string", "secret": False,
                          "required": False, "default": "you"}],
+             "images": [{"name": "button", "format": "png", "bytes": 202,
+                         "width": 48, "height": 48, "scale": 1.5}],
              "warnings": [{"message": "generated id", "step_id": "c1", "line": 4}]},
     "validate": {"ok": False, "errors": [{"code": "validation_failed", "message": "bad",
                                           "step_id": "a", "line": 2}]},
@@ -104,7 +106,7 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
                                   "modified": "2026-10-12T10:00:00.000Z", "valid": True}]},
     "create_script": {"script_id": "s", "version": "0123456789abcdef"},
     "get_script": {"script_id": "s", "version": "v1", "source": "version: 1\n",
-                   "name": "A", "steps": [NODE], "params": [],
+                   "name": "A", "steps": [NODE], "params": [], "images": [],
                    "valid": False, "errors": [{"code": "validation_failed",
                                                "message": "bad", "line": 3}]},
     "edit_script": {"version": "v2", "valid": True, "errors": []},
@@ -285,7 +287,9 @@ def test_unknown_fields_ignored():
 def test_optional_omitted_and_defaults():
     parsed = RunPayload.from_json({"script_id": "s", "mode": "normal"})
     assert parsed.vars is None and parsed.seed is None and parsed.captures == "on_failure"
-    assert parsed.to_json() == {"script_id": "s", "mode": "normal", "captures": "on_failure"}
+    assert parsed.allow_exec is False
+    assert parsed.to_json() == {"script_id": "s", "mode": "normal", "captures": "on_failure",
+                                "allow_exec": False}
     assert "line" not in LogEvent(level="info", message="m").to_json()
 
 

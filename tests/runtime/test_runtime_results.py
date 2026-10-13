@@ -10,7 +10,15 @@ from typing import Any
 import pytest
 from runtime_helpers import REGISTRY, Recorder, ScaledClock, load, no_vision, run
 from runtime_input_helpers import backend, run_input
-from runtime_vision_helpers import FakeToolkit, VisionRun, hit, miss, with_images
+from runtime_vision_helpers import (
+    FakeToolkit,
+    VisionRun,
+    hit,
+    miss,
+    png_header,
+    with_embedded,
+    with_images,
+)
 
 from j5_macro.backends.base import Button, Rect
 from j5_macro.runtime import RunOptions
@@ -302,6 +310,32 @@ def test_window_searches_report_where_the_match_is_in_the_window(tmp_path: Path)
     assert run_.join().status == "completed"
     assert finished(run_.recorder, "find") == LABEL
     assert run_.factory.session.named("click")[0][1] == (320, 410, Button.LEFT, 1)
+
+
+def test_results_of_embedded_images_are_kept_and_used(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    script = with_embedded("""\
+  - id: find
+    wait_image: {image: "#box", window: {title: Notes}}
+    as: label
+  - id: press
+    click: {image: "#box", offset: [0, 40]}
+    as: pressed
+  - id: again
+    click: {at: "${pressed}"}
+  - id: near
+    wait_image: {image: "#box", region: {at: "${label}", offset: [0, 40]}}
+""", monkeypatch, box=png_header())
+    toolkit = FakeToolkit([hit(0.97, BOX)])
+    run_ = VisionRun(script, toolkit, backend=backend(Notes=NOTES))
+    assert run_.join().status == "completed"
+    assert finished(run_.recorder, "find") == LABEL
+    pressed = finished(run_.recorder, "press")
+    assert pressed["image"] == "#box" and pressed["bbox"] == [300, 400, 40, 20]
+    clicks = [call[1] for call in run_.factory.session.named("click")]
+    assert clicks == [(320, 450, Button.LEFT, 1), (320, 410, Button.LEFT, 1)]
+    assert toolkit.capturer.grabs[-1] == Rect(300, 440, 40, 20)
+    assert [s["template"] for s in run_.searches()] == ["#box"] * 3
 
 
 def test_image_targets_report_their_window_too(tmp_path: Path) -> None:

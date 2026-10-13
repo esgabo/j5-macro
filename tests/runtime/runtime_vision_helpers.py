@@ -3,18 +3,22 @@ sleeping, to test image steps without a display, numpy or OpenCV."""
 
 from __future__ import annotations
 
+import base64
 import dataclasses
+import struct
 import threading
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+import pytest
 from runtime_helpers import REGISTRY, TIMEOUT, Recorder, ScaledClock, load
 from runtime_input_helpers import SessionFactory
 
 from j5_macro.backends.base import Rect
 from j5_macro.runtime import RunOptions, RunOutcome
 from j5_macro.runtime.interpreter import create_run
+from j5_macro.script import images as embedded
 from j5_macro.script.model import Script
 from j5_macro.vision.api import Frame, Match, Template, VisionToolkit
 
@@ -63,8 +67,11 @@ class FakeToolkit:
         self.templates: list[Path] = []
         self.searches: list[tuple[Path, tuple[int, int], float, float]] = []
         self.saved: list[tuple[Path, Rect | None]] = []
+        self.decoded: list[tuple[bytes, str]] = []
         self.created = 0
         self.error: Exception | None = None
+        self.embedding = True
+        """Whether the toolkit can load embedded images (``decode_template``)."""
 
     def __call__(self) -> VisionToolkit:
         """The :data:`ToolkitFactory`."""
@@ -72,7 +79,15 @@ class FakeToolkit:
         if self.error is not None:
             raise self.error
         return VisionToolkit(capturer=self.capturer, load_template=self.load_template,
-                             locate=self.locate, save_image=self.save_image)
+                             locate=self.locate, save_image=self.save_image,
+                             decode_template=self.decode_template if self.embedding
+                             else None)
+
+    def decode_template(self, data: bytes, label: str) -> Template:
+        self.decoded.append((data, label))
+        if not data.startswith(b"\x89PNG"):
+            raise ValueError("not an image")
+        return Template(Path(label), Pixels(10, 10))
 
     def load_template(self, path: Path) -> Template:
         self.templates.append(path)
@@ -116,6 +131,24 @@ def with_images(script: Script | str, directory: Path, *names: str) -> Script:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"png")
     return dataclasses.replace(script, source_path=str(directory / "script.yaml"))
+
+
+def png_header(width: int = 10, height: int = 10, tail: bytes = b"") -> bytes:
+    """The start of a PNG file: enough for the loader when it does not decode pixels
+    (see :func:`with_embedded`)."""
+    return (b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR"
+            + struct.pack(">II", width, height) + b"\x08\x02\x00\x00\x00" + tail)
+
+
+def with_embedded(steps: str, monkeypatch: pytest.MonkeyPatch,
+                  **images: bytes) -> Script:
+    """A script with ``steps`` and ``images`` embedded (base64 of each value). The
+    loader's pixel check is turned off, so the fake headers of :func:`png_header` load
+    whether or not the vision extra is installed."""
+    monkeypatch.setattr(embedded, "pixel_check", lambda: None)
+    section = "".join(f"  {name}: {{png: {base64.b64encode(data).decode()}}}\n"
+                      for name, data in images.items())
+    return load(f"steps:\n{steps}images:\n{section}")
 
 
 class VisionRun:

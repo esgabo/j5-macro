@@ -65,6 +65,8 @@ class RunOptions:
     """Where the interpreter registers the strings of a result stored with
     ``as: {secret: true}``, before emitting its ``step_finished``. None (no engine, e.g.
     in tests) masks nothing."""
+    allow_exec: bool = False
+    """Whether ``exec`` steps may start programs (the ``run`` command's ``allow_exec``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

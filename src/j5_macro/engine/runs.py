@@ -305,6 +305,7 @@ class RunManager:
                 run_dir=None if self.store is None else self.store.root / run_id,
                 backend=None if self.backend is None else self.backend.backend,
                 backend_reason=None if self.backend is None else self.backend.reason,
+                allow_exec=payload.allow_exec,
             )
             meta: JsonObject = {
                 "run_id": run_id,

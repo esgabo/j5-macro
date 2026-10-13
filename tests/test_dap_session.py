@@ -115,6 +115,8 @@ def test_initialize_answers_capabilities_then_initialized(tmp_path: Path) -> Non
     ({"seed": 42, "fast": True, "params": {"who": "Ann"}, "args": ["ignored"]},
      {"mode": "normal", "seed": 42, "params": {"who": "Ann"},
       "input_profile": {"mouse": {"strategy": "direct"}, "keyboard": {"strategy": "direct"}}}),
+    ({"allowExec": True}, {"mode": "normal", "allow_exec": True}),
+    ({"allowExec": "yes"}, {"mode": "normal"}),
 ])
 def test_launch_builds_the_run(tmp_path: Path, launch: Message, payload: Message) -> None:
     async def scenario() -> None:

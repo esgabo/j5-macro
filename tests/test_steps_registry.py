@@ -8,7 +8,7 @@ from j5_macro.steps import registry as registry_module
 from j5_macro.steps.builtins import default_registry
 
 V1_STEPS = ["click", "move", "drag", "scroll", "type", "key", "wait_image", "sleep", "if",
-            "loop", "set", "log", "pause"]
+            "loop", "set", "log", "pause", "exec"]
 
 NOOP = StepType(StepSpec(name="noop", doc="Do nothing.",
                          params=(ParamSpec(name="a", type="integer"),

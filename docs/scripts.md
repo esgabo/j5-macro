@@ -11,7 +11,7 @@ source this page is checked against:
 ```console
 $ j5 steps
 click  Click on an image or at x/y.
-  image: string  Template image, relative to the script file.
+  image: string  Template image: a path relative to the script file, or "#name" of an image embedded in the script.
   x: integer  Horizontal position in physical pixels.
 ...
 ```
@@ -28,6 +28,7 @@ A script is a UTF-8 YAML file with these top-level keys:
 | `params` | no | Values the script takes from outside; see [Params and secrets](#params-and-secrets) |
 | `vars` | no | Variables and their starting values (any YAML value: numbers, text, lists, mappings) |
 | `steps` | yes | The list of steps |
+| `images` | no | Template images carried inside the script; see [Embedded images](#embedded-images) |
 
 Any other top-level key is ignored with a warning.
 
@@ -91,7 +92,7 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 | --- | --- | --- | --- |
 | `id` | string | generated | Stable id: letters, digits, `_` and `-`, starting with a letter or `_`; unique in the script |
 | `break` | boolean | `false` | A breakpoint written in the script: the run pauses before this step (see [debugging.md](debugging.md)) |
-| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Other steps ignore it |
+| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Also replaces `exec`'s `timeout`. Other steps ignore it |
 | `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
 | `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
 | `as` | name or mapping | none | Keep the step's result in a variable: `as: label`, or `as: {name: token, secret: true}` (see [Keeping a result](#keeping-a-result-as)) |
@@ -143,6 +144,14 @@ Numbers, booleans and empty strings are not masked. Use the value as it is
 (`type: "${token.stdout}"`), or with `strip(...)` when the trailing line break matters:
 any other transformation (`upper(token.stdout)`) is not recognised and would show.
 
+```yaml
+- id: get_token
+  exec: {command: [curl, -s, "https://vault.example/token"], wait: true}
+  as: {name: token, secret: true}          # token = {exit_code, stdout, stderr}
+- id: type_token
+  type: "${strip(token.stdout)}"
+```
+
 ### Stable ids
 
 Ids are how breakpoints, the run history and errors name a step, so give every step an
@@ -169,6 +178,7 @@ Some step types take one value instead of a mapping, for their main parameter:
 | `sleep: 2s` | `sleep: {duration: 2s}` |
 | `log: Done` | `log: {message: Done}` |
 | `pause: Check the form` | `pause: {message: Check the form}` |
+| `exec: mousepad notes.txt` | `exec: {command: mousepad notes.txt}` |
 
 `pause:` with nothing after it is valid too. The other types (`click`, `move`, `drag`,
 `scroll`, `if`, `loop`, `set`) need a mapping.
@@ -186,7 +196,7 @@ both `x` and `y`.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image to click on, relative to the script file |
+| `image` | string | - | Template image to click on: a path relative to the script file, or `"#name"` of an [embedded image](#embedded-images) |
 | `x`, `y` | integer | - | Position in physical pixels (relative to `window` when given) |
 | `at` | kept result | - | An image result kept with `as`, usually `"${label}"`: click on its area, where it is now (see [Targets](#targets-and-coordinates)) |
 | `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text (not with `at`) |
@@ -210,7 +220,7 @@ Moves the pointer to an image, a kept image result or `x`/`y`, without clicking.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image |
+| `image` | string | - | Template image (a path, or `"#name"`) |
 | `x`, `y` | integer | - | Position in physical pixels |
 | `at` | kept result | - | An image result kept with `as` |
 | `window` | mapping | - | `{title: ...}`; coordinates become relative to it (not with `at`) |
@@ -311,7 +321,7 @@ Waits until an image is on screen, checking every 0.25 s.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | required | Template image |
+| `image` | string | required | Template image (a path, or `"#name"`) |
 | `timeout` | duration | `10s` | Give up with `image_not_found` after this long; the step's common `timeout` replaces it |
 | `threshold` | number | `0.9` | Minimum image match score |
 | `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
@@ -445,6 +455,62 @@ Enter resumes it; without one, the run resumes on its own and says so.
   pause: Check the totals before saving
 ```
 
+### exec
+
+Runs a program: starts it and goes on, for example to launch an application, or waits for
+it and keeps its output. Running programs is off unless the run allows it: pass
+`j5 run --allow-exec` (`"allowExec": true` in VS Code). Without it an `exec` step fails
+with `capability_missing`, so a script you did not write cannot start programs behind
+your back.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | list or string | required | The program and its arguments. A list runs the program directly, without a shell; numbers in it are written as text. A string is split like a command line (quotes group words) and is also run without a shell |
+| `shell` | boolean | `false` | Run the `command` string through the system shell (`/bin/sh -c` on Linux, `cmd /c` on Windows), for pipes, redirections and `&&` |
+| `wait` | boolean | `false` | `false`: start the program detached and go on at once; it keeps running after the run ends. `true`: wait until it exits |
+| `timeout` | duration | - | With `wait`: kill the program (and its children) after this long, failing the step with `exec_failed` |
+| `cwd` | string | the script's directory | Working directory, relative to the script's directory |
+| `env` | mapping | - | Extra environment variables, added to j5's own |
+| `check` | boolean | `true` | With `wait`: fail the step with `exec_failed` when the program exits with a code other than 0 |
+
+Without `wait` the result is `{pid}`. With `wait` it is `{exit_code, stdout, stderr}`:
+the program's output and errors as text, each cut at 64 KiB (the result then adds
+`truncated: true`). Output is kept as written, final line break included, so use
+`strip()` when you need the bare value. The program never gets any input.
+
+```yaml
+- id: open_editor
+  exec: {command: [mousepad, notes.txt]}        # starts it and moves on
+- id: today
+  exec: {command: [date, +%F], wait: true}
+- id: count_lines
+  exec: {command: "wc -l < data.csv", shell: true, wait: true, timeout: 10s}
+- id: upload
+  exec:
+    command: [./upload.sh, report.pdf]
+    wait: true
+    env: {API_TOKEN: "${token}"}                # a secret param: pass it in env
+```
+
+To open a file or a URL with its default application, run the system's opener:
+`exec: {command: [xdg-open, report.pdf]}` on Linux, or
+`exec: {command: [cmd, /c, start, "", report.pdf]}` on Windows (`start` reads its first
+quoted argument as a window title, hence the `""`).
+
+- A program that does not exist or cannot be started fails with `exec_failed`
+  (`details.reason: start`); a non-zero exit with `check` with `exec_failed`
+  (`details.reason: exit_code`, plus the exit code, output and errors); a `timeout` with
+  `exec_failed` (`details.reason: timeout`).
+- Stopping the run kills a program it is waiting for, with its children. Pausing does not
+  pause the program: the step goes on waiting and the run pauses after it. A program
+  started without `wait` is never killed by j5.
+- A dry run starts nothing: the step says what it would run, where, and whether it would
+  wait, and warns when the run does not have `--allow-exec`.
+- Secrets in `command`, `env` or the output show as `***` in the output and the run
+  history, like everywhere else, but the program gets the real values. Pass secrets
+  through `env` rather than in `command`: other users of the machine can see a program's
+  arguments, not its environment.
+
 ## Step results
 
 What each step reports when it finishes, and so what `as` keeps. `bbox`, `window_bbox`
@@ -466,8 +532,9 @@ physical pixels.
 | `set` | `name`, `value` |
 | `log` | `level`, `message` |
 | `pause` | `message` |
+| `exec` | `exit_code`, `stdout`, `stderr` (and `truncated`) with `wait`; `pid` without |
 
-In a dry run, input steps report `dry_run: true` and a `description` instead, plus the
+In a dry run, input steps and `exec` report `dry_run: true` and a `description` instead, plus the
 image fields when an image was searched (or the kept area, for `at`). `j5 schema`
 describes these fields too (`$defs/<type>_result`).
 
@@ -503,7 +570,9 @@ describes these fields too (`$defs/<type>_result`).
 ## Images
 
 - **Paths** are relative to the script file's directory. A missing or unreadable file
-  fails with `template_missing` when the step runs (`j5 validate` does not open images).
+  fails with `template_missing` when the step runs (`j5 validate` does not open image
+  files). A value written `"#name"` is not a path but an [embedded
+  image](#embedded-images), checked when the script loads.
 - **Matching** uses normalized cross-correlation: a score from 0 to 1, and a match when
   the score is at least `threshold` (0.9 by default).
 - **Transparency.** Pixels of a PNG with alpha below 128 are ignored, so a cut-out icon
@@ -525,6 +594,65 @@ describes these fields too (`$defs/<type>_result`).
   the best candidate outlined in red, in the run's `captures/` directory.
 - Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
   fail with `capability_missing`.
+
+### Embedded images
+
+A script that searches the screen normally needs its image files next to it, so sharing
+it means sharing a folder. The `images` section carries the templates inside the script
+instead, and any `image` parameter refers to one with `"#name"`:
+
+```yaml
+version: 1
+name: Click the pattern
+steps:
+  - id: click_pattern
+    click: {image: "#pattern"}
+  - id: check
+    if:
+      when: {image_visible: "#pattern"}
+      then:
+        - id: seen
+          log: still there
+  - id: dialog
+    wait_image: img/dialog.png        # files keep working
+images:
+  pattern:
+    png: |
+      iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAkUlEQVR42u3XoQ2FQBBF0a0Ai0SC
+      oC9KQNIEBVAEFlr47rcDDcwVKwgJczdPbmaOetkt/34Icy1NHDjdvIdZpyNMoSNIkKB0oPb8haEF
+      T98XJEhQPtC4jWGot6joaAEVKRWvIEGC8oFq30k0CIuucr4gQYLygajoaDEVKYHoI1pqm1eQIEGf
+      BdGgtyJIkKB0oBvc2aEmmX2YaQAAAABJRU5ErkJggg==
+```
+
+- **Entries.** Each name (letters, digits, `_` and `-`, not starting with a digit or `-`)
+  maps to `{png: ..., scale: ...}`. `png` is the base64 of the PNG file itself, so it is
+  lossless and its transparency still works as a mask. Line breaks and spaces in it are
+  ignored; j5 writes it as a literal block (`|`) wrapped at 76 columns.
+- **Quote the reference.** Write `image: "#pattern"` with quotes: in YAML a bare `#`
+  starts a comment. Anything that does not start with `#` is a path, as before.
+- **Checked on load.** Every entry must be valid base64 of a PNG file, at most 1 MiB
+  (1,048,576 bytes) once decoded, and all of a script's images together at most 8 MiB.
+  With the `vision` extra installed j5 decodes each image as a search would; without it,
+  it checks the PNG signature and the size in its header. A `"#name"` that is not in
+  `images` is an error with the step and the parameter (`click: {image: "#nope"}`), not
+  a failure in the middle of a run. A reference built with `${...}` is resolved when the
+  step runs; an unknown name then fails with `template_missing`.
+- **`scale`** is the display scale the image was captured at (a positive number, `1.5`
+  for 150 %). It is reserved: j5 checks it and keeps it with the image, but does not
+  apply it yet, so use the step's own `scale` to compensate a different scaling.
+- **In the output.** Events and errors show the reference as written (`#pattern`) and
+  never the image data, which is not copied to captures or the run history either.
+- **No working directory.** A script whose templates are all embedded does not depend on
+  where it is stored or where j5 runs from, so it can be pasted into a chat or loaded from
+  text.
+
+`j5 pack` embeds the image files a script uses, and `j5 unpack` writes them back to files
+(see [the CLI reference](cli.md#j5-pack)):
+
+```console
+$ j5 pack save_report.yaml -o save_report.bundle.yaml
+j5: embedded 2 images (#save_button, #dialog), 3 image parameters rewritten; wrote save_report.bundle.yaml
+```
 
 ## Durations
 
@@ -774,6 +902,11 @@ Other messages you may see:
 | `step has several type keys (...); use one per step` | Two step types in one step, often a missing `-` |
 | `warning: generated id 'log_1', add an explicit id ...` | A step without `id` (see [Stable ids](#stable-ids)) |
 | `warning: unknown top-level key 'extra' is ignored` | A top-level key that is not part of the format |
+| `image: no embedded image named 'save'; the script has ...` | A `"#save"` reference with no `save` entry under `images` (the parameter is named, e.g. `from.image` or `when.image_visible`) |
+| `image 'save': 'png' is not valid base64 (...)` | An `images` entry whose data was cut or altered; the line is the entry's |
+| `image 'save': not a PNG file (wrong signature)` | Base64 of another format (JPEG, WebP...): convert it to PNG first |
+| `image 'save': ... bytes once decoded, over the limit of 1,048,576 bytes (1 MiB) per image` | An image too large to embed; crop it, or keep it as a file |
+| `the embedded images add up to ... bytes once decoded, over the limit ... per script` | All the images together are over 8 MiB; keep some of them as files |
 
 Warnings are listed only when the script has no errors. `j5 validate --json` gives the
 same report as JSON, with `code`, `message`, `step_id`, `line` and `details` for each

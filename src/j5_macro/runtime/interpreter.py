@@ -56,7 +56,7 @@ class Interpreter:
                                  backend_reason=options.backend_reason,
                                  dry_run=options.mode == "dry", captures=options.captures,
                                  run_dir=options.run_dir, script_path=script.source_path,
-                                 emit=emit, clock=clock)
+                                 emit=emit, clock=clock, images=script.images)
         predefined = {**PREDEFINED_CONDITIONS, **(conditions or {})}
         self._machine = Machine(script, registry, self._events, self._control, clock, options,
                                 predefined, self._input, self._vision)
