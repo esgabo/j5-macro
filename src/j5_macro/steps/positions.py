@@ -125,7 +125,7 @@ def stored_problem(value: Any) -> str | None:
     if window is not None and not _interpolated(window):
         if not isinstance(window, str) or not window:
             return "'window' must be the title of the window searched"
-        if value.get("window_bbox") is None:
+        if value.get("window_bbox") is None and value.get("bbox") is not None:
             return "has a 'window' but no 'window_bbox'"
     return None
 
