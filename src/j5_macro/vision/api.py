@@ -50,6 +50,7 @@ class Template:
     count, from a PNG's alpha channel; None means every pixel counts."""
 
     path: Path
+    """The image file; for an image embedded in the script, ``#name``."""
     pixels: Any
     mask: Any | None = None
 
@@ -83,6 +84,10 @@ TemplateLoader = Callable[[Path], Template]
 """Loads (and may cache) a template; raises ``FileNotFoundError`` when missing and
 ``ValueError`` when the file is not a readable image."""
 
+TemplateDecoder = Callable[[bytes, str], Template]
+"""``decode(data, label)``: a template from an encoded image embedded in a script
+(``label`` is ``#name``, for messages); raises ``ValueError`` when it is not readable."""
+
 Locator = Callable[[Template, Frame, float, float], Match]
 """``locate(template, frame, threshold, scale) -> Match``: best location of the
 template, scaled by ``scale``, in the frame."""
@@ -97,6 +102,8 @@ class VisionToolkit:
     load_template: TemplateLoader
     locate: Locator
     save_image: ImageSaver
+    decode_template: TemplateDecoder | None = None
+    """Loads embedded images; None for a toolkit that only reads files."""
 
 
 ToolkitFactory = Callable[[], VisionToolkit]
@@ -112,7 +119,8 @@ class StepVision(Protocol):
              scale: float = DEFAULT_SCALE, region: list[int] | None = None,
              window: dict[str, Any] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
-        directory; ``region`` is ``[x, y, w, h]``, relative to ``window`` when given.
+        directory, or ``#name`` for an image embedded in the script; ``region`` is
+        ``[x, y, w, h]``, relative to ``window`` when given.
         Raises StepError: ``template_missing``, ``window_not_found``,
         ``capability_missing`` (no vision)."""
         ...

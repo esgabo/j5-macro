@@ -177,6 +177,27 @@ def script_json_schema(registry: StepRegistry) -> JsonSchema:
             },
             "vars": {"type": "object", "description": "Initial variables."},
             "steps": {"type": "array", "items": {"$ref": STEP_REF}},
+            "images": {
+                "type": "object",
+                "description": "Templates embedded in the script, referred to as "
+                               "image: \"#name\".",
+                "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_-]*$"},
+                "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                        "png": {"type": "string", "contentEncoding": "base64",
+                                "contentMediaType": "image/png",
+                                "description": "Base64 of the PNG file (at most 1 MiB "
+                                               "decoded); line breaks are ignored."},
+                        "scale": {"type": "number", "exclusiveMinimum": 0,
+                                  "description": "Display scale the image was captured "
+                                                 "at, e.g. 1.5 (reserved: not applied "
+                                                 "yet)."},
+                    },
+                    "required": ["png"],
+                    "additionalProperties": False,
+                },
+            },
         },
         "required": ["steps"],
         "additionalProperties": False,

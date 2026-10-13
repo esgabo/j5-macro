@@ -1,7 +1,8 @@
 """Template loading: PNG, JPEG or BMP files as BGR pixels plus an optional mask.
 
 A PNG alpha channel becomes a binary mask: pixels with alpha < 128 are ignored when
-matching. Files are decoded from bytes so non-ASCII paths work on Windows too.
+matching. Files are decoded from bytes so non-ASCII paths work on Windows too, and images
+embedded in a script are decoded the same way (:func:`decode_template_bytes`).
 :class:`TemplateCache` keeps recently used templates, keyed by path and modification
 time, so editing an image on disk is picked up by the next search.
 """
@@ -66,6 +67,12 @@ def decode_template(data: bytes, path: Path) -> Template:
     if mask is not None:
         mask.setflags(write=False)
     return Template(path=path, pixels=pixels, mask=mask)
+
+
+def decode_template_bytes(data: bytes, label: str) -> Template:
+    """Decodes an image embedded in a script (:data:`j5_macro.vision.api.TemplateDecoder`);
+    ``label`` (``#name``) names it in messages and becomes the template's ``path``."""
+    return decode_template(data, Path(label))
 
 
 def read_template(path: Path) -> Template:

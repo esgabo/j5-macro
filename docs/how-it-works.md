@@ -237,7 +237,9 @@ needs the `vision` extra (`pip install j5-macro[vision]`).
 - **Templates.** A template is a PNG (or other image) file, relative to the script's
   folder. Crop it tightly around something with texture or an edge: a template of a single
   flat colour never matches. Transparent pixels of a PNG (alpha below 128) are ignored, so
-  a cut-out icon matches on any background.
+  a cut-out icon matches on any background. A PNG can also be embedded in the script
+  itself (its `images` section, referred to as `"#name"`), so a script can be shared as
+  one file; see [Embedded images](scripts.md#embedded-images).
 - **Score and threshold.** j5 compares the template with every position on the screen
   using normalised cross-correlation and reports the **best score**, from 0 to 1. The image
   is found when the best score reaches `threshold` (0.9 by default). The score ignores

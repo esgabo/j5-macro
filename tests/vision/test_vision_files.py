@@ -13,7 +13,11 @@ cv2 = pytest.importorskip("cv2")
 from j5_macro.backends.base import Rect  # noqa: E402
 from j5_macro.vision.api import Frame  # noqa: E402
 from j5_macro.vision.drawing import HIGHLIGHT_COLOR, save_png  # noqa: E402
-from j5_macro.vision.templates import TemplateCache, read_template  # noqa: E402
+from j5_macro.vision.templates import (  # noqa: E402
+    TemplateCache,
+    decode_template_bytes,
+    read_template,
+)
 
 
 def noise(height: int, width: int, channels: int = 3, seed: int = 0):  # type: ignore[no-untyped-def]
@@ -94,6 +98,19 @@ def test_missing_and_unreadable_files(tmp_path: Path) -> None:
         cache(tmp_path / "empty.png")
     with pytest.raises(ValueError):
         cache(tmp_path)
+
+
+def test_embedded_images_decode_from_bytes_like_files(tmp_path: Path) -> None:
+    rgba = np.dstack([noise(10, 14), np.where(noise(10, 14, 1) > 100, 255, 0)])
+    ok, data = cv2.imencode(".png", rgba.astype(np.uint8))
+    assert ok
+    template = decode_template_bytes(data.tobytes(), "#icon")
+    from_file = read_template(write_image(tmp_path / "icon.png", rgba.astype(np.uint8)))
+    assert template.path == Path("#icon")
+    assert np.array_equal(template.pixels, from_file.pixels)
+    assert np.array_equal(template.mask, from_file.mask)
+    with pytest.raises(ValueError, match="#bad is not a readable image"):
+        decode_template_bytes(b"\x89PNG\r\n\x1a\nnot really", "#bad")
 
 
 def test_unicode_filename(tmp_path: Path) -> None:

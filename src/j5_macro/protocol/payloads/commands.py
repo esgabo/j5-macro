@@ -145,6 +145,9 @@ class LoadResult(Result):
     params: list[dict[str, Any]] = field(default_factory=list)
     """Declared params: ``name``, ``type``, ``secret``, ``required`` and optionally
     ``description`` and ``default`` (never for secrets)."""
+    images: list[dict[str, Any]] = field(default_factory=list)
+    """Embedded images: ``name``, ``format``, ``bytes``, ``width``, ``height`` and
+    optionally ``scale``; never the data."""
     warnings: list[Diagnostic] = field(default_factory=list)
 
 
@@ -288,6 +291,8 @@ class GetScriptResult(Result):
     path: str | None
     steps: list[StepNode]
     params: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
+    """As in :class:`LoadResult`."""
     valid: bool = True
     errors: list[ErrorInfo] = field(default_factory=list)
 
@@ -359,9 +364,11 @@ class SetMetaEdit(Payload):
     input: dict[str, Any] | None = None
     params: dict[str, Any] | None = None
     vars: dict[str, Any] | None = None
+    images: dict[str, Any] | None = None
+    """Embedded images by name, each ``{png: <base64>, scale?: number}``."""
 
 
-Edit = InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
+Edit =InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
