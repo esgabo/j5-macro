@@ -39,6 +39,9 @@ class ErrorCode(StrEnum):
     """No backend fits the current session."""
     CAPABILITY_MISSING = "capability_missing"
     """The backend lacks something a step or profile needs."""
+    EXEC_FAILED = "exec_failed"
+    """An ``exec`` program could not be started, timed out, or exited with a non-zero
+    code; ``details.command`` and ``details.reason``."""
     INPUT_DENIED = "input_denied"
     """The system refused input or capture for lack of permissions."""
     INTERNAL_ERROR = "internal_error"

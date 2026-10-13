@@ -27,6 +27,7 @@ EXAMPLES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "set": ({"name": "x", "value": 1}, {"value": 1}),
     "log": ({"message": "hi"}, {"message": "hi", "level": "trace"}),
     "pause": ({}, {"message": 3}),
+    "exec": ({"command": ["ls", "-l"]}, {"command": "ls", "wait": "yes"}),
 }
 
 
@@ -62,6 +63,8 @@ def test_defaults():
     assert defaults("scroll", {}) == {"dx": 0, "dy": 0}
     assert defaults("log", {"message": "m"}) == {"message": "m", "level": "info"}
     assert defaults("loop", {"times": 2}) == {"times": 2, "as": "item"}
+    assert defaults("exec", {"command": "ls"}) == {"command": "ls", "shell": False,
+                                                   "wait": False, "check": True}
 
 
 def test_shorthands_and_blocks():
@@ -69,7 +72,7 @@ def test_shorthands_and_blocks():
     assert shorthand == {"click": None, "move": None, "drag": None, "scroll": None,
                          "type": "text", "key": "press", "wait_image": "image",
                          "sleep": "duration", "if": None, "loop": None, "set": None,
-                         "log": "message", "pause": "message"}
+                         "log": "message", "pause": "message", "exec": "command"}
     if_spec, loop_spec = REGISTRY.spec("if"), REGISTRY.spec("loop")
     assert if_spec and if_spec.blocks == ("then", "else")
     assert if_spec.required_blocks == ("then",)

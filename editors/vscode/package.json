@@ -89,6 +89,11 @@
                 "description": "Use the direct input strategy for mouse and keyboard (no human-like movement).",
                 "default": false
               },
+              "allowExec": {
+                "type": "boolean",
+                "description": "Let the script's exec steps run programs (without it they fail with capability_missing).",
+                "default": false
+              },
               "noDebug": {
                 "type": "boolean",
                 "description": "Run without stopping at breakpoints (also set by Run Without Debugging).",

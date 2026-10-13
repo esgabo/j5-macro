@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Protocol
 
@@ -40,10 +41,13 @@ class RunContext:
     def __init__(self, host: ContextHost, *, step_id: str, iterations: list[int] | None,
                  attempt: int, depth: int, dry_run: bool, seed: int,
                  input_overrides: Mapping[str, Any] | None = None,
-                 timeout: float | None = None) -> None:
+                 timeout: float | None = None, script_dir: Path | None = None,
+                 allow_exec: bool = False) -> None:
         self._host = host
         self.timeout = timeout
         """The step's common ``timeout`` field in seconds (None when not set)."""
+        self._script_dir = script_dir
+        self._allow_exec = allow_exec
         self._input_overrides = input_overrides
         self._step_id = step_id
         self._iterations = iterations
@@ -62,6 +66,14 @@ class RunContext:
     @property
     def dry_run(self) -> bool:
         return self._dry_run
+
+    @property
+    def script_dir(self) -> Path:
+        return self._script_dir if self._script_dir is not None else Path.cwd()
+
+    @property
+    def allow_exec(self) -> bool:
+        return self._allow_exec
 
     @property
     def rng(self) -> random.Random:

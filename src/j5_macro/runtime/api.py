@@ -53,6 +53,8 @@ class RunOptions:
     (dry runs never touch it)."""
     backend_reason: str | None = None
     """Why there is no backend (as the engine reported it), for capability_missing."""
+    allow_exec: bool = False
+    """Whether ``exec`` steps may start programs (the ``run`` command's ``allow_exec``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

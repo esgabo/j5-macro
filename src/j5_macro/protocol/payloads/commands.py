@@ -171,6 +171,8 @@ class RunPayload(Payload):
     seed: int | None = None
     input_profile: dict[str, Any] | None = None
     captures: Captures = "on_failure"
+    allow_exec: bool = False
+    """Let ``exec`` steps start programs; without it they fail with capability_missing."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
