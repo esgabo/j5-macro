@@ -124,7 +124,7 @@ EVENT_EXAMPLES: dict[str, dict[str, Any]] = {
                      "error": {"code": "image_not_found", "message": "timeout"}},
     "step_started": {**STEP, "type": "click", "params": {"x": 1}},
     "step_finished": {**STEP, "duration_ms": 5},
-    "step_skipped": {**STEP, "reason": "condition"},
+    "step_skipped": {**STEP, "reason": "user"},
     "step_failed": {**STEP, "error": {"code": "template_missing", "message": "no file"}},
     "breakpoint_hit": STEP,
     "branch_taken": {**STEP, "condition": {"image_visible": "a.png"}, "value": False,

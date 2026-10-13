@@ -3,10 +3,11 @@
 ``J5_BACKEND`` overrides the choice: ``auto`` (default), ``x11``, ``windows``, ``fake``
 (records input, touches nothing) or ``none``.
 
-``auto`` picks by platform and session type: on Linux, a Wayland session gets no backend
-yet (even with ``DISPLAY`` set, XWayland would only reach X11 applications), and an X11
-session (``DISPLAY`` set) gets the X11 backend. Selection never raises: when no backend
-is available, the choice carries a human-readable reason.
+``auto`` picks by platform and session type: Windows gets the Windows backend; on Linux,
+a Wayland session gets no backend yet (even with ``DISPLAY`` set, XWayland would only
+reach X11 applications), and an X11 session (``DISPLAY`` set) gets the X11 backend.
+Selection never raises: when no backend is available, the choice carries a
+human-readable reason.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ BACKEND_ENV = "J5_BACKEND"
 
 WAYLAND_REASON = ("Wayland is not supported yet; log in with an X11 session "
                   "(e.g. Xfce, or 'Ubuntu on Xorg')")
-WINDOWS_REASON = "the Windows backend arrives in milestone M6"
+WINDOWS_ONLY_REASON = "the Windows backend only runs on Windows"
 XLIB_MISSING_REASON = ("the X11 backend needs python-xlib: "
                        "pip install 'j5-macro[x11]'")
 
@@ -51,7 +52,7 @@ def select_backend(env: Mapping[str, str] | None = None,
 
         return BackendChoice("fake", FakeBackend(), f"selected by {BACKEND_ENV}=fake")
     if wanted == "windows":
-        return BackendChoice(None, None, WINDOWS_REASON)
+        return _windows(platform, f"selected by {BACKEND_ENV}=windows")
     if wanted == "x11":
         return _x11(env, f"selected by {BACKEND_ENV}=x11")
     if wanted != "auto":
@@ -68,7 +69,7 @@ def is_wayland_session(env: Mapping[str, str]) -> bool:
 
 def _auto(env: Mapping[str, str], platform: str) -> BackendChoice:
     if platform == "win32":
-        return BackendChoice(None, None, WINDOWS_REASON)
+        return _windows(platform, "Windows session")
     if platform == "darwin":
         return BackendChoice(None, None, "macOS is not supported")
     if not platform.startswith(_UNIX_X11_PLATFORMS):
@@ -95,6 +96,25 @@ def _x11(env: Mapping[str, str], why: str) -> BackendChoice:
         return BackendChoice(None, None,
                              f"cannot connect to the X display {display_name!r}: {detail}")
     return BackendChoice("x11", backend, f"{why} (DISPLAY={display_name})")
+
+
+def _windows(platform: str, why: str) -> BackendChoice:
+    if platform != "win32":
+        return BackendChoice(None, None, WINDOWS_ONLY_REASON)
+    try:
+        backend = _open_windows()
+    except Exception as exc:  # never a crash: the reason says what went wrong
+        detail = str(exc).strip() or type(exc).__name__
+        return BackendChoice(None, None, f"cannot start the Windows backend: {detail}")
+    return BackendChoice("windows", backend, why)
+
+
+def _open_windows() -> Backend:
+    """Import and create the Windows backend; a separate function so tests can replace
+    it."""
+    from j5_macro.backends.windows import WindowsBackend
+
+    return WindowsBackend()
 
 
 def _open_x11(display_name: str) -> Backend:

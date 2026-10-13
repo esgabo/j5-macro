@@ -373,7 +373,7 @@ screen; everything human-like lives above it and is identical on every platform.
 | --- | --- |
 | Linux with an X11 session | Supported (tested on XFCE). Needs `pip install j5-macro[x11]` |
 | Linux with Wayland | No backend yet: Wayland has no common way for an application to inject input, read the pointer position or watch global hotkeys (it depends on the compositor), and the X11 backend through XWayland only reaches X11 applications. Log in with an X11 session (for example Xfce, or "Ubuntu on Xorg"). An experimental Wayland backend may come after v1 |
-| Windows | The CLI and dry runs work; the input backend is planned (milestone M6) |
+| Windows 10 and 11 | Supported. Coordinates are physical pixels on every monitor, whatever the display scale: the engine declares per-monitor DPI awareness. Input to a window of a program running as administrator needs j5 to run as administrator too; otherwise Windows refuses it (`input_denied`) |
 | macOS | Not supported |
 
 The engine chooses the backend when it starts and shows it in the run header
@@ -381,9 +381,9 @@ The engine chooses the backend when it starts and shows it in the run header
 
 | `J5_BACKEND` | Effect |
 | --- | --- |
-| `auto` (default) | X11 when `DISPLAY` is set and the session is not Wayland |
+| `auto` (default) | Windows on Windows; X11 when `DISPLAY` is set and the session is not Wayland |
 | `x11` | X11 even in a Wayland session (it only reaches XWayland applications) |
-| `windows` | The Windows backend (not available yet) |
+| `windows` | The Windows backend (only on Windows) |
 | `fake` | Records input and touches nothing, for tests and demos |
 | `none` | No backend |
 

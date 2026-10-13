@@ -36,6 +36,7 @@ from j5_macro.cli.options import (
     parse_var,
 )
 from j5_macro.cli.render import Style, symbols_for, use_color
+from j5_macro.engine.backend import DEFAULT_STOP_KEY, STOP_KEY_ENV, parse_combo
 from j5_macro.engine.persistence import RUNS_DIR_ENV, RUNS_KEPT, resolve_runs_dir
 
 EXIT_CODES = """\
@@ -112,6 +113,14 @@ def _runs_dir_option() -> argparse.ArgumentParser:
     return parent
 
 
+def _stop_key(text: str) -> str:
+    try:
+        parse_combo(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+    return text
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="j5", description="Need input! Desktop automation.")
     parser.add_argument("--version", action="version", version=f"j5-macro {__version__}")
@@ -157,6 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="override one of the script's vars (for debugging); 3, 2.5, "
                           "true, false and null are converted, '...' forces text, anything "
                           "else is text as written; repeatable")
+    run.add_argument("--captures", choices=("on_failure", "all"),
+                     help="which screen captures of image searches the run saves: "
+                          "on_failure (default: the last attempt of a search that fails) "
+                          "or all (every attempt)")
+    run.add_argument("--stop-key", metavar="COMBO", type=_stop_key,
+                     help=f"global emergency stop key for this run's engine, e.g. "
+                          f"ctrl+alt+f12 (default: ${STOP_KEY_ENV}, else {DEFAULT_STOP_KEY})")
     run.add_argument("--json", action="store_true",
                      help="print every event as one JSON line instead of text")
 
@@ -287,6 +303,9 @@ def _dispatch(args: argparse.Namespace) -> int:
     if runs_dir:
         runs_dir = os.path.abspath(runs_dir)
         cmd += ["--runs-dir", runs_dir]
+    stop_key: str | None = getattr(args, "stop_key", None)
+    if stop_key:
+        cmd += ["--stop-key", stop_key]
     io = Output(out=sys.stdout, err=sys.stderr, style=_style(sys.stdout),
                 err_style=_style(sys.stderr))
     if args.command == "runs":
@@ -315,6 +334,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         vars=variables,
         seed=args.seed,
         input_profile=copy.deepcopy(FAST_PROFILE) if args.fast else None,
+        captures=args.captures,
         as_json=args.json,
         interactive=interactive,
     )

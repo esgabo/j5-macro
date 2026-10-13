@@ -204,9 +204,17 @@ class GetStateResult(Result):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SetVariablePayload(Payload):
+    """``value`` as given, or the value of ``expression`` evaluated by the engine over
+    the run's variables (unmasked, so a secret can be copied)."""
+
     run_id: str
     name: str
-    value: Any
+    value: Any = None
+    expression: str | None = None
+
+    def check(self, path: str) -> None:
+        if self.expression is not None and self.value is not None:
+            raise PayloadError(f"{path}: value and expression exclude each other")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

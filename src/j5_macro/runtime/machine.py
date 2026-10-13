@@ -29,7 +29,7 @@ from j5_macro.runtime.clock import Clock
 from j5_macro.runtime.context import RunContext
 from j5_macro.runtime.control import Command, RunControl, RunStopped
 from j5_macro.runtime.emitter import Emitter, Iterations
-from j5_macro.runtime.failures import RunFailed, at_step, internal_error
+from j5_macro.runtime.failures import RunFailed, at_step, internal_error, step_exception
 from j5_macro.runtime.frames import Frame, LoopState, iterations
 from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
@@ -206,7 +206,7 @@ class Machine:
                 attempt += 1
                 continue
             except Exception as exc:
-                info = internal_error(exc)
+                info = step_exception(exc)
             info = at_step(info, step, attempt)
             self._set_position(step, its)
             self._events.step_failed(step, its, info, screenshot)

@@ -46,8 +46,8 @@ class RunOptions:
     """Overrides for the script's ``input`` profile (e.g. ``direct`` for fast runs)."""
     captures: Literal["on_failure", "all"] = "on_failure"
     run_dir: Path | None = None
-    """Where the run keeps its artifacts (``captures/``, ``plans/``); None keeps nothing
-    on disk. Events reference these files relative to it."""
+    """Where the run keeps its artifacts (``captures/``); None keeps nothing on disk.
+    Events reference these files relative to it."""
     backend: Backend | None = None
     """The engine's input backend; None means input steps fail with capability_missing
     (dry runs never touch it)."""

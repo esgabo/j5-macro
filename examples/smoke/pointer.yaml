@@ -1,0 +1,83 @@
+# Smoke test: every pointer step, window-relative coordinates and image search.
+#
+# Start the target window first (python examples/smoke/target.py), leave it visible,
+# then run: j5 run examples/smoke/pointer.yaml
+# Each step's expected line in the target's event log is in its comment; see
+# docs/manual-testing.md for the whole checklist.
+version: 1
+name: Smoke - pointer
+input:
+  mouse: {strategy: human, speed: 1.5, interference: pause}
+vars:
+  target: j5 smoke target
+steps:
+  - id: start
+    log: "pointer smoke test against '${target}'"
+
+  # The pattern is found on screen (image_search with a score near 1).
+  - id: wait_pattern
+    wait_image: {image: img/pattern.png, window: {title: "${target}"}, timeout: 5s}
+
+  # "pattern clicked at (x, y)" with x and y between 20 and 67: the human strategy
+  # lands anywhere on the match (exactly its centre, (44, 44), with --fast).
+  - id: click_pattern
+    click: {image: img/pattern.png, window: {title: "${target}"}}
+
+  # "left down at (150, 50)" then "left up at (150, 50)": an exact point.
+  - id: click_pad
+    click: {window: {title: "${target}"}, x: 150, y: 50}
+
+  # Two clicks at (160, 60).
+  - id: double_click_pad
+    click: {window: {title: "${target}"}, x: 160, y: 60, clicks: 2}
+
+  # "right down" / "right up" and "middle down" / "middle up" at (200, 70).
+  - id: right_click_pad
+    click: {window: {title: "${target}"}, x: 200, y: 70, button: right}
+  - id: middle_click_pad
+    click: {window: {title: "${target}"}, x: 200, y: 70, button: middle}
+
+  # The offset is added to the image centre: "left down at (54, 44)".
+  - id: click_with_offset
+    click: {image: img/pattern.png, window: {title: "${target}"}, offset: [10, 0]}
+
+  # "left down at (120, 40)" then "left up at (280, 100)".
+  - id: drag_across_pad
+    drag:
+      from: {window: {title: "${target}"}, x: 120, y: 40}
+      to: {window: {title: "${target}"}, x: 280, y: 100}
+
+  # Hover over the pad, then "wheel down" twice and "wheel right" once (in any order).
+  - id: hover_pad
+    move: {window: {title: "${target}"}, x: 250, y: 90}
+  - id: scroll_pad
+    scroll: {dy: 2, dx: 1}
+
+  # The image condition: logs "pattern visible".
+  - id: check_pattern
+    if:
+      when: {image_visible: {image: img/pattern.png, window: {title: "${target}"}}}
+      then:
+        - id: seen
+          log: pattern visible
+      else:
+        - id: unseen
+          log: {message: pattern not visible, level: error}
+
+  # A region that does not contain the pattern: the condition is false.
+  - id: check_elsewhere
+    if:
+      when:
+        image_visible:
+          image: img/pattern.png
+          window: {title: "${target}"}
+          region: [320, 20, 300, 240]
+      then:
+        - id: seen_elsewhere
+          log: {message: pattern found in the event log area, level: error}
+      else:
+        - id: not_elsewhere
+          log: pattern correctly absent from the event log area
+
+  - id: done
+    log: pointer smoke test finished

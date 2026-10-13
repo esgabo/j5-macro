@@ -471,19 +471,18 @@ class Debugger:
         return False
 
     async def _set(self, name: str, expression: str) -> None:
-        """The right side is evaluated by the engine over the current variables (JSON
-        literals are valid expressions), then assigned with ``set_variable``."""
-        result = await self._call("evaluate", expression=expression)
-        if result is None:
-            return
-        value = result.get("value")
+        """``set_variable`` with the right side as its ``expression``: the engine
+        evaluates it over the current variables (JSON literals are valid expressions)
+        and assigns the real value, so ``set x = password`` copies the secret itself."""
         rendered = asyncio.Event()
         self._changes[name] = rendered
         try:
-            if await self._call("set_variable", name=name, value=value) is None:
+            if await self._call("set_variable", name=name, expression=expression) is None:
                 return
             if self.as_json:
-                self.write(f"{name} = {compact(value)}")
+                result = await self._call("evaluate", expression=name)
+                if result is not None:
+                    self.write(f"{name} = {compact(result.get('value'))}")
             else:
                 # Text mode shows the variable_changed event instead; wait until it is
                 # rendered so that it comes before the next prompt.

@@ -9,7 +9,7 @@ on PyPI yet, so you install it from GitHub or from a clone.
 | --- | --- | --- |
 | Linux with an X11 session (Ubuntu, Debian, XFCE...) | Supported | The `x11` extra; the `vision` extra for image steps |
 | Linux with Wayland | Not supported yet | Log in with an "X11"/"Xorg" session instead; dry runs work anywhere |
-| Windows | Engine, CLI, debugger and dry runs work; real input arrives with milestone M6 | The `windows` and `vision` extras |
+| Windows 10 and 11 | Supported | The `windows` extra (screen capture); the `vision` extra for image steps |
 | macOS | Not a target in v1 | Dry runs and script editing only |
 
 Extras:
@@ -18,7 +18,7 @@ Extras:
 | --- | --- | --- |
 | `x11` | `python-xlib`, `mss` | Mouse and keyboard input on X11 |
 | `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image`, image targets, `image_visible` |
-| `windows` | `mss` | The Windows backend (M6) |
+| `windows` | `mss` | Screen capture on Windows (the input backend itself needs nothing beyond Python) |
 | `dev` | `pytest`, `ruff`, `mypy`, ... | Working on j5 itself ([development.md](development.md)) |
 
 Without any extra, j5 still loads, validates, dry-runs and edits scripts.
@@ -39,6 +39,16 @@ your `PATH`:
 
 ```console
 $ pipx install "j5-macro[x11,vision] @ git+https://github.com/esgabo/j5-macro"
+```
+
+On Windows, use the `windows` extra instead of `x11` (in PowerShell, the virtual
+environment's commands are under `Scripts\`):
+
+```console
+> py -m venv $HOME\.venvs\j5
+> ~\.venvs\j5\Scripts\pip install "j5-macro[windows,vision] @ git+https://github.com/esgabo/j5-macro"
+> ~\.venvs\j5\Scripts\j5 --version
+j5-macro 0.0.1
 ```
 
 Pin a version by appending a tag or commit: `git+https://github.com/esgabo/j5-macro@<ref>`.

@@ -26,6 +26,14 @@ def internal_error(exc: BaseException) -> ErrorInfo:
                      details={"traceback": trace})
 
 
+def step_exception(exc: BaseException) -> ErrorInfo:
+    """The error for an exception a step raised: ``input_denied`` when the system
+    refused input (a backend raises ``PermissionError``), else ``internal_error``."""
+    if isinstance(exc, PermissionError):
+        return ErrorInfo(code=ErrorCode.INPUT_DENIED.value, message=str(exc))
+    return internal_error(exc)
+
+
 def at_step(info: ErrorInfo, step: Step, attempt: int) -> ErrorInfo:
     """``info`` located at ``step``, with ``details.attempt``."""
     details = {**(info.details or {}), "attempt": attempt}

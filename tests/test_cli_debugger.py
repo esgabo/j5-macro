@@ -267,16 +267,17 @@ def test_print_vars_and_set(session, record, capsys):
     assert out.split("(j5) set n = count\n")[1].split("\n")[1] == "(j5) vars"
     assert 'count = 5\npassword = "***"\nn = 5\n' in out
     assert [e["expression"] for e in sent(record, "evaluate")] == [
-        "count", '[1, "a"]', "nope", "5", "count"]
+        "count", '[1, "a"]', "nope"]
     assert sent(record, "set_variable") == [
-        {"run_id": "r-1", "name": "count", "value": 5},
-        {"run_id": "r-1", "name": "n", "value": 5}]
+        {"run_id": "r-1", "name": "count", "expression": "5"},
+        {"run_id": "r-1", "name": "n", "expression": "count"}]
 
 
 def test_set_with_a_bad_expression_sets_nothing(session, record, capsys):
-    assert session("set count = nope\nc\n", "--step") == 0
-    assert "evaluate: [expression_error]" in capsys.readouterr().out
-    assert sent(record, "set_variable") == []
+    assert session("set count = nope\nvars\nc\n", "--step") == 0
+    out = capsys.readouterr().out
+    assert "set_variable: [expression_error]" in out
+    assert "count = 1\n" in out
 
 
 def test_break_clear_and_list(session, record, capsys):

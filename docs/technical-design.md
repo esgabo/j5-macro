@@ -197,6 +197,61 @@ interpolated, because the interpreter or the executor evaluates them. After
 interpolation each parameter is type-checked again and the cross-field check re-runs,
 so a variable holding the wrong type fails with `validation_failed` naming the parameter.
 Errors carry the expression and, when known, the column inside the original template.
+## Windows backend
+
+[backends/windows/backend.py](../src/j5_macro/backends/windows/backend.py) injects input
+with `SendInput` through ctypes; it needs no package beyond Python. Every system call
+goes through a small `Win32Api` interface
+([win32.py](../src/j5_macro/backends/windows/win32.py)): `User32` implements it with
+ctypes, and the tests replace it with a fake, so the backend's logic is tested on every
+platform. The `INPUT` structures use fixed-size fields, so they have their Windows layout
+(40 bytes on 64-bit) everywhere, and a test checks it.
+
+**DPI awareness.** A process that does not declare DPI awareness sees a virtualized,
+scaled desktop on a scaled display: coordinates are rounded and captures are resampled.
+The engine calls `declare_dpi_awareness()`
+([dpi.py](../src/j5_macro/backends/windows/dpi.py)) first thing at startup, before any
+window, pointer or capture call: per-monitor v2 (`SetProcessDpiAwarenessContext`), else
+per-monitor (`SetProcessDpiAwareness`, Windows 8.1), else system awareness. Every
+coordinate, window rectangle and mss capture is then in physical pixels.
+
+**Pointer.** Moves are absolute `MOUSEINPUT` events over the virtual desktop
+(`MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`), so they span every monitor, accept
+negative coordinates, and skip pointer acceleration. Windows maps a normalized
+coordinate `n` (0 to 65535) to pixel `origin + n * size // 65536`; the backend sends
+`ceil(offset * 65536 / size)`, the smallest `n` that lands on the wanted pixel, and a test
+checks every pixel of several desktop sizes. `move_rel` reads the cursor and moves
+absolutely too: relative events go through acceleration and would land elsewhere. The
+wheel sends one `WHEEL_DELTA` (120) event per notch, negative for down; horizontal
+notches use `MOUSEEVENTF_HWHEEL`.
+
+**Keys and characters.** Physical keys are virtual keys with their scan code (from
+`MapVirtualKeyW`; some applications read scan codes) and `KEYEVENTF_EXTENDEDKEY` for the
+keys that need it (arrows, Home, End, Insert, Delete, the Windows and menu keys), which
+otherwise arrive as their number pad twins. An ASCII key name is the key that types that
+character in the active layout (`VkKeyScanW`), else the key of the US layout. Characters
+are `KEYEVENTF_UNICODE` packets, one per UTF-16 code unit (a surrogate pair for an emoji),
+so any character is typed without dead keys or layout lookups; `\n`, `\t` and `\b` press
+Enter, Tab and Backspace instead. `close()` releases every held character, key and
+button, newest first.
+
+**Window lookup.** `find_window(title)` walks `EnumWindows` (top-level windows, topmost
+first) and returns the client area (`GetClientRect` plus `ClientToScreen`) of the first
+window whose title contains `title` and that is visible, not minimized and not cloaked
+(`DWMWA_CLOAKED`: suspended UWP apps and windows on other virtual desktops are visible to
+`IsWindowVisible` but not on screen).
+
+**Hotkeys.** `RegisterHotKey` without a window posts `WM_HOTKEY` to the queue of the
+registering thread, so each watcher owns a thread that registers the combination with
+`MOD_NOREPEAT` and runs `GetMessageW`; stopping posts `WM_QUIT` to it. A registration
+that fails means another program owns the combination: `HotkeyConflict`. Windows
+ignores the lock keys when matching hotkeys, so no variants are needed.
+
+**Refused input.** If `SendInput` sends fewer events than asked, Windows blocked them
+(UIPI: the target belongs to an elevated program, or the secure desktop is showing). The
+backend raises `InputDenied`, a `PermissionError`, which the interpreter reports as
+`input_denied`.
+
 
 ## Input
 
@@ -573,6 +628,14 @@ clock or a subprocess:
   duplicates and crashes; integration tests run the real `EngineClient`, CLI and DAP
   adapter against the real engine process, with `J5_BACKEND` set to `fake` or `none` so
   nothing touches the real desktop.
+- **A fake Win32 layer.** The Windows backend makes every system call through the
+  `Win32Api` interface; `tests/backends/win32_fake.py` implements it with a small
+  simulated desktop (windows, a cursor, a layout, hotkey message queues), so the
+  backend's events, flags, coordinates, held state and hotkey threads are tested on Linux
+  too. On Windows, a few tests also run against the real system.
+- **Smoke scripts.** [examples/smoke](../examples/smoke/) drives a small tkinter window
+  through every step type; the [manual test plan](manual-testing.md) runs it on Xfce and
+  Windows before a release.
 - **A real X server.** Tests marked `x11` run the X11 backend, screen capture and a full
   end-to-end run (`j5 run` clicking and typing into a test window, non-ASCII characters
   included) against Xvfb. They are skipped when no X server with XTEST is reachable;
@@ -583,13 +646,16 @@ clock or a subprocess:
 screen with `J5_REQUIRE_X11=1`. GitHub Actions
 ([.github/workflows/ci.yml](../.github/workflows/ci.yml)) runs the same script on every
 pull request and every push to `main`, on Ubuntu and Windows with Python 3.11, 3.12 and
-3.13. Linux installs the `dev`, `x11` and `vision` extras; Windows installs `dev` and
-`vision`, and the X11 tests are skipped there. See [development.md](development.md).
+3.13. Linux installs the `dev`, `x11` and `vision` extras; Windows installs `dev`,
+`windows` and `vision`; the X11 tests are skipped there and the real-system Windows
+backend tests run. See [development.md](development.md).
 
 ## Known limitations and open items
 
-- **Windows backend pending** (milestone M6). Until then Windows has no input backend.
-  The contract's per-monitor DPI awareness on Windows is not implemented yet either.
+- **Windows and elevated windows.** Windows refuses input from a normal process to a
+  window of a program running as administrator (UIPI). When `SendInput` reports it, the
+  step fails with `input_denied`; Windows may also drop the input silently. The secure
+  desktop (UAC prompts, the lock screen) receives no input at all.
 - **Wayland** gets no backend; an experimental one (libei or a similar tool) is planned
   after v1. Without a reliable `pointer_position` it would have no interference detection.
 - **Keyboard interference is not detected**, and neither are scrolls or single-point

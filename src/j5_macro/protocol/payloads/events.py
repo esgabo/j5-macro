@@ -88,7 +88,7 @@ class StepFinishedEvent(StepEvent):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StepSkippedEvent(StepEvent):
-    reason: Literal["user", "condition"]
+    reason: Literal["user"]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

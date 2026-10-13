@@ -31,8 +31,9 @@ Scenarios:
   commands work: in ``step`` mode the run pauses before ``open_menu``; every stepping
   command runs one step and pauses before the next (reason ``step``); ``resume`` runs
   until a client breakpoint (``breakpoint_hit``) or the end; ``get_state``,
-  ``evaluate`` (a variable name or a JSON literal), ``set_variable`` and
-  ``set_breakpoints`` answer from a small variable table with a masked secret.
+  ``evaluate`` (a variable name or a JSON literal), ``set_variable`` (a ``value``, or
+  an ``expression`` read the same way) and ``set_breakpoints`` answer from a small
+  variable table with a masked secret.
 """
 
 from __future__ import annotations
@@ -364,10 +365,22 @@ class FakeCliEngine:
                            {"expression": expression})
         else:  # set_variable
             name = str(payload.get("name"))
+            value = payload.get("value")
+            if "expression" in payload:
+                expression = str(payload["expression"])
+                if expression in self.variables:
+                    value = self.variables[expression]
+                else:
+                    try:
+                        value = json.loads(expression)
+                    except ValueError:
+                        self.error(command, "expression_error",
+                                   f"unknown variable {expression!r} in expression "
+                                   f"{expression!r}", {"expression": expression})
+                        return
             old = self.variables.get(name)
-            self.variables[name] = payload.get("value")
-            self.event("variable_changed", "r-1", {"name": name, "old": old,
-                                                   "new": payload.get("value")})
+            self.variables[name] = value
+            self.event("variable_changed", "r-1", {"name": name, "old": old, "new": value})
             self.ok(command)
 
     def play_slow(self, r: str) -> None:

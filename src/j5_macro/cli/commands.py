@@ -253,6 +253,8 @@ class RunOptions:
     vars: dict[str, Any] = field(default_factory=dict)
     seed: int | None = None
     input_profile: dict[str, Any] | None = None
+    captures: str | None = None
+    """``on_failure`` or ``all`` (``--captures``); None leaves the engine's default."""
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
@@ -275,6 +277,8 @@ class RunOptions:
             payload["seed"] = self.seed
         if self.input_profile is not None:
             payload["input_profile"] = self.input_profile
+        if self.captures is not None:
+            payload["captures"] = self.captures
         return payload
 
 

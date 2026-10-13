@@ -123,6 +123,9 @@ def test_secret_values_are_masked_in_control_answers() -> None:
     assert answer["variables"] == {"user": "ann", "password": "***", "both": "ann:***"}
     assert engine.ok("evaluate", {"run_id": run_id, "expression": "password"})["value"] == {
         "expr": "password"}
+    # An expression is evaluated inside the engine, so a secret is copied, not "***".
+    engine.ok("set_variable", {"run_id": run_id, "name": "copy", "expression": "password"})
+    assert factory.last.calls[-1] == ("set_variable", ("copy", {"expr": "password"}))
     factory.last.behaviour.control_error = ControlError(ErrorCode.EXPRESSION_ERROR,
                                                         f"bad value {SECRET}")
     error = engine.error("evaluate", {"run_id": run_id, "expression": "x"})

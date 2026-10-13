@@ -53,9 +53,8 @@ $ j5 run report.yaml --param 'customer=ACME #42'
 
 ## Status
 
-Early development (0.0.1). Works on **Linux with an X11 session** (tested on XFCE):
-input, image search, debugging and everything else. **Windows**: the engine, the CLI, the
-debugger and dry runs work, and real input arrives with milestone M6. **Wayland** is not
+Early development (0.0.1). Works on **Linux with an X11 session** (tested on XFCE) and on
+**Windows**: input, image search, debugging and everything else. **Wayland** is not
 supported yet. Not on PyPI yet.
 
 ## Install
@@ -65,6 +64,7 @@ $ pipx install "j5-macro[x11,vision] @ git+https://github.com/esgabo/j5-macro"
 $ j5 --version
 ```
 
+On Windows use the `windows` extra instead of `x11`: `"j5-macro[windows,vision] @ ..."`.
 Or `pip install` the same into a virtual environment, or from a clone with
 `pip install -e ".[x11,vision]"`. Details, extras and packaging (wheels, containers):
 [docs/install.md](docs/install.md).
@@ -110,8 +110,9 @@ Tracked as [GitHub milestones](https://github.com/esgabo/j5-macro/milestones):
 | M3 | Vision: `wait_image` and image-based clicks | Done |
 | M4 | Debugger: step mode, breakpoints, inspection, VS Code | Done |
 | M5 | Human-like mouse and keyboard | Done |
-| M6 | Windows backend | Next |
+| M6 | Windows backend, manual test plan | Done |
 | M7 | Script management for a GUI, run history | Done |
+| M8 | Authoring: capture templates, pick points, test matches; self-contained scripts | Next |
 
 ## Contributing
 

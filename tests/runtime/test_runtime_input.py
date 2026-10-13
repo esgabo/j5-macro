@@ -12,6 +12,7 @@ from runtime_helpers import Recorder, run
 from runtime_input_helpers import FakeSession, InputRun, SessionFactory, backend, run_input
 
 import j5_macro.runtime.input as run_input_module
+from j5_macro.backends.fake import FakeBackend
 from j5_macro.input.api import InputProfile, KeyboardProfile, MouseProfile
 from j5_macro.runtime import RunOptions, RunOutcome, create_run
 from j5_macro.runtime.clock import MonotonicClock
@@ -288,3 +289,20 @@ def test_long_executors_stop_through_check_stop():
     worker.join(2)
     assert result and result[0].status == "stopped"
     assert time.monotonic() - started < 1.0
+
+
+def test_input_the_system_refuses_is_input_denied():
+    class Refusing(FakeBackend):
+        def key_down(self, key: str) -> None:
+            raise PermissionError("Windows blocked the input")
+
+    outcome, recorder = run("""
+        steps:
+          - id: press
+            key: {press: a}
+    """, backend=Refusing())
+    assert outcome.status == "failed"
+    assert outcome.error is not None
+    assert (outcome.error.code, outcome.error.message) == (
+        "input_denied", "Windows blocked the input")
+    assert recorder.of("step_failed", step_id="press")

@@ -19,8 +19,10 @@ pip install -e ".[dev,x11,vision]"
 sudo apt install xvfb            # Debian and Ubuntu; provides xvfb-run
 ```
 
-On Windows, install `".[dev,vision]"` (the Windows input backend is not written yet; see
-[Roadmap](#roadmap)).
+On Windows, install `".[dev,windows,vision]"`. The X11 tests are skipped there; the
+Windows backend is tested against a simulated Win32 layer on every platform and against
+the real system on Windows. Before a release, also run the
+[manual test plan](manual-testing.md) on both platforms.
 
 | Extra | Installs | For |
 | --- | --- | --- |
@@ -72,7 +74,7 @@ extra is not installed.
 | `tests/runtime/` | The interpreter with a fast clock and an event recorder that validates every payload: flow, stepping and pauses, errors, seeding, input steps, interference and vision, on the fake backend |
 | `tests/input/` | The mouse and keyboard planners (pure, no display) and the input session against a fake backend |
 | `tests/vision/` | Template matching, image files, and capturing a real X screen (`x11`) |
-| `tests/backends/` | Backend selection, the X11 backend and its key mapping (`x11`), and `test_e2e_x11.py`: the whole stack (CLI, engine, interpreter, masters, X11 backend) on Xvfb, with an observer window that records the input it really receives |
+| `tests/backends/` | Backend selection, the Windows backend against a fake Win32 layer (`win32_fake.py`; a few tests use the real system on Windows), the X11 backend and its key mapping (`x11`), and `test_e2e_x11.py`: the whole stack (CLI, engine, interpreter, masters, X11 backend) on Xvfb, with an observer window that records the input it really receives |
 | `tests/test_client*.py` | The asyncio client against a scriptable fake engine (`tests/fakes/fake_engine.py`) |
 | `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
 | `tests/test_engine_process.py`, `test_engine_server.py`, `test_integration.py` | The real engine process, and the real client against it with every payload checked against the typed payloads |
@@ -91,7 +93,7 @@ supersedes.
 | OS | Python | Installs | Runs |
 | --- | --- | --- | --- |
 | `ubuntu-latest` | 3.11, 3.12, 3.13 | `xvfb`, `".[dev,x11,vision]"` | `scripts/check.sh` (X11 tests required) |
-| `windows-latest` | 3.11, 3.12, 3.13 | `".[dev,vision]"` | `scripts/check.sh` in bash (X11 tests skipped) |
+| `windows-latest` | 3.11, 3.12, 3.13 | `".[dev,windows,vision]"` | `scripts/check.sh` in bash (X11 tests skipped) |
 
 Merge only when every job is green.
 
@@ -289,8 +291,10 @@ interference detection. The table of primitives is in the
 
 Then add it to `select_backend` (`j5_macro.backends.select`) and to the values of
 `J5_BACKEND`, and test it like the X11 backend: unit tests of its pure parts, and an
-end-to-end test that drives a real window. `src/j5_macro/backends/x11/` and the fake
-backend (`fake.py`) are the references.
+end-to-end test that drives a real window. `src/j5_macro/backends/x11/`,
+`src/j5_macro/backends/windows/` (whose system calls sit behind an interface the tests
+fake) and the fake backend (`fake.py`) are the references. Add the platform to the
+[manual test plan](manual-testing.md).
 
 ## Changing the protocol
 
@@ -317,10 +321,12 @@ Work is tracked as GitHub milestones:
 | M3 | Vision: `wait_image`, image-based clicks, `image_visible` | Done |
 | M4 | Debugger: step mode, breakpoints, inspection, the terminal debugger and the DAP adapter | Done |
 | M5 | Human-like mouse and keyboard, interference detection | Done |
-| M6 | Windows backend: input through SendInput, window-relative coordinates and capture, a manual test plan for both platforms | Open |
+| M6 | Windows backend: input through SendInput, window-relative coordinates and capture, a manual test plan for both platforms | Done |
 | M7 | Script management for the GUI and the run history | Done |
+| M8 | Authoring: capture templates, pick points and test matches from the engine and CLI ([#94](https://github.com/esgabo/j5-macro/issues/94)); self-contained scripts with embedded images ([#93](https://github.com/esgabo/j5-macro/issues/93)) | Open |
 
-After v1: an experimental Wayland backend, triggers, and the GUI. The open design
+After v1: an experimental Wayland backend, triggers, and the standalone GUI
+([#95](https://github.com/esgabo/j5-macro/issues/95)). The open design
 decisions are listed at the end of the [contract](contract.md#errors-and-open-decisions).
 
 ## Contributing
