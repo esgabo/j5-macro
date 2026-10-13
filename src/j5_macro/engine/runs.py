@@ -488,7 +488,13 @@ def install(server: EngineServer, runs: RunManager) -> None:
 
     def set_variable(command: Command) -> JsonObject:
         payload = SetVariablePayload.from_json(command.payload)
-        forward(payload.run_id, lambda c: c.set_variable(payload.name, payload.value))
+        expression = payload.expression
+
+        def assign(controller: RunController) -> None:
+            value = payload.value if expression is None else controller.evaluate(expression)
+            controller.set_variable(payload.name, value)
+
+        forward(payload.run_id, assign)
         return {}
 
     def evaluate(command: Command) -> JsonObject:

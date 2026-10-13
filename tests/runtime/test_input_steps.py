@@ -88,14 +88,28 @@ def test_window_without_a_title_is_validation_failed():
     "drag: {from: {image: img/a.png}, to: {x: 1, y: 1}}",
     "wait_image: img/ok.png",
 ])
-def test_image_targets_need_vision_outside_dry_runs(step):
+def test_image_targets_need_vision_outside_dry_runs(step, tmp_path, monkeypatch):
     """Without the vision toolkit (not importable in this test environment)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "img").mkdir()
+    for name in ("ok.png", "a.png"):
+        (tmp_path / "img" / name).write_bytes(b"")
     outcome, input_run, _ = one_step(step)
     assert outcome.error is not None
     assert outcome.error.code == "capability_missing"
     assert "vision is disabled in these tests" in outcome.error.message
     for session in input_run.factory.sessions:
         assert not session.named("click") + session.named("move") + session.named("drag")
+
+
+@pytest.mark.parametrize("step", ["click: {image: img/none.png}", "wait_image: img/none.png"])
+def test_a_missing_template_is_reported_even_without_vision(step, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    outcome, _, _ = one_step(step)
+    assert outcome.error is not None
+    assert outcome.error.code == "template_missing"
+    assert outcome.error.details is not None
+    assert outcome.error.details["template"] == "img/none.png"
 
 
 def test_drag_between_points_in_windows():

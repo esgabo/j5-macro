@@ -461,3 +461,27 @@ def test_schema_help_explains_vs_code(capsys):
     with pytest.raises(SystemExit):
         main(["schema", "--help"])
     assert "yaml-language-server: $schema=" in capsys.readouterr().out
+
+
+def test_run_captures(engine, script, record):
+    engine("valid")
+    assert main(["run", script, "--captures", "all"]) == 0
+    (run,) = sent(record, "run")
+    assert run["captures"] == "all"
+
+
+def test_run_without_captures_leaves_the_engine_default(engine, script, record):
+    engine("valid")
+    assert main(["run", script]) == 0
+    (run,) = sent(record, "run")
+    assert "captures" not in run
+
+
+@pytest.mark.parametrize("combo", ["ctrl+alt", "ctrl+nosuchkey", ""])
+def test_run_rejects_a_bad_stop_key(engine, script, record, capsys, combo):
+    engine("valid")
+    with pytest.raises(SystemExit) as exc:
+        main(["run", script, "--stop-key", combo])
+    assert exc.value.code == 2
+    assert "--stop-key" in capsys.readouterr().err
+    assert not record.exists()

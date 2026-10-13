@@ -121,12 +121,13 @@ class RunVision:
         if not isinstance(image, str) or not image:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'image' must be a non-empty path",
                             {"param": "image"})
-        toolkit = self.toolkit()
         path = self.template_path(image)
         details = {"template": image, "path": str(path)}
+        # Checked before the toolkit, so a script error is reported wherever it runs.
         if not path.is_file():
             raise StepError(ErrorCode.TEMPLATE_MISSING, f"image file not found: {path}",
                             details)
+        toolkit = self.toolkit()
         try:
             return toolkit.load_template(path)
         except FileNotFoundError:

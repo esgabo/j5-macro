@@ -339,3 +339,15 @@ def test_events_after_run_finished_are_dropped() -> None:
     logs: list[Any] = [e["payload"]["message"] for e in engine.engine_events("log")]
     assert any("dropped 'log'" in message for message in logs)
     engine.close()
+
+
+def test_set_variable_to_an_expression(blocking: tuple[Engine, FakeFactory]) -> None:
+    engine, factory = blocking
+    run_id = engine.start(engine.load_source())
+    assert engine.ok("set_variable", {"run_id": run_id, "name": "y",
+                                      "expression": "x + 1"}) == {}
+    assert engine.error("set_variable", {"run_id": run_id, "name": "y", "value": 1,
+                                         "expression": "x"})["code"] == "validation_failed"
+    assert factory.last.calls == [("evaluate", ("x + 1",)),
+                                  ("set_variable", ("y", {"expr": "x + 1"}))]
+    engine.close()

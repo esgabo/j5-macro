@@ -116,7 +116,9 @@ class Backend(Protocol):
     def char_up(self, char: str) -> None: ...
 
     def find_window(self, title: str) -> Rect | None:
-        """Frame of the first visible window whose title contains ``title``, or None."""
+        """Client area (the content, without the window manager's title bar and borders),
+        in desktop coordinates, of the topmost visible window whose title contains
+        ``title`` (case-sensitive), or None."""
         ...
 
     def watch_hotkey(self, keys: list[str], callback: Callable[[], None]) -> Callable[[], None]:

@@ -172,3 +172,11 @@ def test_a_closed_pipe_ends_quietly(monkeypatch):
     monkeypatch.setattr(cli_main, "_dispatch", broken)
     monkeypatch.setattr(cli_main, "_silence_stdout", lambda: None)
     assert cli_main.main(["runs"]) == 1
+
+
+def test_stop_key_option_reaches_the_engine(runs_dir, script, capsys, monkeypatch) -> None:
+    monkeypatch.delenv("J5_STOP_KEY", raising=False)
+    assert main(["run", "--json", "--stop-key", "ctrl+alt+f12", str(script)]) == 0
+    messages = [json.loads(line)["payload"].get("message")
+                for line in capsys.readouterr().out.splitlines()]
+    assert "emergency stop key: ctrl+alt+f12" in messages

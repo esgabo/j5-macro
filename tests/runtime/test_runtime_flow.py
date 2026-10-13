@@ -324,7 +324,10 @@ def test_input_steps_fail_outside_dry_run():
     assert outcome.error.code == "capability_missing"
 
 
-def test_dry_run_describes_input_and_runs_the_rest():
+def test_dry_run_describes_input_and_runs_the_rest(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "img").mkdir()
+    (tmp_path / "img" / "x.png").write_bytes(b"")
     outcome, rec = run("""
         vars: {n: 0}
         steps:

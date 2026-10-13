@@ -44,7 +44,8 @@ j5-macro 0.0.1
 j5 run [-h] [--runs-dir DIR] [--step | --dry-run] [--break STEP_ID]
        [--seed SEED] [--fast] [--param NAME=VALUE]
        [--param-file NAME=PATH] [--param-env NAME=VARIABLE]
-       [--params-file FILE] [--var NAME=VALUE] [--json]
+       [--params-file FILE] [--var NAME=VALUE]
+       [--captures {on_failure,all}] [--stop-key COMBO] [--json]
        script
 ```
 
@@ -64,6 +65,8 @@ Loads the script, runs it and shows its progress. The output is explained in
 | `--param-env NAME=VARIABLE` | Set a param from an environment variable; fails if the variable is not set. Repeatable |
 | `--params-file FILE` | Set params from a YAML or JSON mapping of names to strings, numbers or booleans |
 | `--var NAME=VALUE` | Override one of the script's `vars`, for debugging. `3`, `2.5`, `true`, `false` and `null` are converted, a value in matching quotes (`'3'`) is forced to text, anything else is text as written. Repeatable |
+| `--captures {on_failure,all}` | Which screen captures of image searches the run saves in its directory: `on_failure` (default) keeps only the last attempt of a search that fails, `all` keeps every attempt. See [Saved runs](#j5-runs) |
+| `--stop-key COMBO` | The global emergency stop key the engine watches during this run, e.g. `ctrl+alt+f12`, written like a `key` step's `press` (modifiers and one key joined with `+`). Default: `J5_STOP_KEY`, else `ctrl+alt+shift+q`. A malformed combination is a usage error (exit 2) |
 | `--json` | Print every event as one JSON line instead of text (see [JSON output](#json-output)) |
 | `--runs-dir DIR` | Save the run in this directory instead of the default (see [Environment variables](#environment-variables)) |
 
@@ -315,7 +318,7 @@ with the extension in `editors/vscode`. `python -m j5_macro.dap` is the same ser
 | --- | --- | --- |
 | `J5_BACKEND` | Engine | Input backend: `auto` (default), `x11`, `windows`, `fake` (records input, touches nothing) or `none`. See [how-it-works.md](how-it-works.md#platforms-and-backends) |
 | `J5_RUNS_DIR` | Engine, `j5 runs` | Runs directory, when `--runs-dir` is not given |
-| `J5_STOP_KEY` | Engine | Emergency stop key, e.g. `ctrl+alt+f12` (default `ctrl+alt+shift+q`): modifiers and one key joined with `+` |
+| `J5_STOP_KEY` | Engine | Emergency stop key when `j5 run --stop-key` (the engine's `--stop-key`) is not given, e.g. `ctrl+alt+f12` (default `ctrl+alt+shift+q`): modifiers and one key joined with `+` |
 | `J5_ENGINE_CMD` | `j5`, `j5 dap` | The command that starts the engine, as a JSON list of strings, e.g. `["/opt/venv/bin/python", "-m", "j5_macro.engine"]`. Default: the current Python with `-m j5_macro.engine`. Used by the tests |
 | `NO_COLOR` | `j5` | Any non-empty value turns colours off |
 | `DISPLAY`, `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY` | Engine | Used by `J5_BACKEND=auto` to detect an X11 or Wayland session |

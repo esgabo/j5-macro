@@ -19,7 +19,7 @@ from j5_macro.input.keys import parse_combo as _parse_combo
 STOP_KEY_ENV = "J5_STOP_KEY"
 DEFAULT_STOP_KEY = "ctrl+alt+shift+q"
 INPUT_STRATEGIES = ("direct", "linear", "human")
-"""Strategies offered when a backend exists (``human`` plans like ``linear`` until M5)."""
+"""Strategies offered when a backend exists; none without one."""
 
 def parse_combo(text: str) -> list[str]:
     """``ctrl+alt+shift+q`` → ``["ctrl", "alt", "shift", "q"]`` in backend key names,

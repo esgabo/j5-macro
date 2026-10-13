@@ -63,7 +63,7 @@ class Emitter:
                                                   screenshot=screenshot))
 
     def step_skipped(self, step: Step, its: Iterations,
-                     reason: Literal["user", "condition"]) -> None:
+                     reason: Literal["user"]) -> None:
         self._send("step_skipped", StepSkippedEvent(**self._where(step, its), reason=reason))
 
     def breakpoint_hit(self, step: Step, its: Iterations) -> None:

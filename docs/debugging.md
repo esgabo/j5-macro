@@ -36,7 +36,7 @@ script does not have stops `j5` before the run starts, listing the ids it has.
 | `c`, `cont`, `continue` | Run to the next breakpoint or the end |
 | `p EXPR`, `print EXPR` | Evaluate an expression over the variables, e.g. `p attempts + 1` |
 | `v`, `vars` | Show the variables (secret values show as `***`) |
-| `set NAME = EXPR` | Set a variable to the value of an expression, evaluated by the engine. JSON literals are expressions too: `set name = "bob"`, `set n = 3`, `set xs = [1, 2]` |
+| `set NAME = EXPR` | Set a variable to the value of an expression, evaluated by the engine. JSON literals are expressions too: `set name = "bob"`, `set n = 3`, `set xs = [1, 2]`. The engine assigns the real value, so `set copy = password` copies a secret even though `p password` shows `***` |
 | `b ID...`, `break ID...` | Add breakpoints on steps by id (separated by spaces or commas) |
 | `b`, `break` | List the breakpoints: yours and the script's `break: true` steps |
 | `clear ID...` | Remove some of your breakpoints; `clear` alone removes all of yours |
