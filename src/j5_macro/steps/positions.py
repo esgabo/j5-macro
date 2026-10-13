@@ -37,6 +37,16 @@ def _failure(param: str, message: str) -> StepError:
     return StepError(ErrorCode.VALIDATION_FAILED, f"'{param}' {message}", {"param": param})
 
 
+class NoPosition(StepError):
+    """A stored result that says where nothing is: its image was not found, or it comes
+    from a dry run that could not search. ``validation_failed``; dry runs go on with a
+    warning instead, as when a window is missing."""
+
+    def __init__(self, param: str, message: str) -> None:
+        super().__init__(ErrorCode.VALIDATION_FAILED, f"'{param}' {message}",
+                         {"param": param})
+
+
 def _number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
@@ -98,13 +108,14 @@ class StoredArea:
 
 def stored_problem(value: Any) -> str | None:
     """What is wrong with ``value`` as a stored result, or None. Strings with ``${`` are
-    only checked once interpolated; a ``bbox`` of None (a dry run that did not search) is
-    accepted here and refused when the step really runs."""
+    only checked once interpolated; a ``bbox`` that is None, or missing from a dry run's
+    result (the search could not be made), is accepted here and refused when the step
+    really runs (:class:`NoPosition`)."""
     if _interpolated(value):
         return None
     if not isinstance(value, Mapping):
         return "must be an image result kept with 'as' (a mapping with 'bbox')"
-    if "bbox" not in value:
+    if "bbox" not in value and value.get("dry_run") is not True:
         return "needs 'bbox' ([x, y, width, height]): keep an image result with 'as'"
     for name in ("bbox", "window_bbox"):
         item = value.get(name)
@@ -140,9 +151,9 @@ def locate_stored(stored: StoredArea, find_window: FindWindow,
     window (looked up again, so the area follows a window that moved; None without one).
     """
     if stored.found is False:
-        raise _failure(param, "is a result whose image was not found")
+        raise NoPosition(param, "is a result whose image was not found")
     if stored.bbox is None:
-        raise _failure(param, "holds no position (its 'bbox' is null)")
+        raise NoPosition(param, "holds no position (a dry run that could not search)")
     if stored.window is None or stored.window_bbox is None:
         return stored.bbox, None
     frame = find_window(stored.window)

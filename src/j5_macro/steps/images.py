@@ -13,12 +13,19 @@ from collections.abc import Mapping
 from typing import Any
 
 from j5_macro.protocol.errors import ErrorCode
-from j5_macro.steps.positions import area_report, relative
+from j5_macro.steps.positions import NoPosition, area_report, relative
 from j5_macro.steps.spec import StepContext, StepError
 from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
-"""Search failures a dry run reports as a warning instead of failing the step."""
+"""Search failures a dry run reports as a warning instead of failing the step (also
+:class:`~j5_macro.steps.positions.NoPosition`: a region placed at a kept result that a dry
+run could not find)."""
+
+
+def dry_run_skips(exc: StepError) -> bool:
+    """Whether a dry run reports ``exc`` as a warning and goes on."""
+    return exc.info.code in DRY_RUN_SKIPPABLE or isinstance(exc, NoPosition)
 
 
 def search_options(target: Mapping[str, Any]) -> dict[str, Any]:
@@ -69,7 +76,7 @@ def dry_locate(ctx: StepContext, target: Mapping[str, Any],
     try:
         return ctx.vision.wait(target["image"], timeout=wait, **search_options(target))
     except StepError as exc:
-        if exc.info.code not in DRY_RUN_SKIPPABLE:
+        if not dry_run_skips(exc):
             raise
         ctx.log("warning", f"dry-run: image {target['image']} not searched: "
                 f"{exc.info.message}")
@@ -114,7 +121,7 @@ def image_visible(ctx: StepContext, argument: Any) -> bool:
     try:
         match = ctx.vision.find(image, **search_options(target))
     except StepError as exc:
-        if not ctx.dry_run or exc.info.code not in DRY_RUN_SKIPPABLE:
+        if not ctx.dry_run or not dry_run_skips(exc):
             raise
         ctx.log("warning", f"image_visible {image}: {exc.info.message}; treated as false "
                 "in dry-run")

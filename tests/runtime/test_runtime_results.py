@@ -349,6 +349,25 @@ def test_a_region_next_to_a_result_whose_window_is_gone(tmp_path: Path) -> None:
     assert run_.toolkit.capturer.grabs == []
 
 
+def test_dry_runs_skip_regions_next_to_a_result_without_a_position(tmp_path: Path) -> None:
+    run_ = vision_run(tmp_path, """
+  - id: find
+    wait_image: {image: img/x.png, window: {title: Ghost}}
+    as: label
+  - id: near
+    wait_image: {image: img/x.png, region: {at: "${label}", offset: [0, 40]}}
+  - id: press
+    click: {at: "${label}"}
+""", [hit(0.99, BOX)], mode="dry", backend=backend())
+    assert run_.join().status == "completed"
+    assert "bbox" not in finished(run_.recorder, "find")  # the window was not there
+    warnings = [p["message"] for p in run_.recorder.of("log", level="warning")]
+    assert any("holds no position" in message for message in warnings), warnings
+    assert run_.toolkit.capturer.grabs == []
+    assert finished(run_.recorder, "press")["description"] == (
+        "would click left at a stored result without a position")
+
+
 def test_the_image_visible_condition_takes_a_region_next_to_a_result(tmp_path: Path) -> None:
     run_ = vision_run(tmp_path, """
   - id: look

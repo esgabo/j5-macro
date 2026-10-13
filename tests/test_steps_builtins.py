@@ -144,6 +144,7 @@ def test_cross_field_problems(name, params, param):
     ("click", {"at": {"bbox": [1, 2, 3, 4], "window": "Notes",
                       "window_bbox": [0, 0, 3, 4], "found": True}}),
     ("click", {"at": {"bbox": None, "dry_run": True}}),  # a dry run that did not search
+    ("click", {"at": {"dry_run": True, "description": "would wait"}}),  # nor could
     ("click", {"at": {"bbox": "${b}"}}),
     ("move", {"at": "${label}", "offset": [3, 4]}),
     ("drag", {"from": {"at": "${label}", "offset": [0, 5]},
