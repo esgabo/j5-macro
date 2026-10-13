@@ -11,7 +11,7 @@ source this page is checked against:
 ```console
 $ j5 steps
 click  Click on an image or at x/y.
-  image: string  Template image, relative to the script file.
+  image: string  Template image: a path relative to the script file, or "#name" of an image embedded in the script.
   x: integer  Horizontal position in physical pixels.
 ...
 ```
@@ -28,6 +28,7 @@ A script is a UTF-8 YAML file with these top-level keys:
 | `params` | no | Values the script takes from outside; see [Params and secrets](#params-and-secrets) |
 | `vars` | no | Variables and their starting values (any YAML value: numbers, text, lists, mappings) |
 | `steps` | yes | The list of steps |
+| `images` | no | Template images carried inside the script; see [Embedded images](#embedded-images) |
 
 Any other top-level key is ignored with a warning.
 
@@ -150,7 +151,7 @@ Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image to click on, relative to the script file |
+| `image` | string | - | Template image to click on: a path relative to the script file, or `"#name"` of an [embedded image](#embedded-images) |
 | `x`, `y` | integer | - | Position in physical pixels (relative to `window` when given) |
 | `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
@@ -173,7 +174,7 @@ Moves the pointer to an image or to `x`/`y`, without clicking.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image |
+| `image` | string | - | Template image (a path, or `"#name"`) |
 | `x`, `y` | integer | - | Position in physical pixels |
 | `window` | mapping | - | `{title: ...}`; coordinates become relative to it |
 | `threshold` | number | `0.9` | Minimum image match score |
@@ -273,7 +274,7 @@ Waits until an image is on screen, checking every 0.25 s.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | required | Template image |
+| `image` | string | required | Template image (a path, or `"#name"`) |
 | `timeout` | duration | `10s` | Give up with `image_not_found` after this long; the step's common `timeout` replaces it |
 | `threshold` | number | `0.9` | Minimum image match score |
 | `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
@@ -425,7 +426,9 @@ Enter resumes it; without one, the run resumes on its own and says so.
 ## Images
 
 - **Paths** are relative to the script file's directory. A missing or unreadable file
-  fails with `template_missing` when the step runs (`j5 validate` does not open images).
+  fails with `template_missing` when the step runs (`j5 validate` does not open image
+  files). A value written `"#name"` is not a path but an [embedded
+  image](#embedded-images), checked when the script loads.
 - **Matching** uses normalized cross-correlation: a score from 0 to 1, and a match when
   the score is at least `threshold` (0.9 by default).
 - **Transparency.** Pixels of a PNG with alpha below 128 are ignored, so a cut-out icon
@@ -442,6 +445,65 @@ Enter resumes it; without one, the run resumes on its own and says so.
   the best candidate outlined in red, in the run's `captures/` directory.
 - Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
   fail with `capability_missing`.
+
+### Embedded images
+
+A script that searches the screen normally needs its image files next to it, so sharing
+it means sharing a folder. The `images` section carries the templates inside the script
+instead, and any `image` parameter refers to one with `"#name"`:
+
+```yaml
+version: 1
+name: Click the pattern
+steps:
+  - id: click_pattern
+    click: {image: "#pattern"}
+  - id: check
+    if:
+      when: {image_visible: "#pattern"}
+      then:
+        - id: seen
+          log: still there
+  - id: dialog
+    wait_image: img/dialog.png        # files keep working
+images:
+  pattern:
+    png: |
+      iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAkUlEQVR42u3XoQ2FQBBF0a0Ai0SC
+      oC9KQNIEBVAEFlr47rcDDcwVKwgJczdPbmaOetkt/34Icy1NHDjdvIdZpyNMoSNIkKB0oPb8haEF
+      T98XJEhQPtC4jWGot6joaAEVKRWvIEGC8oFq30k0CIuucr4gQYLygajoaDEVKYHoI1pqm1eQIEGf
+      BdGgtyJIkKB0oBvc2aEmmX2YaQAAAABJRU5ErkJggg==
+```
+
+- **Entries.** Each name (letters, digits, `_` and `-`, not starting with a digit or `-`)
+  maps to `{png: ..., scale: ...}`. `png` is the base64 of the PNG file itself, so it is
+  lossless and its transparency still works as a mask. Line breaks and spaces in it are
+  ignored; j5 writes it as a literal block (`|`) wrapped at 76 columns.
+- **Quote the reference.** Write `image: "#pattern"` with quotes: in YAML a bare `#`
+  starts a comment. Anything that does not start with `#` is a path, as before.
+- **Checked on load.** Every entry must be valid base64 of a PNG file, at most 1 MiB
+  (1,048,576 bytes) once decoded, and all of a script's images together at most 8 MiB.
+  With the `vision` extra installed j5 decodes each image as a search would; without it,
+  it checks the PNG signature and the size in its header. A `"#name"` that is not in
+  `images` is an error with the step and the parameter (`click: {image: "#nope"}`), not
+  a failure in the middle of a run. A reference built with `${...}` is resolved when the
+  step runs; an unknown name then fails with `template_missing`.
+- **`scale`** is the display scale the image was captured at (a positive number, `1.5`
+  for 150 %). It is reserved: j5 checks it and keeps it with the image, but does not
+  apply it yet, so use the step's own `scale` to compensate a different scaling.
+- **In the output.** Events and errors show the reference as written (`#pattern`) and
+  never the image data, which is not copied to captures or the run history either.
+- **No working directory.** A script whose templates are all embedded does not depend on
+  where it is stored or where j5 runs from, so it can be pasted into a chat or loaded from
+  text.
+
+`j5 pack` embeds the image files a script uses, and `j5 unpack` writes them back to files
+(see [the CLI reference](cli.md#j5-pack)):
+
+```console
+$ j5 pack save_report.yaml -o save_report.bundle.yaml
+j5: embedded 2 images (#save_button, #dialog), 3 image parameters rewritten; wrote save_report.bundle.yaml
+```
 
 ## Durations
 
@@ -688,6 +750,11 @@ Other messages you may see:
 | `step has several type keys (...); use one per step` | Two step types in one step, often a missing `-` |
 | `warning: generated id 'log_1', add an explicit id ...` | A step without `id` (see [Stable ids](#stable-ids)) |
 | `warning: unknown top-level key 'extra' is ignored` | A top-level key that is not part of the format |
+| `image: no embedded image named 'save'; the script has ...` | A `"#save"` reference with no `save` entry under `images` (the parameter is named, e.g. `from.image` or `when.image_visible`) |
+| `image 'save': 'png' is not valid base64 (...)` | An `images` entry whose data was cut or altered; the line is the entry's |
+| `image 'save': not a PNG file (wrong signature)` | Base64 of another format (JPEG, WebP...): convert it to PNG first |
+| `image 'save': ... bytes once decoded, over the limit of 1,048,576 bytes (1 MiB) per image` | An image too large to embed; crop it, or keep it as a file |
+| `the embedded images add up to ... bytes once decoded, over the limit ... per script` | All the images together are over 8 MiB; keep some of them as files |
 
 Warnings are listed only when the script has no errors. `j5 validate --json` gives the
 same report as JSON, with `code`, `message`, `step_id`, `line` and `details` for each

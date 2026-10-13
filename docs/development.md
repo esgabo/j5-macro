@@ -69,14 +69,14 @@ extra is not installed.
 | --- | --- |
 | `tests/test_protocol.py`, `test_payloads.py`, `test_errors.py` | The message envelope, the typed payload of every command, result and event, and error codes |
 | `tests/test_loader.py`, `test_spec.py`, `test_steps_*.py`, `test_expr.py` | Script loading and validation, step specs, the registry, built-in steps, the JSON Schema, the expression language |
-| `tests/test_script_editor.py`, `test_script_params.py` | Comment-preserving script edits, params and secrets |
+| `tests/test_script_editor.py`, `test_script_params.py`, `test_script_images.py` | Comment-preserving script edits, params and secrets, embedded images (`png_support.py` builds small PNG files without numpy) |
 | `tests/engine/` | The engine in process (`engine_harness.py` runs a server on a thread, fed through the transport): runs, history and persistence, params, script management and editing, backend selection and the stop key |
 | `tests/runtime/` | The interpreter with a fast clock and an event recorder that validates every payload: flow, stepping and pauses, errors, seeding, input steps, interference and vision, on the fake backend |
 | `tests/input/` | The mouse and keyboard planners (pure, no display) and the input session against a fake backend |
 | `tests/vision/` | Template matching, image files, and capturing a real X screen (`x11`) |
 | `tests/backends/` | Backend selection, the Windows backend against a fake Win32 layer (`win32_fake.py`; a few tests use the real system on Windows), the X11 backend and its key mapping (`x11`), and `test_e2e_x11.py`: the whole stack (CLI, engine, interpreter, masters, X11 backend) on Xvfb, with an observer window that records the input it really receives |
 | `tests/test_client*.py` | The asyncio client against a scriptable fake engine (`tests/fakes/fake_engine.py`) |
-| `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
+| `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, `j5 pack` and `j5 unpack`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
 | `tests/test_engine_process.py`, `test_engine_server.py`, `test_integration.py` | The real engine process, and the real client against it with every payload checked against the typed payloads |
 | `tests/test_e2e_cli.py`, `test_e2e_debugger.py` | The real `j5` CLI, engine and interpreter, with no fakes but the input backend; debugger commands piped through standard input |
 | `tests/test_dap_*.py` | The DAP adapter: framing, line to step mapping, the session against a fake engine, and end to end over framed stdio against the real engine (`J5_BACKEND=fake`) |
