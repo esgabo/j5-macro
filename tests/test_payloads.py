@@ -34,6 +34,7 @@ CONTRACT_COMMANDS = {
     "get_events",
     "list_scripts", "create_script", "get_script", "edit_script", "list_runs", "get_run",
     "delete_run",
+    "list_windows", "screenshot", "capture_region", "pick_point", "find_image",
 }
 CONTRACT_EVENTS = {
     "ready", "script_changed", "run_started", "state_changed", "run_finished", "step_started",
@@ -79,6 +80,16 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_runs": {"limit": 5},
     "get_run": {"run_id": "r-1", "from_seq": 0},
     "delete_run": RUN,
+    "list_windows": {},
+    "screenshot": {"path": "shot.png", "window": {"title": "Notes"},
+                   "region": [0, 0, 100, 50]},
+    "capture_region": {"bbox": [10, 20, 30, 40], "window": {"title": "Notes"},
+                       "script_id": "s", "name": "save", "overwrite": True, "padding": 2,
+                       "transparent": True},
+    "pick_point": {"window": {"title": "Notes"}},
+    "find_image": {"image": "#save", "script_id": "s", "threshold": 0.8, "scale": 1.0,
+                   "region": [0, 0, 400, 300], "window": {"title": "Notes"},
+                   "display_scale": 1.5, "show": True, "show_ms": 1000},
 }
 RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "hello": {"v": 1, "capabilities": CAPS},
@@ -117,6 +128,19 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
                             "mode": "normal"}]},
     "get_run": {"run_id": "r-1", "run": {"status": "completed"}, "events": [],
                 "captures": ["captures/0001-a-1.png"]},
+    "list_windows": {"windows": [{"title": "Notes", "bbox": [0, 30, 800, 570]}]},
+    "screenshot": {"path": "/tmp/shot.png", "bbox": [0, 30, 800, 570], "display_scale": 1.0,
+                   "window": "Notes", "window_bbox": [0, 0, 800, 570]},
+    "capture_region": {"bbox": [10, 50, 30, 40], "display_scale": 1.5, "image_name": "save",
+                       "version": "0123456789abcdef", "scale": 1.5, "window": "Notes",
+                       "window_bbox": [10, 20, 30, 40],
+                       "warnings": [{"code": "flat", "message": "flat"}]},
+    "pick_point": {"x": 212, "y": 178, "display_scale": 1.0, "window": "Notes",
+                   "window_area": [0, 30, 800, 570], "window_point": [212, 148]},
+    "find_image": {"found": True, "score": 0.98, "region": [0, 0, 1280, 800], "scale": 1.0,
+                   "display_scale": 1.0, "capture_scale": 1.0, "elapsed_ms": 12,
+                   "bbox": [10, 20, 30, 40], "center": [25, 40], "window": "Notes",
+                   "window_bbox": [10, 20, 30, 40]},
 }
 EVENT_EXAMPLES: dict[str, dict[str, Any]] = {
     "ready": {"v": 1, "backend": "x11", "capabilities": CAPS},

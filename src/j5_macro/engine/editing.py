@@ -58,24 +58,33 @@ def write_atomically(path: Path, text: str) -> None:
         raise
 
 
-def install(server: EngineServer, store: ScriptStore) -> None:
-    lock = threading.Lock()
-    """Edits are applied one at a time, whatever thread handles them."""
+class ScriptWriter:
+    """Changes loaded scripts one at a time: re-reads the current text, saves the new
+    text and emits ``script_changed``. Used by ``edit_script`` and by the authoring
+    tools that embed images (``capture_region``)."""
 
-    def current_text(entry: LoadedScript) -> str:
-        # The file as it is now: it may have changed before the watcher noticed.
+    def __init__(self, server: EngineServer, store: ScriptStore) -> None:
+        self.server = server
+        self.store = store
+        self.lock = threading.RLock()
+        """Held while a change is read, made and saved."""
+
+    def current_text(self, entry: LoadedScript) -> str:
+        """The script as it is now: the file may have changed before the watcher
+        noticed."""
         return entry.text if entry.path is None else read_script_text(entry.path)
 
-    def changed(entry: LoadedScript, source: Literal["disk", "edit"]) -> None:
-        server.emit("script_changed", ScriptChangedEvent(
+    def changed(self, entry: LoadedScript, source: Literal["disk", "edit"]) -> None:
+        self.server.emit("script_changed", ScriptChangedEvent(
             script_id=entry.script_id, version=entry.version, source=source,
             valid=entry.valid, errors=list(entry.errors) or None,
         ).to_json())
 
-    def save(entry: LoadedScript, text: str, result: LoadResult) -> None:
+    def save(self, entry: LoadedScript, text: str, result: LoadResult) -> None:
         """Write the file and record the new text in the store under the store's file
         lock, which the watcher also takes: it never sees the written file before the
         store knows its version, so the edit is not reported as a disk change too."""
+        store = self.store
         with store.file_lock:
             if entry.path is not None:
                 try:
@@ -87,11 +96,32 @@ def install(server: EngineServer, store: ScriptStore) -> None:
                                        {"path": str(entry.path)}) from exc
             store.update(entry, text, result)
 
+    def commit(self, entry: LoadedScript, text: str, new_text: str,
+               result: LoadResult | None = None) -> None:
+        """Replace ``text`` (the current text, read under :attr:`lock`) with
+        ``new_text``: save it and emit ``script_changed`` when it differs, or record a
+        change made on disk that the watcher has not seen yet."""
+        if result is None:
+            source_path = None if entry.path is None else str(entry.path)
+            result = self.store.load_text(new_text, source_path)
+        if new_text != text:
+            self.save(entry, new_text, result)
+            self.changed(entry, "edit")
+        elif entry.version != script_version(new_text):
+            # Nothing to change, but the file changed before the watcher saw it.
+            with self.store.file_lock:
+                self.store.update(entry, new_text, result)
+            self.changed(entry, "disk")
+
+
+def install(server: EngineServer, store: ScriptStore) -> ScriptWriter:
+    writer = ScriptWriter(server, store)
+
     def edit_script(command: Command) -> JsonObject:
         payload = EditScriptPayload.from_json(command.payload)
         entry = store.get(payload.script_id)
-        with lock:
-            text = current_text(entry)
+        with writer.lock:
+            text = writer.current_text(entry)
             version = script_version(text)
             if version != payload.base_version:
                 raise CommandError(
@@ -101,24 +131,21 @@ def install(server: EngineServer, store: ScriptStore) -> None:
             try:
                 new_text = apply_edits(text, payload.edits, lookup=store.registry.spec)
             except EditError as exc:
-                details: JsonObject = dict(exc.details or {})
-                if exc.index is not None:
-                    details["edit"] = exc.index
-                error = CommandError(exc.code, exc.message, details or None)
-                error.info = ErrorInfo(code=str(exc.code), message=exc.message,
-                                       line=exc.line, details=details or None)
-                raise error from exc
-            source_path = None if entry.path is None else str(entry.path)
-            result = store.load_text(new_text, source_path)
-            if new_text != text:
-                save(entry, new_text, result)
-                changed(entry, "edit")
-            elif entry.version != script_version(new_text):
-                # Nothing to change, but the file changed before the watcher saw it.
-                with store.file_lock:
-                    store.update(entry, new_text, result)
-                changed(entry, "disk")
+                raise edit_error(exc) from exc
+            writer.commit(entry, text, new_text)
             return EditScriptResult(version=entry.version, valid=entry.valid,
                                     errors=list(entry.errors)).to_json()
 
     server.register("edit_script", edit_script)
+    return writer
+
+
+def edit_error(exc: EditError) -> CommandError:
+    """The response error for an edit that cannot apply."""
+    details: JsonObject = dict(exc.details or {})
+    if exc.index is not None:
+        details["edit"] = exc.index
+    error = CommandError(exc.code, exc.message, details or None)
+    error.info = ErrorInfo(code=str(exc.code), message=exc.message,
+                           line=exc.line, details=details or None)
+    return error

@@ -20,7 +20,7 @@ from Xlib import error as xerror
 from Xlib.display import Display
 from Xlib.xobject.drawable import Window
 
-from j5_macro.backends.base import Rect
+from j5_macro.backends.base import Rect, WindowInfo
 
 _MAX_DEPTH = 4
 
@@ -43,6 +43,27 @@ def find_window(display: Display, title: str) -> Rect | None:
         except (xerror.BadWindow, xerror.BadDrawable, xerror.BadMatch):
             continue  # the window went away while we looked at it
     return None
+
+
+def list_windows(display: Display) -> list[WindowInfo]:
+    """Every visible top-level window with a title, topmost first (when the window
+    manager reports stacking order), with its client area in root coordinates."""
+    root = display.screen().root
+    found: list[WindowInfo] = []
+    for window in _client_windows(display, root):
+        try:
+            if window.get_attributes().map_state != X.IsViewable:
+                continue
+            name = window_title(display, window)
+            if not name:
+                continue
+            geometry = window.get_geometry()
+            origin = root.translate_coords(window, 0, 0)
+            found.append(WindowInfo(name, Rect(int(origin.x), int(origin.y),
+                                               int(geometry.width), int(geometry.height))))
+        except (xerror.BadWindow, xerror.BadDrawable, xerror.BadMatch):
+            continue  # the window went away while we looked at it
+    return found
 
 
 def window_title(display: Display, window: Window) -> str | None:

@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from j5_macro.engine import commands
 from j5_macro.engine.backend import EngineBackend
+from j5_macro.engine.overlay import OverlayFactory
 from j5_macro.engine.runs import RunManager
 from j5_macro.engine.server import EngineServer
 from j5_macro.engine.transport import LineTransport
@@ -30,6 +31,7 @@ from j5_macro.runtime.api import (
 )
 from j5_macro.script.model import Script
 from j5_macro.steps import StepRegistry, default_registry
+from j5_macro.vision.api import ToolkitFactory
 
 TIMEOUT_S = 5.0
 HELLO = {"v_min": 1, "v_max": 1, "client": "tests"}
@@ -96,14 +98,17 @@ class Engine:
 
     def __init__(self, *, run_factory: RunFactory | None = None,
                  runs_dir: Path | None = None, registry: StepRegistry | None = None,
-                 hello: bool = True, backend: EngineBackend | None = None) -> None:
+                 hello: bool = True, backend: EngineBackend | None = None,
+                 toolkit_factory: ToolkitFactory | None = None,
+                 overlay_factory: OverlayFactory | None = None) -> None:
         self.reader = QueueReader()
         self.writer = CollectingWriter()
         self.server = EngineServer(LineTransport(self.reader, self.writer))
         self.registry = registry if registry is not None else default_registry()
         self.runs: RunManager = commands.install(
             self.server, self.registry, run_factory=run_factory, runs_dir=runs_dir,
-            backend=backend)
+            backend=backend, toolkit_factory=toolkit_factory,
+            overlay_factory=overlay_factory)
         self._ids = itertools.count(1)
         self.exit_code: int | None = None
         self._thread = threading.Thread(target=self._serve, daemon=True)

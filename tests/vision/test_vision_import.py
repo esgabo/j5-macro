@@ -31,7 +31,7 @@ def run_without_extra(code: str) -> subprocess.CompletedProcess[str]:
 def test_package_imports_without_the_vision_extra() -> None:
     result = run_without_extra("""
         import j5_macro
-        IMPLEMENTATIONS = {"capture", "templates", "matching", "drawing"}
+        IMPLEMENTATIONS = {"capture", "templates", "matching", "drawing", "snapshots"}
         failures = []
         for info in pkgutil.walk_packages(j5_macro.__path__, "j5_macro."):
             last = info.name.rsplit(".", 1)[1]

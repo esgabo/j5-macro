@@ -33,3 +33,8 @@ class CommandError(Exception):
         error.info = info
         return error
 
+
+
+class Deferred(Exception):
+    """Raised by :meth:`EngineServer.answer_later`: the handler's command is answered
+    later, from another thread, so the server writes no response now."""

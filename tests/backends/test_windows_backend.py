@@ -11,7 +11,7 @@ import uuid
 import pytest
 from win32_fake import FakeWin32, FakeWindow
 
-from j5_macro.backends.base import NAMED_KEYS, Button, Rect, UnknownKey
+from j5_macro.backends.base import NAMED_KEYS, Button, Rect, UnknownKey, WindowInfo
 from j5_macro.backends.windows import HotkeyConflict, WindowsBackend
 from j5_macro.backends.windows.dpi import declare_dpi_awareness
 from j5_macro.backends.windows.keys import (
@@ -267,6 +267,18 @@ def test_find_window_returns_the_client_area_of_the_topmost_shown_match() -> Non
     assert backend.find_window("Calculator") is None
 
 
+def test_list_windows_lists_the_shown_windows_with_a_title_topmost_first() -> None:
+    backend, _ = make(windows_list=[
+        FakeWindow("Notes - hidden", Rect(0, 0, 10, 10), shown=False),
+        FakeWindow("", Rect(1, 1, 10, 10)),
+        FakeWindow("Untitled - Notes", Rect(-1500, 40, 800, 600)),
+        FakeWindow("Other Notes", Rect(5, 5, 50, 50)),
+    ])
+    assert backend.list_windows() == [
+        WindowInfo("Untitled - Notes", Rect(-1500, 40, 800, 600)),
+        WindowInfo("Other Notes", Rect(5, 5, 50, 50))]
+
+
 # --- display scale ----------------------------------------------------------------------
 
 
@@ -339,6 +351,7 @@ def test_real_backend_reports_the_desktop() -> None:
         bounds = backend.screen_bounds()
         assert bounds.width > 0 and bounds.height > 0
         assert backend.find_window(f"j5-no-such-window-{uuid.uuid4()}") is None
+        assert all(window.title for window in backend.list_windows())
         monitors = backend.display_scales()
         assert monitors and all(scale > 0 for _, scale in monitors)
         origin = monitors[0][0]

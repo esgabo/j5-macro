@@ -2,14 +2,17 @@
 
 Exit codes (every command):
 
-- 0: success (``validate``: the script is valid, warnings allowed; ``run``: completed).
+- 0: success (``validate``: the script is valid, warnings allowed; ``run``: completed;
+  ``find``: the image was found).
 - 1: ``validate``: the script is invalid or cannot be read; ``run``: the run failed;
   ``runs show``/``runs delete``: no saved run with that id; ``pack``/``unpack``: the
-  script is invalid, an image cannot be embedded or a file is in the way; any command:
-  the engine could not be started or died.
+  script is invalid, an image cannot be embedded or a file is in the way; ``find``: the
+  image was not found; the authoring commands: the engine refused (e.g. no vision, an
+  existing file); any command: the engine could not be started or died.
 - 2: usage error; ``run``: the script could not be loaded or the run could not start;
   ``runs show``/``runs delete``: a malformed run id.
-- 3: ``run``: the run was stopped (by the engine, e.g. user interference).
+- 3: ``run``: the run was stopped (by the engine, e.g. user interference);
+  ``capture``/``pick``/``find --show``: cancelled with Escape.
 - 130: interrupted with Ctrl+C.
 """
 
@@ -137,6 +140,124 @@ def _runs_dir_option() -> argparse.ArgumentParser:
                         help=f"the runs directory (default: ${RUNS_DIR_ENV}, else the "
                              "platform state directory)")
     return parent
+
+
+AUTHORING_HELP = """\
+Writing scripts faster: these commands read the screen (they need the vision extra and
+a display) and send no input. capture, pick and find print the YAML of a step to paste
+into a script; --json prints the engine's result instead.
+
+  j5 windows                                       visible windows and client areas
+  j5 screenshot --window Notes                     a PNG of a window, for a look
+  j5 capture -o img/save.png                       drag a rectangle, save a template
+  j5 capture --embed s.yaml --name save --bbox 10,20,32,24 --window Notes
+  j5 pick --window Notes                           click a point inside a window
+  j5 find img/save.png --show                      test a template, see the match
+  j5 find '#save' --script s.yaml --window Notes   test an embedded one
+
+capture, pick and find --show open a full-screen overlay: drag or click with the left
+button; Escape or the right button cancels.
+
+exit codes: 0 done (find: found), 1 failure (find: not found), 2 usage error,
+3 cancelled with Escape"""
+
+
+def _rect(text: str) -> list[int]:
+    """``--bbox`` and ``--region``: ``x,y,w,h``."""
+    from j5_macro.cli.authoring import parse_rect
+
+    try:
+        return parse_rect(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _authoring_parsers(sub: Any) -> None:
+    """``windows``, ``screenshot``, ``capture``, ``pick`` and ``find``."""
+    formatter = argparse.RawDescriptionHelpFormatter
+    windows = sub.add_parser(
+        "windows", help="list the visible windows and their client areas",
+        description="List the visible windows, topmost first, with the client area of "
+                    "each on the desktop as [x, y, width, height].",
+        epilog=AUTHORING_HELP, formatter_class=formatter)
+    windows.add_argument("--json", action="store_true", help="print the engine's answer")
+
+    shot = sub.add_parser(
+        "screenshot", help="save a PNG of the desktop, a window or a region",
+        description="Save a PNG of the whole desktop, of a window's client area or of a "
+                    "region, and print its path.",
+        epilog=AUTHORING_HELP, formatter_class=formatter)
+    shot.add_argument("-o", "--output", metavar="FILE",
+                      help="where to save it (default: a new file in the system's "
+                           "temporary directory); an existing file is replaced")
+    shot.add_argument("--window", metavar="TITLE",
+                      help="the window whose title contains TITLE: its client area")
+    shot.add_argument("--region", metavar="X,Y,W,H", type=_rect,
+                      help="only this rectangle (relative to --window when given)")
+    shot.add_argument("--json", action="store_true", help="print the engine's answer")
+
+    cap = sub.add_parser(
+        "capture", help="capture a template: drag a rectangle on the screen",
+        description="Capture a rectangle of the screen as a template, into a PNG file or "
+                    "into a script's images section, and print a click step that uses it. "
+                    "Without --bbox the screen freezes and you drag the rectangle (a "
+                    "magnifier shows the pixels under the pointer).",
+        epilog=AUTHORING_HELP, formatter_class=formatter)
+    destination = cap.add_mutually_exclusive_group()
+    destination.add_argument("-o", "--output", metavar="FILE", help="save it as a PNG file")
+    destination.add_argument("--embed", metavar="SCRIPT",
+                             help="embed it in this script's images section (with --name)")
+    cap.add_argument("--name", metavar="NAME", help="the embedded image's name (#NAME)")
+    cap.add_argument("--window", metavar="TITLE",
+                     help="the window whose title contains TITLE: --bbox is relative to "
+                          "its client area")
+    cap.add_argument("--bbox", metavar="X,Y,W,H", type=_rect,
+                     help="capture this rectangle without the overlay (for scripts and "
+                          "agents)")
+    cap.add_argument("--padding", metavar="PIXELS", type=int, default=0,
+                     help="grow the rectangle by this many pixels on every side")
+    cap.add_argument("--transparent", action="store_true",
+                     help="make the pixels of the border's colour transparent, for icons "
+                          "on backgrounds that change")
+    cap.add_argument("-f", "--force", action="store_true",
+                     help="replace an existing file or embedded image")
+    cap.add_argument("--json", action="store_true", help="print the engine's answer")
+
+    pick = sub.add_parser(
+        "pick", help="pick a point on the screen and print a click step",
+        description="Click a point on the frozen screen and print a click step for it, "
+                    "relative to the window under it (or --window).",
+        epilog=AUTHORING_HELP, formatter_class=formatter)
+    pick.add_argument("--window", metavar="TITLE",
+                      help="report the point relative to this window's client area")
+    pick.add_argument("--json", action="store_true", help="print the engine's answer")
+
+    find = sub.add_parser(
+        "find", help="search the screen for a template, as a step would",
+        description="Search the screen once for IMAGE, exactly as a step would, without "
+                    "running anything, and print a click step when it is found.",
+        epilog=AUTHORING_HELP, formatter_class=formatter)
+    find.add_argument("image", metavar="IMAGE",
+                      help="a PNG file, or #NAME for an image embedded in --script")
+    find.add_argument("--script", metavar="SCRIPT",
+                      help="search as this script's steps do: IMAGE relative to its "
+                           "directory, #NAME from its images, its capture_scale")
+    find.add_argument("--window", metavar="TITLE", help="search this window's client area")
+    find.add_argument("--region", metavar="X,Y,W,H", type=_rect,
+                      help="search this rectangle (relative to --window when given)")
+    find.add_argument("--threshold", type=float, default=0.9,
+                      help="minimum score, 0 to 1 (default 0.9)")
+    find.add_argument("--scale", type=float, default=1.0,
+                      help="resize the template by this factor too (default 1)")
+    find.add_argument("--display-scale", metavar="SCALE", type=_display_scale,
+                      help="the display scale to assume, e.g. 1.5 or 150%%, instead of "
+                           "detecting it")
+    find.add_argument("--show", action="store_true",
+                      help="highlight the best match on the screen for a few seconds: "
+                           "green when found, red with the score when not")
+    find.add_argument("--show-ms", metavar="MS", type=int, default=3000,
+                      help="how long --show shows it (default 3000)")
+    find.add_argument("--json", action="store_true", help="print the engine's answer")
 
 
 def _display_scale(text: str) -> float:
@@ -274,6 +395,8 @@ def build_parser() -> argparse.ArgumentParser:
     unpack.add_argument("-f", "--force", action="store_true",
                         help="overwrite files that already exist")
 
+    _authoring_parsers(sub)
+
     sub.add_parser("dap", help="serve the Debug Adapter Protocol on stdio (for VS Code)",
                    description="Debug Adapter Protocol server on standard input and output, "
                                "started by an editor such as VS Code (see editors/vscode).")
@@ -386,6 +509,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return commands.run_sync(commands.validate(cmd, args.script, as_json=args.json, io=io))
     if args.command == "steps":
         return commands.run_sync(commands.steps(cmd, as_json=args.json, io=io))
+    if args.command in AUTHORING_COMMANDS:
+        return _authoring(args, cmd, io)
     variables: dict[str, Any] = dict(args.vars)
     try:
         params = collect_params(args.params_file, args.params, args.param_files,
@@ -413,6 +538,42 @@ def _dispatch(args: argparse.Namespace) -> int:
         interactive=interactive,
     )
     return commands.run_sync(commands.run(cmd, args.script, options, io=io))
+
+
+AUTHORING_COMMANDS = ("windows", "screenshot", "capture", "pick", "find")
+
+
+def _authoring(args: argparse.Namespace, cmd: list[str], io: Output) -> int:
+    from j5_macro.cli import authoring
+
+    if args.command == "windows":
+        return commands.run_sync(authoring.windows(cmd, as_json=args.json, io=io))
+    if args.command == "screenshot":
+        return commands.run_sync(authoring.screenshot(
+            cmd, output=args.output, window=args.window, region=args.region,
+            as_json=args.json, io=io))
+    if args.command == "capture":
+        if args.padding < 0:
+            raise CliError("--padding must not be negative", ExitCode.USAGE)
+        options = authoring.CaptureOptions(
+            output=args.output, embed=args.embed, name=args.name, window=args.window,
+            bbox=args.bbox, padding=args.padding, transparent=args.transparent,
+            force=args.force, as_json=args.json)
+        return commands.run_sync(authoring.capture(cmd, options, io=io))
+    if args.command == "pick":
+        return commands.run_sync(authoring.pick(cmd, window=args.window, as_json=args.json,
+                                                io=io))
+    if not 0 <= args.threshold <= 1:
+        raise CliError("--threshold must be between 0 and 1", ExitCode.USAGE)
+    if not 0 < args.scale < float("inf"):
+        raise CliError("--scale must be a positive number", ExitCode.USAGE)
+    if args.show_ms < 0:
+        raise CliError("--show-ms must not be negative", ExitCode.USAGE)
+    find = authoring.FindOptions(
+        script=args.script, window=args.window, region=args.region,
+        threshold=args.threshold, scale=args.scale, display_scale=args.display_scale,
+        show=args.show, show_ms=args.show_ms, as_json=args.json)
+    return commands.run_sync(authoring.find(cmd, args.image, find, io=io))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

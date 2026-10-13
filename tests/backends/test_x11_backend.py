@@ -12,7 +12,14 @@ pytest.importorskip("Xlib")
 from x11_harness import TIMEOUT_S, Observer, wait_until
 from Xlib import X
 
-from j5_macro.backends.base import MODIFIER_KEYS, NAMED_KEYS, Button, Rect, UnknownKey
+from j5_macro.backends.base import (
+    MODIFIER_KEYS,
+    NAMED_KEYS,
+    Button,
+    Rect,
+    UnknownKey,
+    WindowInfo,
+)
 from j5_macro.backends.x11 import HotkeyConflict, X11Backend
 from j5_macro.backends.x11.keys import char_keysym, key_keysym
 
@@ -258,6 +265,18 @@ def test_find_window_without_a_window_manager(x11_backend: Backend,
     assert x11_backend.find_window("☕ — j5") == Rect(500, 400, 200, 100)
     assert x11_backend.find_window("j5 hidden") is None
     assert x11_backend.find_window("no such window j5") is None
+
+
+def test_list_windows_without_a_window_manager(x11_backend: Backend,
+                                               observer: Observer) -> None:
+    observer.create_window(120, 90, 320, 240, wm_name="Untitled - j5 list")
+    observer.create_window(500, 400, 200, 100, net_wm_name="Café ☕ — j5 list")
+    observer.create_window(10, 10, 50, 50, wm_name="j5 list hidden", mapped=False)
+    listed = [w for w in x11_backend.list_windows() if "j5 list" in w.title]
+    # Topmost first: the last window created is on top.
+    assert listed == [WindowInfo("Café ☕ — j5 list", Rect(500, 400, 200, 100)),
+                      WindowInfo("Untitled - j5 list", Rect(120, 90, 320, 240))]
+    assert all(window.title for window in x11_backend.list_windows())
 
 
 def test_find_window_prefers_net_wm_name(x11_backend: Backend, observer: Observer) -> None:

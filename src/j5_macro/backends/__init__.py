@@ -8,6 +8,7 @@ from j5_macro.backends.base import (
     Capabilities,
     Rect,
     UnknownKey,
+    WindowInfo,
 )
 from j5_macro.backends.select import BACKEND_ENV, BackendChoice, select_backend
 
@@ -21,5 +22,6 @@ __all__ = [
     "Capabilities",
     "Rect",
     "UnknownKey",
+    "WindowInfo",
     "select_backend",
 ]
