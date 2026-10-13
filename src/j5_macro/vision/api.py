@@ -69,6 +69,9 @@ class Match:
     bbox: Rect | None
     """Desktop rectangle of the best location (None if the template cannot fit)."""
     elapsed_ms: float = 0.0
+    frame: Rect | None = None
+    """Client area of the window searched in, when the search had a ``window``, as it
+    was for this attempt (set by ``StepVision``, not by the locator)."""
 
 
 class Capturer(Protocol):
@@ -109,16 +112,18 @@ class StepVision(Protocol):
     """What step executors and conditions see as ``ctx.vision``."""
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
-        directory; ``region`` is ``[x, y, w, h]``, relative to ``window`` when given.
+        directory; ``region`` is ``[x, y, w, h]``, relative to ``window`` when given, or
+        ``{at, offset?, size?}`` next to a stored image result. The match's ``frame`` is
+        the client area of ``window``, when given.
         Raises StepError: ``template_missing``, ``window_not_found``,
         ``capability_missing`` (no vision)."""
         ...
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Search until found or ``timeout`` seconds pass (interruptible like any wait;

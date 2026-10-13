@@ -22,6 +22,7 @@ from j5_macro.cli.main import main
 from j5_macro.cli.options import ENGINE_CMD_ENV
 from j5_macro.steps import (
     ParamSpec,
+    ResultField,
     StepRegistry,
     StepSpec,
     StepType,
@@ -248,6 +249,9 @@ def skipped_messages(report) -> dict[str, str]:
     (registers(step("half"), fail=RuntimeError("boom")), "RuntimeError: boom"),
     (registers(step("sleep")), "ValueError: step type 'sleep' is already registered"),
     (registers(step("timeout")), "would clash with the common step field"),
+    (registers(step("as")), "would clash with the common step field"),
+    (registers(step("odd", result=(ResultField(name="r", type="colour"),))),  # type: ignore[arg-type]
+     "invalid result field"),
     (registers(step("bad-name")), "invalid step type name 'bad-name'"),
     (registers(StepType(StepSpec(name="ctl", doc="", kind="control", blocks=("do",)))),
      "plugins can only add action steps"),

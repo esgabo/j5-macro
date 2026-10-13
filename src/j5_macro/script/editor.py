@@ -58,7 +58,7 @@ from j5_macro.protocol.payloads import (
 from j5_macro.script.loader import _TOP_LEVEL, ID_PATTERN, _parse_error, _plain
 from j5_macro.steps.spec import StepLookup, StepSpec
 
-COMMON_FIELDS = ("break", "timeout", "on_error", "input")
+COMMON_FIELDS = ("break", "timeout", "on_error", "input", "as")
 """Common step fields an ``update`` may change (``id`` is not one of them)."""
 
 _ID_AND_COMMON = ("id", *COMMON_FIELDS)

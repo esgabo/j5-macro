@@ -8,14 +8,17 @@ description says where the target would be.
 
 Coordinates (contract, "Script format and step registry"): ``x``/``y`` are absolute
 desktop pixels; with ``window: {title: ...}`` they are relative to the top-left corner
-of the first visible window whose title contains ``title``; ``offset: [dx, dy]`` is
-added to the resulting point.
+of the client area of the first visible window whose title contains ``title``;
+``offset: [dx, dy]`` is added to the resulting point.
 
 Image targets (``image``, with ``threshold``, ``scale``, ``region`` and ``window``) are
 searched through ``ctx.vision``: once, or until the step's common ``timeout`` when it is
-set; a miss fails with ``image_not_found``. The action lands on the centre of the match
-plus ``offset``, and the match is passed to the input layer as the ``target`` area for
-human-like landing (without an offset).
+set; a miss fails with ``image_not_found``. ``at`` targets are image results kept with
+``as``, placed where they are now (following their window; see
+:mod:`j5_macro.steps.positions`). For both, the action lands on the centre of the area
+plus ``offset``, and the area is passed to the input layer as the ``target`` for
+human-like landing (without an offset). Results report the area used, so they can be
+kept with ``as`` in turn.
 """
 
 from __future__ import annotations
@@ -35,10 +38,22 @@ from j5_macro.steps.images import (
     match_report,
     search_options,
 )
+from j5_macro.steps.positions import (
+    FindWindow,
+    aim,
+    area_report,
+    locate_stored,
+    read_stored,
+    rect_list,
+    region_problem,
+    relative,
+    stored_report,
+)
 from j5_macro.steps.spec import (
     Executor,
     ParamProblem,
     ParamSpec,
+    ResultField,
     StepContext,
     StepError,
     StepSpec,
@@ -68,7 +83,9 @@ def input_step(describe: Describe, perform: Perform, *, image_wait: bool = False
             match = dry_locate(ctx, params, wait)
             found = describe_match(match)
             if match is not None:
-                result.update(match_report(match))
+                result.update(match_report(match, params))
+        elif "at" in params:
+            result.update(stored_report(read_stored(params["at"])))
         for name in ("from", "to"):
             target = params.get(name)
             if isinstance(target, Mapping) and "image" in target:
@@ -83,6 +100,8 @@ def input_step(describe: Describe, perform: Perform, *, image_wait: bool = False
 def _target(params: Mapping[str, Any]) -> str:
     if "image" in params:
         where = f"image {params['image']}"
+    elif "at" in params:
+        where = _describe_stored(params["at"])
     else:
         where = f"({params.get('x')}, {params.get('y')})"
     window = params.get("window")
@@ -91,15 +110,36 @@ def _target(params: Mapping[str, Any]) -> str:
     return where
 
 
+def _describe_stored(value: Any) -> str:
+    """A stored result as a dry run sees it: where it was, without looking it up."""
+    stored = read_stored(value)
+    if stored.bbox is None:
+        return "a stored result without a position"
+    x, y = stored.bbox.center
+    where = f"the stored result at ({x}, {y})"
+    if stored.window is not None:
+        where += f" in window {stored.window!r}"
+    return where
+
+
 def _describe_click(p: dict[str, Any]) -> str:
     clicks = p.get("clicks", 1)
     times = "" if clicks == 1 else f" x{clicks}"
-    offset = f" offset {p['offset']}" if p.get("offset") else ""
-    return f"click {p.get('button', 'left')}{times} at {_target(p)}{offset}"
+    return f"click {p.get('button', 'left')}{times} at {_target(p)}{_offset(p)}"
+
+
+def _describe_move(p: dict[str, Any]) -> str:
+    return f"move to {_target(p)}{_offset(p)}"
 
 
 def _describe_drag(p: dict[str, Any]) -> str:
-    return f"drag {p.get('button', 'left')} from {_target(p['from'])} to {_target(p['to'])}"
+    start, end = p["from"], p["to"]
+    return (f"drag {p.get('button', 'left')} from {_target(start)}{_offset(start)} "
+            f"to {_target(end)}{_offset(end)}")
+
+
+def _offset(p: Mapping[str, Any]) -> str:
+    return f" offset {p['offset']}" if p.get("offset") else ""
 
 
 def _describe_wait(p: dict[str, Any]) -> str:
@@ -138,18 +178,42 @@ def _window(inp: StepInput, window: Any, name: str) -> Rect | None:
     return rect
 
 
+def _finder(inp: StepInput, name: str) -> FindWindow:
+    """Window lookups for a stored result's ``window``."""
+
+    def find(title: str) -> Rect:
+        rect = _window(inp, {"title": title}, name)
+        assert rect is not None  # _window raises otherwise
+        return rect
+
+    return find
+
+
 def _resolve_target(ctx: StepContext, inp: StepInput, target: Mapping[str, Any],
                     where: str = "") -> tuple[tuple[int, int], Rect | None, dict[str, Any]]:
-    """The point of an image or ``x``/``y`` target, the matched area (None for
-    coordinates) and what to report about it in the result."""
-    if "image" not in target:
+    """Where a target (``image``, ``at`` or ``x``/``y``) is: the point to act on, with
+    its ``offset``, the area the input layer may land in, and what to report about the
+    target in the result."""
+    prefix = f"{where}." if where else ""
+    report: dict[str, Any]
+    area: Rect | None
+    if "image" in target:
+        match = locate_target(ctx, target)
+        assert match.bbox is not None  # locate_target raises otherwise
+        report = {"image": target["image"], **match_report(match, target)}
+        del report["found"]
+        area = match.bbox
+        point = area.center
+    elif "at" in target:
+        stored = read_stored(target["at"], f"{prefix}at")
+        area, frame = locate_stored(stored, _finder(inp, f"{prefix}at"), f"{prefix}at")
+        report = area_report(area, stored.window, relative(area, frame))
+        point = area.center
+    else:
         point, report = _resolve_point(inp, target, where)
-        return point, None, report
-    match = locate_target(ctx, target)
-    assert match.bbox is not None  # locate_target raises otherwise
-    report = {"image": target["image"], **match_report(match)}
-    del report["found"]
-    return match.bbox.center, match.bbox, report
+        area = None
+    x, y, landing = aim(point, area, target.get("offset"), f"{prefix}offset")
+    return (x, y), landing, report
 
 
 def _wait_seconds(ctx: StepContext, params: Mapping[str, Any]) -> float:
@@ -168,19 +232,10 @@ def _resolve_point(inp: StepInput, target: Mapping[str, Any],
     rect = _window(inp, target.get("window"), f"{prefix}window")
     report: dict[str, Any] = {}
     if rect is not None:
-        report["window"] = [rect.x, rect.y, rect.width, rect.height]
+        report["window"] = target["window"]["title"]
+        report["window_area"] = rect_list(rect)
         x, y = rect.x + x, rect.y + y
     return (x, y), report
-
-
-def _offset(params: Mapping[str, Any], point: tuple[int, int]) -> tuple[int, int]:
-    offset = params.get("offset")
-    if offset is None:
-        return point
-    if not isinstance(offset, list) or len(offset) != 2:
-        raise StepError(ErrorCode.VALIDATION_FAILED, "'offset' must be [dx, dy]",
-                        {"param": "offset"})
-    return point[0] + _int(offset[0], "offset"), point[1] + _int(offset[1], "offset")
 
 
 def _button(params: Mapping[str, Any]) -> Button:
@@ -192,14 +247,6 @@ def _button(params: Mapping[str, Any]) -> Button:
                         {"param": "button"}) from exc
 
 
-def _landing(params: Mapping[str, Any], point: tuple[int, int],
-             area: Rect | None) -> tuple[int, int, Rect | None]:
-    """The final point (``offset`` added) and the ``target`` area for the input layer:
-    the match itself, unless an offset moves the point away from it."""
-    x, y = _offset(params, point)
-    return x, y, area if (x, y) == point else None
-
-
 def perform_click(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     inp = ctx.input
     button = _button(params)
@@ -207,8 +254,7 @@ def perform_click(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     if clicks < 1:
         raise StepError(ErrorCode.VALIDATION_FAILED, "'clicks' must be 1 or more",
                         {"param": "clicks"})
-    point, area, report = _resolve_target(ctx, inp, params)
-    x, y, target = _landing(params, point, area)
+    (x, y), target, report = _resolve_target(ctx, inp, params)
     ctx.check_stop()
     inp.click(x, y, button=button, clicks=clicks, target=target)
     return {"x": x, "y": y, "button": button.value, "clicks": clicks, **report}
@@ -216,8 +262,7 @@ def perform_click(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
 
 def perform_move(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     inp = ctx.input
-    point, area, report = _resolve_target(ctx, inp, params)
-    x, y, target = _landing(params, point, area)
+    (x, y), target, report = _resolve_target(ctx, inp, params)
     ctx.check_stop()
     inp.move(x, y, target=target)
     return {"x": x, "y": y, **report}
@@ -232,16 +277,15 @@ def perform_drag(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     inp.drag(start, end, button=button)
     result: dict[str, Any] = {"from": list(start), "to": list(end), "button": button.value}
     for name, report in (("from", start_report), ("to", end_report)):
-        for key in ("window", "bbox", "score"):
-            if key in report:
-                result[f"{name}_{key}"] = report[key]
+        result.update((f"{name}_{key}", value) for key, value in report.items()
+                      if key != "image")
     return result
 
 
 def perform_wait_image(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     match = ctx.vision.wait(params["image"], timeout=_wait_seconds(ctx, params),
                             **search_options(params))
-    return match_report(match)
+    return match_report(match, params)
 
 
 def perform_scroll(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
@@ -295,7 +339,10 @@ def _check_threshold(params: Mapping[str, Any]) -> list[ParamProblem]:
 
 
 def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
-    problems = _check_threshold(params) + _check_length(params, "region", 4)
+    problems = _check_threshold(params)
+    region = region_problem(params.get("region"))
+    if region is not None:
+        problems.append(ParamProblem("region", region))
     scale = params.get("scale")
     if isinstance(scale, int | float) and not isinstance(scale, bool) and scale <= 0:
         problems.append(ParamProblem("scale", "must be greater than 0"))
@@ -307,10 +354,11 @@ def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
     return problems
 
 
-def _check_length(params: Mapping[str, Any], name: str, length: int) -> list[ParamProblem]:
+def _check_length(params: Mapping[str, Any], name: str, length: int,
+                  where: str = "") -> list[ParamProblem]:
     value = params.get(name)
     if isinstance(value, list) and len(value) != length:
-        return [ParamProblem(name, f"expected {length} numbers")]
+        return [ParamProblem(f"{where}{name}", f"expected {length} numbers")]
     return []
 
 
@@ -324,7 +372,8 @@ def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
 
 
 def check_move(params: Mapping[str, Any]) -> list[ParamProblem]:
-    return check_point(params) + _check_image_options(params)
+    return (check_point(params) + _check_image_options(params)
+            + _check_length(params, "offset", 2))
 
 
 def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
@@ -332,7 +381,8 @@ def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
     for name in ("from", "to"):
         value = params.get(name)
         if isinstance(value, Mapping):
-            problems += check_point(value, name)
+            problems += check_point(value, name) + _check_length(value, "offset", 2,
+                                                                 f"{name}.")
     return problems
 
 
@@ -399,6 +449,12 @@ def _image(required: bool = False) -> ParamSpec:
 
 X = ParamSpec(name="x", type="integer", doc="Horizontal position in physical pixels.")
 Y = ParamSpec(name="y", type="integer", doc="Vertical position in physical pixels.")
+AT = ParamSpec(name="at", type="any",
+               doc="An image result kept with 'as', e.g. \"${label}\": the action aims at "
+                   "its area, where it is now (following its window).")
+OFFSET = ParamSpec(name="offset", type="list",
+                   doc="[dx, dy] added to the target point, in pixels; with an image or "
+                       "'at' target the mouse aims at that exact point.")
 WINDOW = ParamSpec(name="window", type="object",
                    doc="Window to work in, e.g. {title: ...}; coordinates become relative.")
 THRESHOLD = ParamSpec(name="threshold", type="number", default=DEFAULT_THRESHOLD,
@@ -406,40 +462,108 @@ THRESHOLD = ParamSpec(name="threshold", type="number", default=DEFAULT_THRESHOLD
 SCALE = ParamSpec(name="scale", type="number", default=DEFAULT_SCALE,
                   doc="Scale applied to the image before searching, to compensate images "
                       "captured at another display scaling.")
-REGION = ParamSpec(name="region", type="list",
+REGION = ParamSpec(name="region", type="any",
                    doc="[x, y, width, height] to search in (relative to 'window' when "
-                       "given); defaults to the window, else the whole desktop.")
+                       "given), or {at: <image result>, offset: [dx, dy], size: [w, h]} "
+                       "next to a kept result; defaults to the window, else the whole "
+                       "desktop.")
 DEFAULT_WAIT = "10s"
 BUTTON = ParamSpec(name="button", type="string", default="left", choices=BUTTONS,
                    doc="Mouse button.")
 
+AREA_RESULT = (
+    ResultField(name="bbox", type="list",
+                doc="[x, y, width, height] of the area, on the desktop."),
+    ResultField(name="center", type="list", doc="[x, y] of the area's centre, on the desktop."),
+    ResultField(name="window", type="string", optional=True,
+                doc="The title of the window searched in, when the search had one."),
+    ResultField(name="window_bbox", type="list", optional=True,
+                doc="[x, y, width, height] of the area relative to the window's client "
+                    "area, when the search had a window."),
+)
+"""Where an image result is: what makes it usable as an ``at`` target."""
+
+TARGET_RESULT = (
+    ResultField(name="image", type="string", optional=True,
+                doc="The template of an image target."),
+    ResultField(name="score", type="number", optional=True,
+                doc="Match score of an image target."),
+    ResultField(name="bbox", type="list", optional=True,
+                doc="Image and 'at' targets: [x, y, width, height] of the area aimed at, "
+                    "on the desktop."),
+    ResultField(name="center", type="list", optional=True,
+                doc="Image and 'at' targets: [x, y] of the area's centre, on the desktop."),
+    ResultField(name="window", type="string", optional=True,
+                doc="The title of the target's window, when it has one."),
+    ResultField(name="window_bbox", type="list", optional=True,
+                doc="Image and 'at' targets in a window: [x, y, width, height] of the "
+                    "area relative to the window's client area."),
+    ResultField(name="window_area", type="list", optional=True,
+                doc="An x/y target with a window: the window's client area used, "
+                    "[x, y, width, height] on the desktop."),
+)
+
+DRY_RESULT = (
+    ResultField(name="dry_run", type="boolean", optional=True,
+                doc="True in dry runs, whose result is dry_run, description and, when an "
+                    "image was searched or 'at' was given, found, score and the area "
+                    "fields."),
+    ResultField(name="description", type="string", optional=True,
+                doc="Dry runs: what the step would do."),
+    ResultField(name="found", type="boolean", optional=True,
+                doc="Dry runs: whether the image was found."),
+)
+
 CLICK = StepType(StepSpec(
     name="click",
-    doc="Click on an image or at x/y.",
+    doc="Click on an image, a kept image result or at x/y.",
     params=(
-        _image(), X, Y, WINDOW, BUTTON,
+        _image(), X, Y, AT, WINDOW, BUTTON,
         ParamSpec(name="clicks", type="integer", default=1, doc="Number of clicks."),
-        ParamSpec(name="offset", type="list",
-                  doc="[dx, dy] added to the target point, in pixels."),
-        THRESHOLD, SCALE, REGION,
+        OFFSET, THRESHOLD, SCALE, REGION,
+    ),
+    result=(
+        ResultField(name="x", type="integer", doc="The point clicked, on the desktop."),
+        ResultField(name="y", type="integer", doc="The point clicked, on the desktop."),
+        ResultField(name="button", type="string", doc="The button clicked."),
+        ResultField(name="clicks", type="integer", doc="How many clicks."),
+        *TARGET_RESULT, *DRY_RESULT,
     ),
 ), input_step(_describe_click, perform_click))
 
 MOVE = StepType(StepSpec(
     name="move",
-    doc="Move the mouse to an image or to x/y.",
-    params=(_image(), X, Y, WINDOW, THRESHOLD, SCALE, REGION),
-), input_step(lambda p: f"move to {_target(p)}", perform_move))
+    doc="Move the mouse to an image, a kept image result or x/y.",
+    params=(_image(), X, Y, AT, WINDOW, OFFSET, THRESHOLD, SCALE, REGION),
+    result=(
+        ResultField(name="x", type="integer", doc="Where the pointer went, on the desktop."),
+        ResultField(name="y", type="integer", doc="Where the pointer went, on the desktop."),
+        *TARGET_RESULT, *DRY_RESULT,
+    ),
+), input_step(_describe_move, perform_move))
 
 DRAG = StepType(StepSpec(
     name="drag",
     doc="Press a button at one point, move to another and release.",
     params=(
         ParamSpec(name="from", type="object", required=True,
-                  doc="Start point: {image: ...} or {x: ..., y: ...}."),
+                  doc="Start point: {image: ...}, {at: ...} or {x: ..., y: ...}, each "
+                      "with an optional offset."),
         ParamSpec(name="to", type="object", required=True,
-                  doc="End point: {image: ...} or {x: ..., y: ...}."),
+                  doc="End point: {image: ...}, {at: ...} or {x: ..., y: ...}, each "
+                      "with an optional offset."),
         BUTTON,
+    ),
+    result=(
+        ResultField(name="from", type="list", doc="[x, y] where the button went down."),
+        ResultField(name="to", type="list", doc="[x, y] where the button went up."),
+        ResultField(name="button", type="string", doc="The button dragged with."),
+        ResultField(name="from_bbox", type="list", optional=True,
+                    doc="The start target's fields, prefixed with from_ (from_bbox, "
+                        "from_center, from_window, from_window_bbox, from_score...)."),
+        ResultField(name="to_bbox", type="list", optional=True,
+                    doc="The end target's fields, prefixed with to_."),
+        *DRY_RESULT,
     ),
 ), input_step(_describe_drag, perform_drag))
 
@@ -451,6 +575,11 @@ SCROLL = StepType(StepSpec(
                   doc="Horizontal steps; positive scrolls right."),
         ParamSpec(name="dy", type="integer", default=0,
                   doc="Vertical steps; positive scrolls down."),
+    ),
+    result=(
+        ResultField(name="dx", type="integer", doc="Horizontal steps scrolled."),
+        ResultField(name="dy", type="integer", doc="Vertical steps scrolled."),
+        *DRY_RESULT,
     ),
 ), input_step(lambda p: f"scroll dx={p.get('dx', 0)}, dy={p.get('dy', 0)}",
               perform_scroll))
@@ -465,6 +594,11 @@ TYPE = StepType(StepSpec(
         ParamSpec(name="keyboard", type="object",
                   doc="Keyboard profile override, e.g. {strategy: direct}."),
     ),
+    result=(
+        ResultField(name="chars", type="integer",
+                    doc="How many characters were typed (never the text)."),
+        *DRY_RESULT,
+    ),
 ), _checked_text(input_step(lambda p: f"type {len(str(p['text']))} characters",
                             perform_type)))
 
@@ -476,6 +610,12 @@ KEY = StepType(StepSpec(
         ParamSpec(name="press", type="string", required=True,
                   doc="Key or combination joined with '+', e.g. enter or ctrl+s."),
         ParamSpec(name="hold", type="duration", doc="Keep the keys down this long."),
+    ),
+    result=(
+        ResultField(name="press", type="string", doc="The combination pressed."),
+        ResultField(name="hold", type="number", optional=True,
+                    doc="Seconds the keys were held, when 'hold' was given."),
+        *DRY_RESULT,
     ),
 ), input_step(_describe_key, perform_key))
 
@@ -489,5 +629,12 @@ WAIT_IMAGE = StepType(StepSpec(
                   doc="Give up with image_not_found after this long; the step's common "
                       "'timeout' replaces it when set."),
         THRESHOLD, REGION, WINDOW, SCALE,
+    ),
+    result=(
+        ResultField(name="found", type="boolean",
+                    doc="Whether the image was found (always true outside dry runs)."),
+        ResultField(name="score", type="number", doc="Best match score, from 0 to 1."),
+        *AREA_RESULT,
+        *DRY_RESULT[:2],
     ),
 ), input_step(_describe_wait, perform_wait_image, image_wait=True))

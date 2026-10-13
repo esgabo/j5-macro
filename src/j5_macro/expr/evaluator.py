@@ -3,7 +3,9 @@
 Expressions are parsed with :func:`ast.parse` and evaluated by walking the tree here;
 nothing is passed to Python's ``eval``. Every node type, operator and operand type is
 whitelisted, and every value the expression builds is size-limited, so scripts cannot
-reach Python internals, the filesystem, or exhaust memory or CPU.
+reach Python internals, the filesystem, or exhaust memory or CPU. Attribute syntax only
+reads the keys of mappings (``label.bbox`` is ``label["bbox"]``): no Python attribute is
+ever looked up.
 """
 
 from __future__ import annotations
@@ -60,7 +62,6 @@ _COMPARE: dict[type[ast.cmpop], str] = {
     ast.NotIn: "not in",
 }
 _REJECTED_NODES: dict[type[ast.AST], str] = {
-    ast.Attribute: "attribute access is not allowed",
     ast.Lambda: "lambda is not allowed",
     ast.ListComp: "comprehensions are not allowed",
     ast.SetComp: "comprehensions are not allowed",
@@ -85,6 +86,7 @@ _ALLOWED_NODES: tuple[type[ast.AST], ...] = (
     ast.Tuple,
     ast.Dict,
     ast.Subscript,
+    ast.Attribute,
     ast.UnaryOp,
     ast.BinOp,
     ast.BoolOp,
@@ -250,6 +252,8 @@ class _Evaluator:
                 return self._dict(node, keys, values)
             case ast.Subscript(value=target, slice=index):
                 return self._subscript(node, self.visit(target), self.visit(index))
+            case ast.Attribute(value=target, attr=attr):
+                return self._attribute(node, self.visit(target), attr)
             case ast.UnaryOp(op=op, operand=operand):
                 return self._unary(node, op, self.visit(operand))
             case ast.BinOp(left=left, op=op, right=right):
@@ -300,6 +304,17 @@ class _Evaluator:
             except IndexError:
                 _fail(self.compiled, f"index {index} out of range", node)
         _fail(self.compiled, f"cannot index {_type(target)}", node)
+
+    def _attribute(self, node: ast.expr, target: Any, attr: str) -> Any:
+        """``mapping.key`` reads the key ``key``; nothing else has attributes (no Python
+        attribute is ever looked up)."""
+        if not isinstance(target, dict):
+            _fail(self.compiled, f"cannot read '.{attr}' of {_type(target)}: only "
+                  "mappings have attributes", node)
+        try:
+            return target[attr]
+        except KeyError:
+            _fail(self.compiled, f"key {attr!r} not found", node)
 
     def _unary(self, node: ast.expr, op: ast.unaryop, operand: Any) -> Any:
         if isinstance(op, ast.Not):

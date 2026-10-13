@@ -46,7 +46,7 @@ def test_wait_image_found_on_the_third_attempt(tmp_path: Path) -> None:
                            "best_score": 0.97, "bbox": [300, 400, 40, 20],
                            "region": [0, 0, 1920, 1080], "attempt": 3, "elapsed_ms": 0}
     assert run.recorder.of("step_finished")[0]["result"] == {
-        "found": True, "score": 0.97, "bbox": [300, 400, 40, 20]}
+        "found": True, "score": 0.97, "bbox": [300, 400, 40, 20], "center": [320, 410]}
     assert run.clock.t == pytest.approx(0.5)  # two intervals of 0.25 s
     assert not (tmp_path / "captures").exists()  # on_failure: nothing failed
     assert run.toolkit.templates == [tmp_path / "img" / "x.png"]
@@ -115,7 +115,7 @@ def test_dry_run_searches_once_and_continues(tmp_path: Path) -> None:
     assert len(run.searches()) == 1
     result = run.recorder.of("step_finished", step_id="w")[0]["result"]
     assert result == {"dry_run": True, "found": False, "score": 0.3, "bbox": [5, 5, 10, 10],
-                      "description": "would wait up to 10s for image img/x.png "
+                      "center": [10, 10], "description": "would wait up to 10s for image img/x.png "
                                      "(not found, best score 0.300)"}
     assert run.recorder.of("step_finished", step_id="after")
     assert not (tmp_path / "captures").exists()
@@ -246,7 +246,7 @@ def test_click_on_an_image(tmp_path: Path) -> None:
     assert run.toolkit.searches[0][2:] == (0.7, 1.25)
     assert run.recorder.of("step_finished")[0]["result"] == {
         "x": 320, "y": 410, "button": "right", "clicks": 1, "image": "img/x.png",
-        "score": 0.91, "bbox": [300, 400, 40, 20]}
+        "score": 0.91, "bbox": [300, 400, 40, 20], "center": [320, 410]}
 
 
 def test_click_on_an_image_with_an_offset_aims_at_the_point(tmp_path: Path) -> None:

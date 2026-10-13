@@ -360,6 +360,19 @@ def test_update_block_step_params_and_common_fields() -> None:
     assert load(removed).find("lp").on_error == "continue"  # type: ignore[union-attr]
 
 
+def test_update_the_as_common_field() -> None:
+    out = edit(BASIC, {"op": "update", "step_id": "last",
+                       "common": {"as": {"name": "token", "secret": True}}})
+    assert out.endswith("    key: ctrl+s\n    as: {name: token, secret: true}\n")
+    step = load(out).find("last")
+    assert step is not None and step.store_as is not None
+    assert (step.store_as.name, step.store_as.secret) == ("token", True)
+    short = edit(out, {"op": "update", "step_id": "last", "common": {"as": "pressed"}})
+    assert short.endswith("    key: ctrl+s\n    as: pressed\n")
+    removed = edit(short, {"op": "update", "step_id": "last", "common": {"as": None}})
+    assert "as:" not in removed
+
+
 def test_update_nested_mapping_keeps_unchanged_parts() -> None:
     out = edit(COMMENTED, {"op": "update", "step_id": "typing",
                            "params": {"keyboard": {"strategy": "direct", "wpm": 90}}})

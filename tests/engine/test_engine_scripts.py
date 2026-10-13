@@ -35,6 +35,7 @@ steps:
         - id: nap
           break: true
           sleep: 10ms
+    as: rounds
 """
 
 BAD = """\
@@ -67,6 +68,7 @@ def test_list_step_types_matches_registry(engine: Engine) -> None:
     click = next(info for info in result.step_types if info.name == "click")
     assert click.json_schema
     assert any(param.name == "button" for param in click.params)
+    assert [field.name for field in click.result][:4] == ["x", "y", "button", "clicks"]
 
 
 def test_load_from_path(engine: Engine, tmp_path: Path) -> None:
@@ -80,6 +82,8 @@ def test_load_from_path(engine: Engine, tmp_path: Path) -> None:
     assert greet.timeout == "1.5s"  # normalized from 1500ms
     assert greet.on_error == "continue"
     assert greet.blocks is None
+    assert greet.store_as is None
+    assert loop.store_as == {"name": "rounds", "secret": False}
     assert loop.id == "loop_1"  # generated, so there is a warning
     assert loop.blocks is not None
     (nap,) = loop.blocks["do"]

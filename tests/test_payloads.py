@@ -84,7 +84,9 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_step_types": {"step_types": [{
         "name": "sleep", "doc": "Wait.", "schema": {"type": "object"},
         "params": [{"name": "duration", "type": "duration", "required": True, "default": None,
-                    "doc": ""}]}]},
+                    "doc": ""}],
+        "result": [{"name": "seconds", "type": "number", "optional": False,
+                    "doc": "Slept."}]}]},
     "load": {"script_id": "s", "steps": [NODE],
              "params": [{"name": "who", "type": "string", "secret": False,
                          "required": False, "default": "you"}],

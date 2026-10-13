@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from j5_macro.steps.checks import exactly_one
-from j5_macro.steps.spec import ParamProblem, ParamSpec, StepSpec, StepType
+from j5_macro.steps.spec import ParamProblem, ParamSpec, ResultField, StepSpec, StepType
 
 IF = StepType(StepSpec(
     name="if",
@@ -18,6 +18,7 @@ IF = StepType(StepSpec(
     ),
     blocks=("then", "else"),
     required_blocks=("then",),
+    result=(ResultField(name="branch", type="string", doc="The block that ran: then or else."),),
 ))
 
 LOOP = StepType(StepSpec(
@@ -36,6 +37,8 @@ LOOP = StepType(StepSpec(
     ),
     blocks=("do",),
     required_blocks=("do",),
+    result=(ResultField(name="iterations", type="integer",
+                        doc="How many iterations started."),),
 ))
 
 

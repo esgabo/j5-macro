@@ -9,7 +9,7 @@ import pytest
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
-from j5_macro.script import LoadResult, Script, Step, load_file, load_script
+from j5_macro.script import LoadResult, Script, Step, StoreAs, load_file, load_script
 from j5_macro.steps.spec import ParamProblem, ParamSpec, StepSpec
 
 SPECS = {
@@ -37,6 +37,8 @@ SPECS = {
                  required_blocks=("do",), params=(
                      ParamSpec(name="times", type="integer"),
                      ParamSpec(name="while", type="condition"),
+                     ParamSpec(name="for_each", type="any"),
+                     ParamSpec(name="as", type="string"),
                  )),
         StepSpec(name="type", doc="Type text.", params=(
             ParamSpec(name="text", type="string", required=True),
@@ -276,8 +278,47 @@ steps:
 
 def test_common_field_defaults() -> None:
     step = ok("steps:\n  - id: s\n    sleep: 1s\n").steps[0]
-    assert (step.breakpoint, step.timeout, step.on_error, step.input) == (
-        False, None, "stop", None)
+    assert (step.breakpoint, step.timeout, step.on_error, step.input, step.store_as) == (
+        False, None, "stop", None, None)
+
+
+@pytest.mark.parametrize(("value", "name", "secret"), [
+    ("label", "label", False),
+    ("_x1", "_x1", False),
+    ("{name: token}", "token", False),
+    ("{name: token, secret: true}", "token", True),
+    ("{name: token, secret: false}", "token", False),
+])
+def test_as_keeps_the_result_in_a_variable(value: str, name: str, secret: bool) -> None:
+    step = ok(f"steps:\n  - id: s\n    sleep: 1s\n    as: {value}\n").steps[0]
+    assert step.store_as == StoreAs(name=name, secret=secret)
+
+
+def test_as_works_on_block_steps_next_to_a_loop_as() -> None:
+    step = ok("""\
+steps:
+  - id: each
+    loop:
+      for_each: [1, 2]
+      as: row
+      do:
+        - id: show
+          log: "${row}"
+    as: rounds
+""").steps[0]
+    assert step.params["as"] == "row"
+    assert step.store_as == StoreAs(name="rounds")
+
+
+@pytest.mark.parametrize("value", [
+    "1abc", "a-b", '""', "if", "[a]", "{secret: true}", "{name: a, secret: yes}",
+    "{name: a, mask: true}", "null",
+])
+def test_bad_as(value: str) -> None:
+    error = only_error(f"steps:\n  - id: s\n    sleep: 1s\n    as: {value}\n")
+    assert error.code == ErrorCode.VALIDATION_FAILED
+    assert error.details == {"field": "as"}
+    assert error.step_id == "s"
 
 
 @pytest.mark.parametrize(("field", "value"), [

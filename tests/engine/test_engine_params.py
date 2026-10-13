@@ -10,6 +10,7 @@ from engine_harness import Behaviour, Engine, FakeFactory
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads import LoadResult
 from j5_macro.runtime.api import ControlError
+from j5_macro.steps import StepContext, StepSpec, StepType, default_registry
 
 SECRET = "s3cr#t pass"
 SCRIPT = """\
@@ -169,3 +170,59 @@ def test_runs_without_secrets_are_untouched() -> None:
     engine.close()
     (log,) = [e for e in engine.run_events(run_id) if e["type"] == "log"]
     assert log["payload"]["message"] == "***x"
+
+
+# --- results stored as secrets, through the real interpreter ----------------------------
+
+TOKEN = "tok-123"
+
+
+def _fetch(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
+    """Stands in for a command that prints a token."""
+    return {"exit_code": 0, "stdout": f"{TOKEN}\n", "stderr": ""}
+
+
+SECRET_RESULT = """\
+steps:
+  - id: get_token
+    fetch:
+    as: {name: token, secret: true}
+  - id: show
+    log: "token ${token.stdout}stripped ${strip(token.stdout)}"
+  - id: check
+    pause: look
+  - id: broken
+    set: {name: x, expr: "token.stdout + 1"}
+"""
+
+
+def test_a_result_stored_as_secret_is_masked_from_its_step_finished_on(tmp_path) -> None:
+    registry = default_registry()
+    registry.register(StepType(StepSpec(name="fetch", doc="Fetch a token."), _fetch))
+    engine = Engine(registry=registry, runs_dir=tmp_path)
+    run_id = engine.start(engine.load_source(SECRET_RESULT))
+    engine.writer.wait_for(lambda m: m.get("type") == "state_changed"
+                           and m["payload"].get("state") == "paused")
+    state = engine.ok("get_state", {"run_id": run_id})
+    assert state["variables"]["token"] == {"exit_code": 0, "stdout": "***", "stderr": ""}
+    for expression in ("token.stdout", "strip(token.stdout)", "token"):
+        answer = engine.ok("evaluate", {"run_id": run_id, "expression": expression})
+        assert TOKEN not in repr(answer)
+    engine.ok("resume", {"run_id": run_id})
+    finished = engine.wait_finished(run_id)
+    engine.close()
+
+    events = engine.run_events(run_id)
+    assert TOKEN not in repr(events)
+    (result,) = [e["payload"]["result"] for e in events if e["type"] == "step_finished"
+                 and e["payload"]["step_id"] == "get_token"]
+    assert result == {"exit_code": 0, "stdout": "***", "stderr": ""}
+    (stored,) = [e["payload"] for e in events if e["type"] == "variable_changed"
+                 and e["payload"]["name"] == "token"]
+    assert stored["step_id"] == "get_token" and stored["new"]["stdout"] == "***"
+    (log,) = [e["payload"]["message"] for e in events if e["type"] == "log"
+              and e["payload"].get("step_id") == "show"]
+    assert log == "token ***stripped ***"
+    assert finished["payload"]["status"] == "failed"
+    for path in tmp_path.rglob("*.json*"):
+        assert TOKEN not in path.read_text(encoding="utf-8"), path

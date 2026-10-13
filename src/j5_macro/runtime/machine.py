@@ -35,6 +35,7 @@ from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
 from j5_macro.runtime.vision import BoundVision, RunVision
 from j5_macro.script.model import Script, Step
+from j5_macro.script.params import secret_texts
 from j5_macro.steps.registry import StepRegistry
 from j5_macro.steps.spec import LogLevel, StepError, StepSpec
 from j5_macro.vision.api import StepVision
@@ -64,6 +65,7 @@ class Machine:
         self._seed = options.seed
         self._dry_run = options.mode == "dry"
         self._conditions = conditions
+        self._add_secrets = options.add_secrets
         self._vars: dict[str, Any] = {**script.vars, **options.variables}
         self._stack: list[Frame] = []
         self.position: Step | None = None
@@ -256,13 +258,27 @@ class Machine:
             params = self._resolve_and_start(step, its, step_type.spec)
             ctx = self._context(step, its, number, depth)
             result = step_type.executor(ctx, params)
-            self._events.step_finished(step, its, self._elapsed_ms(started, paused), result)
+            self._step_finished(step, its, self._elapsed_ms(started, paused), result)
             return ctx
 
         ctx = self._guarded(step, its, depth, attempt)
         self._stack[-1].index += 1
         if ctx is not None and ctx.pause_requested:
             self._pause("breakpoint", depth)
+
+    def _step_finished(self, step: Step, its: Iterations, duration_ms: int,
+                       result: dict[str, Any] | None) -> None:
+        """Emit ``step_finished`` and keep the result in the step's ``as`` variable: a
+        secret result is registered with the engine first, so its own ``step_finished``
+        is masked too."""
+        store = step.store_as
+        if store is not None and store.secret and self._add_secrets is not None:
+            texts = secret_texts(result)
+            if texts:
+                self._add_secrets(texts)
+        self._events.step_finished(step, its, duration_ms, result)
+        if store is not None:
+            self.assign(store.name, result, step.id)
 
     def _resolve_and_start(self, step: Step, its: Iterations, spec: StepSpec) -> dict[str, Any]:
         """Resolve the params and emit ``step_started`` (with the raw params on failure)."""
@@ -379,9 +395,9 @@ class Machine:
     def _finish(self, frame: Frame) -> None:
         """Emit ``step_finished`` for ``frame``'s block step and move past it."""
         assert frame.owner is not None
-        self._events.step_finished(frame.owner, iterations(self._stack),
-                                   self._elapsed_ms(frame.started, frame.paused_before),
-                                   frame.result)
+        self._step_finished(frame.owner, iterations(self._stack),
+                            self._elapsed_ms(frame.started, frame.paused_before),
+                            frame.result)
         self._stack[-1].index += 1
 
     def _end_of_block(self) -> None:

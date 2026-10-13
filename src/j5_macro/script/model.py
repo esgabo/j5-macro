@@ -55,6 +55,18 @@ class ScriptParam:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class StoreAs:
+    """The common ``as`` field: the variable that keeps a step's result."""
+
+    name: str
+    secret: bool = False
+    """The result's strings become secrets of the run (masked) when it is stored."""
+
+    def to_json(self) -> dict[str, Any]:
+        return {"name": self.name, "secret": self.secret}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Step:
     """One step. ``params`` are type-specific and already defaulted by the loader."""
 
@@ -69,6 +81,8 @@ class Step:
     """Seconds, already parsed from the YAML duration."""
     input: dict[str, Any] | None = None
     """Per-step input profile override (``mouse`` / ``keyboard`` keys)."""
+    store_as: StoreAs | None = None
+    """The common ``as`` field; None when the result is not kept."""
     blocks: dict[str, list[Step]] = field(default_factory=dict)
     """Child step lists of block steps, keyed by slot name (``then``, ``else``, ``do``)."""
 

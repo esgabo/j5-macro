@@ -11,6 +11,7 @@ thread and reports through the event sink.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import importlib
 import secrets
 import threading
@@ -44,6 +45,7 @@ from j5_macro.script.params import (
     ParamProblem,
     mask,
     mask_payload,
+    merge_secrets,
     missing_names,
     resolve,
     secret_values,
@@ -123,10 +125,12 @@ class Run:
                  secrets: list[str] | None = None) -> None:
         self.server = server
         self.secrets = list(secrets or [])
-        """Values of the run's secret params, masked in every event and answer."""
+        """Values masked in every event and answer, longest first: the run's secret
+        params, then the results stored as secrets (:meth:`add_secrets`). Replaced, never
+        changed in place, so readers on other threads see one list or the other."""
         self.run_id = run_id
         self.script_id = entry.script_id
-        self.options = options
+        self.options = dataclasses.replace(options, add_secrets=self.add_secrets)
         self.sequencer = EventSequencer(run_id)
         self.events: list[Event] = []
         self.controller: RunController | None = None
@@ -182,6 +186,12 @@ class Run:
             self._publish("run_finished", payload)
             self._closed = True
         return self.masked_payload(payload)
+
+    def add_secrets(self, values: list[str]) -> None:
+        """The run's :data:`~j5_macro.runtime.api.SecretSink`: mask ``values`` too, in
+        every event published from now on and in every answer."""
+        with self._lock:
+            self.secrets = merge_secrets(self.secrets, values)
 
     def masked(self, value: Any) -> Any:
         """``value`` with this run's secret values replaced by ``***``."""
@@ -309,7 +319,8 @@ class RunManager:
                       secret_values(script.params, variables))
             factory = self._factory if self._factory is not None else default_run_factory()
             try:
-                run.controller = factory(entry.script, self.scripts.registry, run.sink, options)
+                run.controller = factory(entry.script, self.scripts.registry, run.sink,
+                                         run.options)
             except ControlError as exc:
                 raise CommandError.from_info(exc.info) from exc
             run_started: JsonObject = {

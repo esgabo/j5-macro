@@ -164,6 +164,7 @@ def step_node(step: Step) -> StepNode:
         on_error=step.on_error,
         timeout=None if step.timeout is None else format_seconds(step.timeout),
         input=step.input,
+        store_as=None if step.store_as is None else step.store_as.to_json(),
         blocks={slot: [step_node(child) for child in children]
                 for slot, children in step.blocks.items()} or None,
     )

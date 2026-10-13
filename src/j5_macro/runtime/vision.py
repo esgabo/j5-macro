@@ -10,7 +10,11 @@ docs/contract.md, "Script format and step registry" (images, coordinates), "Even
   the run fails with ``capability_missing`` giving the reason.
 - Image paths are relative to the script file's directory (the current directory for a
   script without a file). ``window: {title}`` is looked up with the engine's backend;
-  ``region`` is relative to that window when given, else absolute.
+  ``region`` is relative to that window when given, else absolute. A region placed
+  ``{at: <stored result>, ...}`` is on the desktop, following the stored result's own
+  window (:func:`~j5_macro.steps.positions.anchored_region`).
+- Matches carry the client area of the window searched in (``Match.frame``), so image
+  results can report where they are relative to it (``window_bbox``).
 - Every attempt emits ``image_search``. Captures go to ``<run_dir>/captures/`` following
   the run's ``captures`` policy, and events carry their path relative to ``run_dir``.
 - :meth:`BoundVision.wait` sleeps between attempts through the step's interruptible
@@ -20,6 +24,7 @@ docs/contract.md, "Script format and step registry" (images, coordinates), "Even
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -30,6 +35,7 @@ from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads.events import ImageSearchEvent
 from j5_macro.runtime.api import RunEventSink
 from j5_macro.runtime.clock import Clock
+from j5_macro.steps.positions import anchored_region
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
     DEFAULT_INTERVAL,
@@ -159,11 +165,17 @@ class RunVision:
                             {"title": title})
         return rect
 
-    def search_area(self, region: Any, window: Any) -> Rect | None:
-        """The desktop rectangle to capture, or None for the whole desktop."""
-        frame = self.window_rect(window) if window is not None else None
+    def window_frame(self, window: Any) -> Rect | None:
+        """The client area of the step's ``window``, None without one."""
+        return None if window is None else self.window_rect(window)
+
+    def search_area(self, region: Any, frame: Rect | None) -> Rect | None:
+        """The desktop rectangle to capture (``region``, relative to ``frame`` when given;
+        else ``frame``), or None for the whole desktop."""
         if region is None:
             return frame
+        if isinstance(region, Mapping):
+            return anchored_region(region, lambda title: self.window_rect({"title": title}))
         if (not isinstance(region, list) or len(region) != 4
                 or any(isinstance(v, bool) or not isinstance(v, int | float) for v in region)):
             raise StepError(ErrorCode.VALIDATION_FAILED,
@@ -217,7 +229,7 @@ class BoundVision:
         self._paused = paused
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None) -> Match:
         """One attempt; not finding the image is not a failure (no capture under
         ``on_failure``)."""
@@ -225,7 +237,7 @@ class BoundVision:
         return self._attempt(search, 1, final_miss_fails=False)
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
@@ -272,7 +284,8 @@ class BoundVision:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'scale' must be a positive number",
                             {"param": "scale"})
         template = self._run.load_template(image)
-        self._run.search_area(region, window)  # fail early on a bad region or window
+        # Fail early on a bad region or window.
+        self._run.search_area(region, self._run.window_frame(window))
         return _Search(image=image, template=template, threshold=float(threshold),
                        scale=float(scale), region=region, window=window)
 
@@ -283,24 +296,27 @@ class BoundVision:
         clock = run.clock
         began = clock.now()
         # Looked up on every attempt, so a wait follows a window that moves.
-        area = run.search_area(search.region, search.window)
+        frame = run.window_frame(search.window)
+        area = run.search_area(search.region, frame)
         try:
-            frame = toolkit.capturer.grab(area)
+            capture = toolkit.capturer.grab(area)
         except ValueError as exc:  # e.g. a region entirely outside the virtual desktop
             raise StepError(ErrorCode.VALIDATION_FAILED, f"cannot search there: {exc}",
                             {"param": "region"}) from exc
-        match = toolkit.locate(search.template, frame, search.threshold, search.scale)
+        match = toolkit.locate(search.template, capture, search.threshold, search.scale)
+        if frame is not None:
+            match = dataclasses.replace(match, frame=frame)
         elapsed_ms = max(0, round((clock.now() - began) * 1000))
         failing = (final_miss_fails and not match.found
                    and (out_of_time is None or out_of_time()))
         screenshot: str | None = None
         if run.captures == "all" or failing:
-            screenshot = run.save(frame, self._step_id, attempt, match.bbox, self._log)
+            screenshot = run.save(capture, self._step_id, attempt, match.bbox, self._log)
         if failing:
             search.failed_capture = screenshot
             search.failed = True
         if area is None:
-            area = frame.rect
+            area = capture.rect
         run.emit_search(ImageSearchEvent(
             template=search.image, threshold=search.threshold, found=match.found,
             best_score=round(float(match.score), 4),

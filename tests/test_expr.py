@@ -173,6 +173,41 @@ def test_indexing(text: str, expected: Any) -> None:
     assert ev(text) == expected
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("pos.x", 100),
+        ("pos.y + 1", 201),
+        ("nested.list[0].v", "deep"),
+        ("nested['list'][0].v", "deep"),
+        ("{'bbox': [1, 2, 3, 4]}.bbox[2]", 3),
+        ("len(pos.x * [0])", 100),
+    ],
+)
+def test_attributes_read_mapping_keys(text: str, expected: Any) -> None:
+    assert ev(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ("pos.z", "key 'z' not found"),
+        ("pos.__class__", "key '__class__' not found"),
+        ("pos.keys", "key 'keys' not found"),
+        ("x.real", "cannot read '.real' of int"),
+        ("().__class__", "cannot read '.__class__' of tuple"),
+        ("name.upper", "cannot read '.upper' of str"),
+        ("nothing.a", "cannot read '.a' of null"),
+        ("items.length", "only mappings have attributes"),
+    ],
+)
+def test_attributes_of_anything_but_a_mapping_fail(text: str, problem: str) -> None:
+    """No Python attribute is ever looked up, so the internals stay out of reach."""
+    error = error_of(text)
+    assert problem in str(error)
+    assert error.info.code == "expression_error"
+
+
 def test_displays() -> None:
     assert ev("[1, x, name]") == [1, 10, "Ana"]
     assert ev("(1, 2)") == (1, 2)
@@ -393,11 +428,10 @@ def test_long_expression_is_shortened_in_message() -> None:
 @pytest.mark.parametrize(
     ("text", "problem"),
     [
-        ("().__class__", "attribute access"),
-        ("().__class__.__bases__[0].__subclasses__()", "attribute access"),
-        ("name.upper()", "attribute access"),
-        ("'abc'.join(items)", "attribute access"),
-        ("x.real", "attribute access"),
+        ("().__class__.__bases__[0].__subclasses__()", "by name"),
+        ("name.upper()", "by name"),
+        ("'abc'.join(items)", "by name"),
+        ("pos.x()", "by name"),
         ("2 ** 10", "'**'"),
         ("9 ** 9 ** 9", "'**'"),
         ("lambda: 1", "lambda"),
@@ -810,9 +844,11 @@ def test_find_interpolations() -> None:
 def test_validate_template() -> None:
     validate_template("Hi ${name} and ${undefined_is_fine_at_load_time}")
     validate_template("no interpolation")
+    validate_template("a ${x.y}")
     with pytest.raises(ExpressionError) as info:
-        validate_template("a ${x.y}")
-    assert info.value.info.details == {"expression": "x.y", "column": 5, "template": "a ${x.y}"}
+        validate_template("a ${x.y()}")
+    assert info.value.info.details == {"expression": "x.y()", "column": 5,
+                                       "template": "a ${x.y()}"}
     with pytest.raises(ExpressionError, match="syntax error"):
         validate_template("${x +}")
     with pytest.raises(ExpressionError, match="unterminated"):

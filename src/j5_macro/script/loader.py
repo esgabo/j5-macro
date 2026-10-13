@@ -10,6 +10,7 @@ checks through a :data:`CheckFn`.
 from __future__ import annotations
 
 import datetime
+import keyword
 import os
 import re
 from collections.abc import Callable, Mapping
@@ -22,7 +23,7 @@ from ruamel.yaml.error import YAMLError
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
-from j5_macro.script.model import OnError, Script, ScriptParam, Step, StepPath
+from j5_macro.script.model import OnError, Script, ScriptParam, Step, StepPath, StoreAs
 from j5_macro.script.params import PARAM_FIELDS, PARAM_TYPES
 from j5_macro.steps.spec import (
     ParamProblem,
@@ -39,7 +40,7 @@ SUPPORTED_VERSION = 1
 ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 _TOP_LEVEL = ("version", "name", "input", "params", "vars", "steps")
-_COMMON = ("id", "break", "timeout", "on_error", "input")
+_COMMON = ("id", "break", "timeout", "on_error", "input", "as")
 _ON_ERROR = ("stop", "continue", "retry", "pause")
 
 
@@ -189,6 +190,7 @@ class _Node:
     on_error: str = "stop"
     timeout: float | None = None
     input: dict[str, Any] | None = None
+    store_as: StoreAs | None = None
     blocks: dict[str, list[_Node]] = field(default_factory=dict)
     problems: list[_Problem] = field(default_factory=list)
 
@@ -207,6 +209,7 @@ class _Node:
             on_error=cast(OnError, self.on_error),
             timeout=self.timeout,
             input=self.input,
+            store_as=self.store_as,
             blocks={slot: [c.build() for c in children]
                     for slot, children in self.blocks.items()},
         )
@@ -442,6 +445,30 @@ class _Loader:
                 node.input = _plain(raw["input"])
             else:
                 node.problem("'input' must be a mapping", field="input")
+        if "as" in raw:
+            node.store_as = self.store_as(node, raw["as"])
+
+    @staticmethod
+    def store_as(node: _Node, value: Any) -> StoreAs | None:
+        """The ``as`` field: ``NAME`` or ``{name: NAME, secret: true}``."""
+        value, secret = _plain(value), False
+        if isinstance(value, Mapping):
+            unknown = sorted(str(k) for k in value if k not in ("name", "secret"))
+            if unknown:
+                node.problem(f"'as': unknown field(s) {', '.join(unknown)}; expected name "
+                             "and secret", field="as")
+                return None
+            name, secret = value.get("name"), value.get("secret", False)
+        else:
+            name = value
+        if not is_variable_name(name):
+            node.problem(f"'as' needs a variable name (letters, digits and _, not starting "
+                         f"with a digit), got {name!r}", field="as")
+            return None
+        if not isinstance(secret, bool):
+            node.problem("'as': secret must be true or false", field="as")
+            return None
+        return StoreAs(name=str(name), secret=secret)
 
     def body(self, node: _Node, spec: StepSpec, value: Any) -> None:
         assert node.type is not None
@@ -524,6 +551,12 @@ class _Loader:
                             "breakpoints stable",
                     step_id=candidate, line=node.line, details={"generated_id": True},
                 ))
+
+
+def is_variable_name(name: Any) -> bool:
+    """Whether ``name`` can name a variable that expressions read: an identifier that
+    is not a Python keyword."""
+    return isinstance(name, str) and name.isidentifier() and not keyword.iskeyword(name)
 
 
 def _by_line(infos: list[ErrorInfo]) -> list[ErrorInfo]:

@@ -77,6 +77,8 @@ class StepNode(Payload):
     on_error: OnError | None = None
     timeout: str | None = None
     input: dict[str, Any] | None = None
+    store_as: dict[str, Any] | None = field(default=None, metadata=wire_name("as"))
+    """The common ``as`` field, as ``{name, secret}``."""
     blocks: dict[str, list[StepNode]] | None = None
 
 
@@ -115,10 +117,22 @@ class ParamInfo(Payload):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ResultFieldInfo(Payload):
+    """One field of a step type's result; ``optional`` fields are only present in
+    some cases."""
+
+    name: str
+    type: str
+    optional: bool = False
+    doc: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StepTypeInfo(Payload):
     name: str
     params: list[ParamInfo]
     doc: str = ""
+    result: list[ResultFieldInfo] = field(default_factory=list)
     json_schema: dict[str, Any] = field(default_factory=dict, metadata=wire_name("schema"))
 
 
@@ -329,7 +343,7 @@ class InsertEdit(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UpdateEdit(Payload):
     """Replace the given ``params`` (``None`` removes one) and ``common`` fields
-    (``break``, ``timeout``, ``on_error``, ``input``)."""
+    (``break``, ``timeout``, ``on_error``, ``input``, ``as``)."""
 
     op: Literal["update"] = "update"
     step_id: str

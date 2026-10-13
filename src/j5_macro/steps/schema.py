@@ -11,12 +11,13 @@ import json
 import sys
 from typing import TYPE_CHECKING, Any
 
-from j5_macro.steps.spec import ParamSpec, ParamType, StepSpec
+from j5_macro.steps.spec import ParamSpec, ParamType, ResultField, StepSpec
 
 if TYPE_CHECKING:
     from j5_macro.steps.registry import StepRegistry
 
 DRAFT = "https://json-schema.org/draft/2020-12/schema"
+VARIABLE_NAME = r"^[A-Za-z_][A-Za-z0-9_]*$"
 STEP_REF = "#/$defs/step"
 
 JsonSchema = dict[str, Any]
@@ -113,6 +114,24 @@ def _common_fields() -> dict[str, JsonSchema]:
         "on_error": {"enum": ["stop", "continue", "retry", "pause"], "default": "stop",
                      "description": "What to do when the step fails."},
         "input": _input_profile("Input profile override for this step."),
+        "as": {
+            "anyOf": [
+                {"type": "string", "pattern": VARIABLE_NAME},
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "pattern": VARIABLE_NAME},
+                        "secret": {"type": "boolean", "default": False,
+                                   "description": "Mask every string of the result as a "
+                                                  "secret of the run."},
+                    },
+                    "required": ["name"],
+                    "additionalProperties": False,
+                },
+            ],
+            "description": "Keep the step's result in this variable when the step "
+                           "succeeds, e.g. as: label or as: {name: token, secret: true}.",
+        },
     }
 
 
@@ -123,6 +142,28 @@ def _input_profile(description: str) -> JsonSchema:
         "additionalProperties": False,
         "description": description,
     }
+
+
+def result_schema(spec: StepSpec) -> JsonSchema:
+    """The schema of a step type's result (what ``as`` stores), from its declared fields;
+    an open object when the step type declares none."""
+    if not spec.result:
+        return {"type": "object", "description": f"Result of '{spec.name}'."}
+    properties = {f.name: _result_field_schema(f) for f in spec.result}
+    schema: JsonSchema = {"type": "object", "description": f"Result of '{spec.name}'.",
+                          "properties": properties}
+    required = [f.name for f in spec.result if not f.optional]
+    if required:
+        schema["required"] = required
+    return schema
+
+
+def _result_field_schema(result: ResultField) -> JsonSchema:
+    kind = result.type
+    schema = dict(_STRUCTURED[kind] if kind in _STRUCTURED else _SCALAR[kind])
+    if result.doc:
+        schema["description"] = result.doc
+    return schema
 
 
 def step_schema(registry: StepRegistry) -> JsonSchema:
@@ -180,7 +221,12 @@ def script_json_schema(registry: StepRegistry) -> JsonSchema:
         },
         "required": ["steps"],
         "additionalProperties": False,
-        "$defs": {"step": step_schema(registry)},
+        "$defs": {
+            "step": step_schema(registry),
+            # Not referenced: what each step type's result (and so ``as``) holds.
+            **{f"{name}_result": result_schema(spec) for name in registry.names()
+               if (spec := registry.spec(name)) is not None},
+        },
     }
 
 

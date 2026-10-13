@@ -53,6 +53,11 @@ def test_contract_example_validates():
     {"if": {"when": "x > 1", "then": [{"sleep": "1s"}], "else": []}},
     {"id": "a", "break": True, "timeout": "5s", "on_error": "retry",
      "input": {"mouse": {"strategy": "direct"}}, "key": "ctrl+s"},
+    {"wait_image": "img/a.png", "as": "label"},
+    {"sleep": "1s", "as": {"name": "token", "secret": True}},
+    {"click": {"at": "${label}", "offset": [0, 40]}},
+    {"wait_image": {"image": "a.png", "region": {"at": "${label}", "size": [100, 20]}}},
+    {"drag": {"from": {"at": "${label}"}, "to": {"x": 1, "y": 2}}},
 ])
 def test_valid_steps(step):
     assert errors(script(step)) == []
@@ -68,9 +73,20 @@ def test_valid_steps(step):
     {"if": {"when": "x"}},               # missing 'then'
     {"loop": {"times": 2, "do": [{"bogus": 1}]}},  # nested steps are checked
     {"sleep": "1s", "on_error": "ignore"},
+    {"sleep": "1s", "as": "2x"},
+    {"sleep": "1s", "as": {"secret": True}},
+    {"sleep": "1s", "as": {"name": "t", "mask": True}},
 ])
 def test_invalid_steps(step):
     assert errors(script(step))
+
+
+def test_results_are_described_per_step_type():
+    defs = script_json_schema(default_registry())["$defs"]
+    click = defs["click_result"]
+    assert click["required"] == ["x", "y", "button", "clicks"]
+    assert {"bbox", "center", "window", "window_bbox"} <= set(click["properties"])
+    assert defs["sleep_result"]["properties"]["seconds"]["type"] == "number"
 
 
 def test_unknown_top_level_key_is_rejected():
