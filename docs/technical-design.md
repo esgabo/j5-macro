@@ -444,6 +444,16 @@ the template (area interpolation down, cubic up) before matching. `found` means
 `best_score >= threshold` (0.9 by default), and the best location is reported even when
 it is below the threshold.
 
+**Embedded templates.** A script's `images` section holds base64 PNG files
+([script/images.py](../src/j5_macro/script/images.py)). The loader decodes and checks
+each entry once (base64, size caps, the PNG header, and the pixels when OpenCV is
+importable, so a script validates the same way in the engine and in `j5 pack`) and keeps
+the bytes in the model; literal `"#name"` references are checked against it there. At
+run time `RunVision` turns `#name` into a template with the toolkit's `decode_template`
+(`cv2.imdecode`, the same decoder files go through), once per run, instead of the
+path-keyed `TemplateCache`; the template's `path` is `#name`, so events and errors name
+it as written. Nothing else about matching changes.
+
 **Alpha masks.** A PNG's alpha channel becomes a binary mask (alpha below 128 is
 ignored) passed to `TM_CCOEFF_NORMED`, so a cut-out icon matches on any background with
 the same score meaning as an unmasked template. `TM_CCORR_NORMED` was rejected because,

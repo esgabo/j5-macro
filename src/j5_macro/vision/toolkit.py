@@ -23,7 +23,7 @@ def create_toolkit() -> VisionToolkit:
         from j5_macro.vision.capture import MssCapturer
         from j5_macro.vision.drawing import save_png
         from j5_macro.vision.matching import locate
-        from j5_macro.vision.templates import TemplateCache
+        from j5_macro.vision.templates import TemplateCache, decode_template_bytes
     except ImportError as exc:
         raise ImportError(f"image matching needs OpenCV, numpy and mss ({exc}); "
                           f"{INSTALL_HINT}") from exc
@@ -37,4 +37,5 @@ def create_toolkit() -> VisionToolkit:
         message = str(exc) if isinstance(exc, RuntimeError) else f"screen capture failed: {exc}"
         raise RuntimeError(message) from exc
     return VisionToolkit(capturer=capturer, load_template=TemplateCache(),
-                         locate=locate, save_image=save_png)
+                         locate=locate, save_image=save_png,
+                         decode_template=decode_template_bytes)

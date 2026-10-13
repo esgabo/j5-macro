@@ -2,7 +2,9 @@
 
 Turns script text into a :class:`~j5_macro.script.model.Script`, keeping the 1-based
 line of every step, assigning stable ids and collecting every problem it finds instead
-of stopping at the first one. The loader knows nothing about the step registry: it gets
+of stopping at the first one. Embedded images (the ``images`` section) are decoded and
+checked here, and every literal ``#name`` reference must name one of them. The loader
+knows nothing about the step registry: it gets
 step specs through a :data:`~j5_macro.steps.spec.StepLookup` and optional cross-field
 checks through a :data:`CheckFn`.
 """
@@ -22,7 +24,8 @@ from ruamel.yaml.error import YAMLError
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
-from j5_macro.script.model import OnError, Script, ScriptParam, Step, StepPath
+from j5_macro.script import images as embedded
+from j5_macro.script.model import EmbeddedImage, OnError, Script, ScriptParam, Step, StepPath
 from j5_macro.script.params import PARAM_FIELDS, PARAM_TYPES
 from j5_macro.steps.spec import (
     ParamProblem,
@@ -38,7 +41,8 @@ CheckFn = Callable[[str, dict[str, Any]], list[ParamProblem]]
 SUPPORTED_VERSION = 1
 ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
-_TOP_LEVEL = ("version", "name", "input", "params", "vars", "steps")
+_TOP_LEVEL = ("version", "name", "input", "params", "vars", "steps", "images")
+"""Top-level keys, in the order the editor places a new section."""
 _COMMON = ("id", "break", "timeout", "on_error", "input")
 _ON_ERROR = ("stop", "continue", "retry", "pause")
 
@@ -219,6 +223,9 @@ class _Loader:
         self.errors: list[ErrorInfo] = []
         self.warnings: list[ErrorInfo] = []
         self.nodes: list[_Node] = []  # every step, in document order
+        self.image_names: set[str] = set()
+        """Every name declared in ``images``, valid or not (a broken entry is reported
+        once, not again at each reference to it)."""
 
     def error(self, message: str, line: int | None, **details: Any) -> None:
         self.errors.append(ErrorInfo(
@@ -258,6 +265,7 @@ class _Loader:
         script_input = self.mapping(data, "input")
         script_vars = self.mapping(data, "vars")
         script_params = self.params(data, script_vars)
+        script_images = self.images(data)
 
         steps: list[_Node] = []
         if "steps" not in data:
@@ -286,6 +294,7 @@ class _Loader:
             input=script_input,
             params=script_params,
             vars=script_vars,
+            images=script_images,
             source_path=source_path,
             text=text,
             warnings=_by_line(self.warnings),
@@ -367,6 +376,89 @@ class _Loader:
             return None
         return ScriptParam(name=name, type=kind, description=description, default=default,
                            secret=False, line=line)
+
+    # --- images -------------------------------------------------------------------------
+
+    def images(self, data: Any) -> dict[str, EmbeddedImage]:
+        raw = data.get("images")
+        if raw is None:
+            return {}
+        section_line = _key_line(data, "images")
+        if not isinstance(raw, Mapping):
+            self.error("'images' must be a mapping of image names to {png: <base64>}",
+                       section_line, field="images")
+            return {}
+        result: dict[str, EmbeddedImage] = {}
+        total = 0
+        for key, entry in raw.items():
+            name = str(key)
+            self.image_names.add(name)
+            image = self.image(name, entry, _key_line(raw, key, section_line))
+            if image is not None:
+                result[name] = image
+                total += len(image.data)
+        if total > embedded.MAX_SCRIPT_BYTES:
+            self.error(f"the embedded images add up to {total:,} bytes once decoded, over "
+                       f"the limit of {embedded.MAX_SCRIPT_BYTES:,} bytes (8 MiB) per "
+                       "script; keep some of them as files", section_line,
+                       field="images", bytes=total)
+        return result
+
+    def image(self, name: str, entry: Any, line: int | None) -> EmbeddedImage | None:
+        def fail(message: str, **details: Any) -> None:
+            self.error(f"image '{name}': {message}", line, image=name, **details)
+
+        if not embedded.NAME_PATTERN.match(name):
+            fail("invalid name: use letters, digits, '_' or '-', starting with a letter "
+                 "or '_'")
+            return None
+        if not isinstance(entry, Mapping):
+            fail("expected a mapping such as {png: <base64 of the PNG file>}")
+            return None
+        values = cast(dict[str, Any], _plain(entry))
+        unknown = sorted(set(values) - set(embedded.ENTRY_FIELDS))
+        if unknown:
+            fail(f"unknown field(s) {', '.join(unknown)}; expected "
+                 f"{', '.join(embedded.ENTRY_FIELDS)}", field=unknown[0])
+            return None
+        formats = [key for key in embedded.FORMATS if key in values]
+        if len(formats) != 1:
+            fail(f"expected the image data under one of {', '.join(embedded.FORMATS)}")
+            return None
+        kind = formats[0]
+        text = values[kind]
+        if not isinstance(text, str):
+            fail(f"'{kind}' must be base64 text", field=kind)
+            return None
+        scale = values.get("scale")
+        if scale is not None and (isinstance(scale, bool) or not isinstance(scale, int | float)
+                                  or not 0 < scale < float("inf")):
+            fail("'scale' must be a positive number (the display scale the image was "
+                 "captured at, e.g. 1.5)", field="scale")
+            return None
+        try:
+            data = embedded.decode_base64(text)
+        except ValueError as exc:
+            fail(f"'{kind}' is {exc}", field=kind)
+            return None
+        try:
+            width, height = embedded.check_png(data, f"#{name}")
+        except ValueError as exc:
+            fail(str(exc), field=kind)
+            return None
+        return EmbeddedImage(name=name, format=kind, data=data, width=width, height=height,
+                             scale=None if scale is None else float(scale), line=line)
+
+    def references(self, node: _Node, spec: StepSpec) -> None:
+        """Every literal ``#name`` in the step's parameters must name an embedded image."""
+        for mapping, key, param in embedded.image_slots(node.params, spec):
+            name = embedded.reference_name(mapping[key])
+            if name is None or name in self.image_names:
+                continue
+            hint = (f"; the script has {', '.join(sorted(self.image_names))}"
+                    if self.image_names else "; the script has no 'images' section")
+            node.problem(f"{param}: no embedded image named {name!r}{hint}",
+                         param=param, image=name)
 
     # --- steps --------------------------------------------------------------------------
 
@@ -475,6 +567,7 @@ class _Loader:
         for p in problems:
             node.problem(f"{p.param}: {p.message}", param=p.param, **(p.details or {}))
         node.params = defaulted
+        self.references(node, spec)
 
     def block(self, node: _Node, spec: StepSpec, slot: str, value: Any) -> list[_Node]:
         if value is None:
