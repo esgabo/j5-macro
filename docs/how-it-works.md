@@ -289,6 +289,10 @@ control back:
   (`stop`), or j5 ignores it (`off`). Only the mouse is watched: on X11, injected keys are
   hard to tell apart from yours.
 - **Ctrl+C** in the terminal stops the run; a second Ctrl+C quits without waiting.
+- **Programs only on request.** An `exec` step runs a program only when you allow it for
+  that run with `j5 run --allow-exec`; otherwise it fails before starting anything.
+  Stopping the run kills a program the step is waiting for, with its children; programs
+  started without `wait` keep running (see [scripts.md](scripts.md#exec)).
 - **Held keys are always released.** j5 tracks every key and button it holds. Stopping a
   run, a failed step, interference and the end of the run all release them. If the
   engine process dies, `j5` releases whatever it last reported as held, from its own

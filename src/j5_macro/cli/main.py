@@ -148,6 +148,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, help="seed for human-like input")
     run.add_argument("--fast", action="store_true",
                      help="force the direct input strategy for mouse and keyboard")
+    run.add_argument("--allow-exec", action="store_true",
+                     help="let the script's exec steps run programs (without it they fail "
+                          "with capability_missing)")
     run.add_argument("--param", dest="params", metavar="NAME=VALUE", action="append",
                      type=parse_param, default=[],
                      help="set a script param to VALUE, taken as text exactly as written "
@@ -335,6 +338,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         seed=args.seed,
         input_profile=copy.deepcopy(FAST_PROFILE) if args.fast else None,
         captures=args.captures,
+        allow_exec=args.allow_exec,
         as_json=args.json,
         interactive=interactive,
     )

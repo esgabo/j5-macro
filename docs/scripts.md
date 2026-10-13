@@ -91,7 +91,7 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 | --- | --- | --- | --- |
 | `id` | string | generated | Stable id: letters, digits, `_` and `-`, starting with a letter or `_`; unique in the script |
 | `break` | boolean | `false` | A breakpoint written in the script: the run pauses before this step (see [debugging.md](debugging.md)) |
-| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Other steps ignore it |
+| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Also replaces `exec`'s `timeout`. Other steps ignore it |
 | `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
 | `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
 
@@ -134,6 +134,7 @@ Some step types take one value instead of a mapping, for their main parameter:
 | `sleep: 2s` | `sleep: {duration: 2s}` |
 | `log: Done` | `log: {message: Done}` |
 | `pause: Check the form` | `pause: {message: Check the form}` |
+| `exec: mousepad notes.txt` | `exec: {command: mousepad notes.txt}` |
 
 `pause:` with nothing after it is valid too. The other types (`click`, `move`, `drag`,
 `scroll`, `if`, `loop`, `set`) need a mapping.
@@ -405,6 +406,62 @@ Enter resumes it; without one, the run resumes on its own and says so.
 - id: check_by_hand
   pause: Check the totals before saving
 ```
+
+### exec
+
+Runs a program: starts it and goes on, for example to launch an application, or waits for
+it and keeps its output. Running programs is off unless the run allows it: pass
+`j5 run --allow-exec` (`"allowExec": true` in VS Code). Without it an `exec` step fails
+with `capability_missing`, so a script you did not write cannot start programs behind
+your back.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | list or string | required | The program and its arguments. A list runs the program directly, without a shell; numbers in it are written as text. A string is split like a command line (quotes group words) and is also run without a shell |
+| `shell` | boolean | `false` | Run the `command` string through the system shell (`/bin/sh -c` on Linux, `cmd /c` on Windows), for pipes, redirections and `&&` |
+| `wait` | boolean | `false` | `false`: start the program detached and go on at once; it keeps running after the run ends. `true`: wait until it exits |
+| `timeout` | duration | - | With `wait`: kill the program (and its children) after this long, failing the step with `exec_failed` |
+| `cwd` | string | the script's directory | Working directory, relative to the script's directory |
+| `env` | mapping | - | Extra environment variables, added to j5's own |
+| `check` | boolean | `true` | With `wait`: fail the step with `exec_failed` when the program exits with a code other than 0 |
+
+Without `wait` the result is `{pid}`. With `wait` it is `{exit_code, stdout, stderr}`:
+the program's output and errors as text, each cut at 64 KiB (the result then adds
+`truncated: true`). Output is kept as written, final line break included, so use
+`strip()` when you need the bare value. The program never gets any input.
+
+```yaml
+- id: open_editor
+  exec: {command: [mousepad, notes.txt]}        # starts it and moves on
+- id: today
+  exec: {command: [date, +%F], wait: true}
+- id: count_lines
+  exec: {command: "wc -l < data.csv", shell: true, wait: true, timeout: 10s}
+- id: upload
+  exec:
+    command: [./upload.sh, report.pdf]
+    wait: true
+    env: {API_TOKEN: "${token}"}                # a secret param: pass it in env
+```
+
+To open a file or a URL with its default application, run the system's opener:
+`exec: {command: [xdg-open, report.pdf]}` on Linux, or
+`exec: {command: [cmd, /c, start, "", report.pdf]}` on Windows (`start` reads its first
+quoted argument as a window title, hence the `""`).
+
+- A program that does not exist or cannot be started fails with `exec_failed`
+  (`details.reason: start`); a non-zero exit with `check` with `exec_failed`
+  (`details.reason: exit_code`, plus the exit code, output and errors); a `timeout` with
+  `exec_failed` (`details.reason: timeout`).
+- Stopping the run kills a program it is waiting for, with its children. Pausing does not
+  pause the program: the step goes on waiting and the run pauses after it. A program
+  started without `wait` is never killed by j5.
+- A dry run starts nothing: the step says what it would run, where, and whether it would
+  wait, and warns when the run does not have `--allow-exec`.
+- Secrets in `command`, `env` or the output show as `***` in the output and the run
+  history, like everywhere else, but the program gets the real values. Pass secrets
+  through `env` rather than in `command`: other users of the machine can see a program's
+  arguments, not its environment.
 
 ## Targets and coordinates
 

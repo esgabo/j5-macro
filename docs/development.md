@@ -132,7 +132,9 @@ examples (`sleep`, `set`, `log`, `pause`).
    interpolated and type-checked; the returned dict becomes `step_finished.result`. Talk
    to the run only through `StepContext`: `ctx.rng` (the step's seeded generator),
    `ctx.wait()`, `ctx.log()`, `ctx.evaluate()`, `ctx.set_variable()`, `ctx.input`,
-   `ctx.vision`, `ctx.dry_run`. Raise `StepError(code, message)` to fail.
+   `ctx.vision`, `ctx.dry_run`, `ctx.check_stop()` (for long work that polls, such as
+   `exec` waiting for a program), `ctx.timeout` (the common field), `ctx.script_dir` and
+   `ctx.allow_exec`. Raise `StepError(code, message)` to fail.
 4. **Cross-parameter checks** (optional): a function returning `ParamProblem`s, such as
    "exactly one of `value` and `expr`".
 5. **Register** the `StepType(spec, executor)` with its check in `BUILTINS`

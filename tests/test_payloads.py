@@ -56,7 +56,7 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_step_types": {},
     "load": {"path": "scripts/a.yaml"},
     "validate": {"script_id": "s"},
-    "run": {"script_id": "s", "mode": "step", "captures": "on_failure"},
+    "run": {"script_id": "s", "mode": "step", "captures": "on_failure", "allow_exec": True},
     "pause": RUN, "resume": RUN, "step_over": RUN, "step_into": RUN, "step_out": RUN,
     "stop": {"run_id": "r-1", "reason": "user"},
     "set_breakpoints": {"script_id": "s", "step_ids": ["a", "b"]},
@@ -283,7 +283,9 @@ def test_unknown_fields_ignored():
 def test_optional_omitted_and_defaults():
     parsed = RunPayload.from_json({"script_id": "s", "mode": "normal"})
     assert parsed.vars is None and parsed.seed is None and parsed.captures == "on_failure"
-    assert parsed.to_json() == {"script_id": "s", "mode": "normal", "captures": "on_failure"}
+    assert parsed.allow_exec is False
+    assert parsed.to_json() == {"script_id": "s", "mode": "normal", "captures": "on_failure",
+                                "allow_exec": False}
     assert "line" not in LogEvent(level="info", message="m").to_json()
 
 

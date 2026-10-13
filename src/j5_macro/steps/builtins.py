@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from j5_macro.steps import basic, control, input_steps
+from j5_macro.steps import basic, control, input_steps, programs
 from j5_macro.steps.registry import ParamCheck, PluginReport, StepRegistry
 from j5_macro.steps.spec import StepType
 
@@ -20,6 +20,7 @@ BUILTINS: tuple[tuple[StepType, ParamCheck | None], ...] = (
     (basic.SET, basic.check_set),
     (basic.LOG, None),
     (basic.PAUSE, None),
+    (programs.EXEC, programs.check_exec),
 )
 """Step types with their cross-field checks, in the contract's table order."""
 

@@ -18,6 +18,7 @@ import random
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from j5_macro.protocol.errors import ErrorCode
@@ -258,6 +259,22 @@ class StepContext(Protocol):
     def check_stop(self) -> None:
         """Raise the interpreter's stop exception if the run must stop now. Long
         executors call it between units of work; never catch what it raises."""
+        ...
+
+    @property
+    def timeout(self) -> float | None:
+        """The step's common ``timeout`` field in seconds; None when not set."""
+        ...
+
+    @property
+    def script_dir(self) -> Path:
+        """The directory relative paths resolve against: the script file's, or the
+        engine's current directory for a script loaded from ``source``."""
+        ...
+
+    @property
+    def allow_exec(self) -> bool:
+        """True when the run allows starting programs (``run``'s ``allow_exec``)."""
         ...
 
     @property

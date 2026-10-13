@@ -1,0 +1,27 @@
+# Start a text editor and type a line in it.
+#
+# Starting programs needs --allow-exec (without it the `exec` step fails):
+#
+#   j5 run --allow-exec examples/open_editor.yaml
+#
+# The editor is Mousepad (Xfce's); for another one change the command of `open_editor`
+# and the `title` var, e.g. [gedit] and "gedit", or [notepad] and "Notepad" on Windows.
+version: 1
+name: Open an editor
+vars:
+  title: Mousepad
+steps:
+  # Started detached: the step finishes at once and the editor stays open after the run.
+  - id: open_editor
+    exec: {command: [mousepad]}
+
+  # Give the window a moment to appear. If it is still not there, the click fails with
+  # window_not_found and the run pauses: resume once the editor is open.
+  - id: let_it_open
+    sleep: 2s
+  - id: focus_editor
+    click: {window: {title: "${title}"}, x: 200, y: 150}
+    on_error: pause
+
+  - id: write
+    type: "Written by j5 in ${title}.\n"

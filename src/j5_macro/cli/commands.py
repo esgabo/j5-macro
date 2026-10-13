@@ -255,6 +255,8 @@ class RunOptions:
     input_profile: dict[str, Any] | None = None
     captures: str | None = None
     """``on_failure`` or ``all`` (``--captures``); None leaves the engine's default."""
+    allow_exec: bool = False
+    """Let ``exec`` steps run programs (``--allow-exec``)."""
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
@@ -279,6 +281,8 @@ class RunOptions:
             payload["input_profile"] = self.input_profile
         if self.captures is not None:
             payload["captures"] = self.captures
+        if self.allow_exec:
+            payload["allow_exec"] = True
         return payload
 
 

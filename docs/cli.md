@@ -42,7 +42,7 @@ j5-macro 0.0.1
 
 ```text
 j5 run [-h] [--runs-dir DIR] [--step | --dry-run] [--break STEP_ID]
-       [--seed SEED] [--fast] [--param NAME=VALUE]
+       [--seed SEED] [--fast] [--allow-exec] [--param NAME=VALUE]
        [--param-file NAME=PATH] [--param-env NAME=VARIABLE]
        [--params-file FILE] [--var NAME=VALUE]
        [--captures {on_failure,all}] [--stop-key COMBO] [--json]
@@ -60,6 +60,7 @@ Loads the script, runs it and shows its progress. The output is explained in
 | `--dry-run` | Send no input: input steps describe what they would do, image searches run once. Cannot be combined with `--step` (use `--break` to pause a dry run) |
 | `--seed SEED` | Integer seed of the run, to repeat the same human-like input. Without it the engine picks one and shows it |
 | `--fast` | Use the `direct` strategy for mouse and keyboard: no human-like movement or typing |
+| `--allow-exec` | Let the script's [`exec`](scripts.md#exec) steps run programs. Without it they fail with `capability_missing` |
 | `--param NAME=VALUE` | Set a script param. The value is taken as text exactly as written (converted for `integer`, `number` and `boolean` params). Repeatable |
 | `--param-file NAME=PATH` | Set a param to the contents of a UTF-8 file, without its final line break; `-` reads standard input (only one param can). Repeatable |
 | `--param-env NAME=VARIABLE` | Set a param from an environment variable; fails if the variable is not set. Repeatable |

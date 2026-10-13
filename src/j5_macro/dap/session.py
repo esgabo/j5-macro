@@ -344,6 +344,8 @@ class DebugSession:
             payload["seed"] = seed
         if args.get("fast") is True:
             payload["input_profile"] = copy.deepcopy(FAST_PROFILE)
+        if args.get("allowExec") is True:
+            payload["allow_exec"] = True
         self._run_payload = payload
         self._program = program
 
