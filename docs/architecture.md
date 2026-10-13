@@ -44,7 +44,8 @@ JSON list in `J5_ENGINE_CMD`) and talks to it over its stdin and stdout. The eng
 exactly one client and ends when its stdin closes. Clients:
 
 - **CLI** (`j5`, [cli/](../src/j5_macro/cli)): `run` (with `--dry-run`, `--step`,
-  `--break`, `--fast`), `validate`, `steps`, `runs`, `schema`, `pack`, `unpack` and
+  `--break`, `--fast`), `validate`, `steps`, `runs`, `schema`, `pack`, `unpack`, the
+  authoring tools (`windows`, `screenshot`, `capture`, `pick`, `find`) and
   `dap`. Every command except `schema`, `pack`, `unpack` and `dap` starts an engine; even
   the run history is read through it.
   See [cli.md](cli.md).
@@ -181,7 +182,7 @@ the interpreter.
 | Package | Responsibility | Key modules |
 | --- | --- | --- |
 | [`protocol`](../src/j5_macro/protocol) | Wire format shared by engine and clients | `messages.py` (envelope), `errors.py` (codes), `payloads/` (typed commands, results, events; `codec.py`) |
-| [`engine`](../src/j5_macro/engine) | The engine process: commands, scripts, runs, history | `app.py` (entry point), `server.py`, `dispatch.py`, `commands.py`, `scripts.py`, `editing.py`, `runs.py`, `persistence.py`, `history.py`, `events.py`, `backend.py`, `transport.py` |
+| [`engine`](../src/j5_macro/engine) | The engine process: commands, scripts, runs, history | `app.py` (entry point), `server.py`, `dispatch.py`, `commands.py`, `scripts.py`, `editing.py`, `runs.py`, `persistence.py`, `history.py`, `events.py`, `backend.py`, `transport.py`, `authoring.py` (capture, pick, find, screenshot, windows), `overlay.py` (the tkinter overlay) |
 | [`client`](../src/j5_macro/client) | Asyncio client that launches the engine and speaks the protocol | `engine_client.py` (`EngineClient`), `sequencer.py` (gap detection), `stderr.py` |
 | [`script`](../src/j5_macro/script) | Script model, YAML loader, params and secrets, embedded images, structured editor | `model.py`, `loader.py`, `params.py`, `images.py`, `editor.py` |
 | [`steps`](../src/j5_macro/steps) | Step specs, registry, built-in steps, editor schema | `spec.py`, `registry.py`, `builtins.py`, `input_steps.py`, `basic.py`, `programs.py`, `control.py`, `images.py`, `conditions.py`, `schema.py` |
@@ -190,8 +191,8 @@ the interpreter.
 | [`input`](../src/j5_macro/input) | Mouse and keyboard masters | `api.py` (profiles, plans, protocols), `planning.py`, `human_mouse.py`, `human_keys.py`, `session.py`, `keys.py` (combinations) |
 | [`processes`](../src/j5_macro/processes.py) | Starting, detaching and killing the programs of `exec` steps, per platform | `processes.py` (one module) |
 | [`backends`](../src/j5_macro/backends) | Platform primitives and backend selection | `base.py` (`Backend`, `Capabilities`), `select.py`, `fake.py`, `x11/` |
-| [`vision`](../src/j5_macro/vision) | Screen capture and template matching | `api.py`, `toolkit.py`, `capture.py`, `matching.py`, `templates.py`, `drawing.py` |
-| [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `bundle.py` (`pack`, `unpack`), `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
+| [`vision`](../src/j5_macro/vision) | Screen capture and template matching | `api.py`, `toolkit.py`, `capture.py`, `matching.py`, `templates.py`, `drawing.py`, `snapshots.py` (captures as templates) |
+| [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `bundle.py` (`pack`, `unpack`), `authoring.py` (`windows`, `screenshot`, `capture`, `pick`, `find`), `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
 | [`dap`](../src/j5_macro/dap) | Debug Adapter Protocol server | `server.py`, `session.py`, `script_map.py`, `framing.py` |
 
 The optional dependencies follow the layers: `ruamel.yaml` is the only hard dependency;

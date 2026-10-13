@@ -1,7 +1,7 @@
 {
   "name": "j5-macro-debug",
   "displayName": "j5 Macro Debugger",
-  "description": "Debug j5-macro YAML scripts in VS Code: breakpoints on steps, stepping, variables and expressions.",
+  "description": "Debug j5-macro YAML scripts in VS Code: breakpoints on steps, stepping, variables and expressions; capture templates, pick points and test matches.",
   "version": "0.0.1",
   "publisher": "j5-macro",
   "license": "Apache-2.0",
@@ -19,7 +19,11 @@
   "activationEvents": [
     "onDebugResolve:j5",
     "onDebugInitialConfigurations",
-    "onDebugDynamicConfigurations:j5"
+    "onDebugDynamicConfigurations:j5",
+    "onCommand:j5.captureTemplate",
+    "onCommand:j5.pickPoint",
+    "onCommand:j5.findImage",
+    "onCommand:j5.packScript"
   ],
   "contributes": {
     "breakpoints": [
@@ -178,8 +182,58 @@
           },
           "default": [],
           "description": "Command that starts the j5 debug adapter, e.g. [\"/path/to/venv/bin/j5\", \"dap\"]. Empty: 'j5 dap' from the PATH. A launch configuration's 'python' wins over this."
+        },
+        "j5.command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Command that runs the j5 CLI for the commands Capture template, Pick point, Find image and Pack script, e.g. [\"/path/to/venv/bin/j5\"]. Empty: j5.adapterCommand without its \"dap\", else 'j5' from the PATH."
         }
       }
+    },
+    "commands": [
+      {
+        "command": "j5.captureTemplate",
+        "title": "Capture template",
+        "category": "j5"
+      },
+      {
+        "command": "j5.pickPoint",
+        "title": "Pick point",
+        "category": "j5"
+      },
+      {
+        "command": "j5.findImage",
+        "title": "Find image",
+        "category": "j5"
+      },
+      {
+        "command": "j5.packScript",
+        "title": "Pack script",
+        "category": "j5"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "j5.captureTemplate",
+          "when": "editorLangId == yaml"
+        },
+        {
+          "command": "j5.pickPoint",
+          "when": "editorLangId == yaml"
+        },
+        {
+          "command": "j5.findImage",
+          "when": "editorLangId == yaml"
+        },
+        {
+          "command": "j5.packScript",
+          "when": "editorLangId == yaml"
+        }
+      ]
     }
   }
 }

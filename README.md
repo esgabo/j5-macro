@@ -43,6 +43,11 @@ $ j5 run report.yaml --param 'customer=ACME #42'
 - **Sees the screen.** Waits for and clicks on images, with thresholds, regions,
   transparent templates and screenshots of failed searches. Templates and offsets follow
   the display scale, so a script captured at 100 % still works at 150 %.
+- **Quick to write.** `j5 capture` freezes the screen so you drag out a template (into a
+  file or the script itself), `j5 pick` gives the coordinates of a point inside a window,
+  and `j5 find` tests a template exactly as a step would; each prints a step to paste.
+  Agents use the same tools with explicit coordinates, plus `j5 windows` and
+  `j5 screenshot`.
 - **Debuggable.** `j5 run --step` with breakpoints, stepping into loops and branches,
   variables and expressions; the same in VS Code through a Debug Adapter Protocol server.
 - **Values from outside.** Params from the command line, files or environment variables;

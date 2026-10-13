@@ -17,11 +17,17 @@ Extras:
 | Extra | Installs | For |
 | --- | --- | --- |
 | `x11` | `python-xlib`, `mss` | Mouse and keyboard input on X11 |
-| `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image`, image targets, `image_visible` |
+| `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image`, image targets, `image_visible`, and the authoring tools (`j5 capture`, `pick`, `find`, `screenshot`) |
 | `windows` | `mss` | Screen capture on Windows (the input backend itself needs nothing beyond Python) |
 | `dev` | `pytest`, `ruff`, `mypy`, ... | Working on j5 itself ([development.md](development.md)) |
 
 Without any extra, j5 still loads, validates, dry-runs and edits scripts.
+
+The full-screen overlay of `j5 capture`, `j5 pick` and `j5 find --show` is drawn with
+tkinter, part of Python's standard library. Python for Windows includes it; on Linux
+some distributions ship it separately (`sudo apt install python3-tk` on Debian and
+Ubuntu). Without it the overlay is unavailable, and the same commands still work with
+explicit coordinates (`j5 capture --bbox`).
 
 ## Install from GitHub
 

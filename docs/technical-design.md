@@ -256,7 +256,8 @@ button, newest first.
 first) and returns the client area (`GetClientRect` plus `ClientToScreen`) of the first
 window whose title contains `title` and that is visible, not minimized and not cloaked
 (`DWMWA_CLOAKED`: suspended UWP apps and windows on other virtual desktops are visible to
-`IsWindowVisible` but not on screen).
+`IsWindowVisible` but not on screen). `list_windows()` walks the same list and returns
+every such window with a non-empty title.
 
 **Hotkeys.** `RegisterHotKey` without a window posts `WM_HOTKEY` to the queue of the
 registering thread, so each watcher owns a thread that registers the combination with
@@ -433,7 +434,8 @@ of the first viewable window whose title (`_NET_WM_NAME`, else `WM_NAME`) contai
 so topmost first) or `_NET_CLIENT_LIST` when the window manager follows EWMH; without one
 (a bare Xvfb) the root's children are walked, topmost first, looking for the window that
 carries `WM_STATE` up to four levels down. Using the client area keeps window-relative
-coordinates stable across themes and window managers.
+coordinates stable across themes and window managers. `list_windows()` walks the same
+candidates and returns every viewable one with a title, topmost first.
 
 **Hotkey grabbing with lock-key variants.** An X passive grab (`XGrabKey`) only matches
 the exact modifier state, so with Caps Lock or Num Lock on, a plain grab would not fire.

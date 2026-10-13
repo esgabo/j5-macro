@@ -100,6 +100,23 @@ An agent can drive j5 like any shell user:
    name the step, the line and the error code (`image_not_found` with the best score,
    `window_not_found`, `expression_error`...).
 
+To write the parts of a script that need the screen, an agent uses the authoring tools
+without their overlay ([cli.md](cli.md#authoring-tools)); each one sends no input:
+
+```console
+$ j5 windows --json                          # titles and client areas
+$ j5 screenshot --window Notes               # prints the PNG's path: look at it
+$ j5 capture --bbox 812,12,24,24 --window Notes --embed script.yaml --name save_button
+$ j5 find '#save_button' --script script.yaml --window Notes --json
+$ j5 validate script.yaml
+$ j5 run --dry-run script.yaml
+$ j5 run script.yaml
+```
+
+`--bbox` with `--window` is relative to the window's content, exactly as the window's
+screenshot shows it. `j5 find` exits with 1 when the template is not found and reports
+the best score, so a capture can be checked before any run.
+
 Things an agent should know:
 
 - **It controls the real mouse and keyboard.** Anything the person at the computer does

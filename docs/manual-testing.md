@@ -6,15 +6,16 @@ cannot cover is a real desktop: a window manager, a scaled display, several moni
 elevated windows, the user's own mouse. Before a release, run this plan by hand on
 **Xfce (X11)** and on **Windows 10 or 11**, and note any difference in the release issue.
 
-It takes about 15 minutes per platform.
+It takes about 20 minutes per platform.
 
 ## Setup
 
 1. Install j5 from the commit under test, with the backend and vision extras:
    `pip install -e ".[x11,vision]"` on Linux, `pip install -e ".[windows,vision]"` on
    Windows (see [install.md](install.md)).
-2. Make sure tkinter is available for the target window: it ships with the python.org
-   installers on Windows; on Debian and Ubuntu install `python3-tk`.
+2. Make sure tkinter is available for the target window and the authoring overlay: it
+   ships with the python.org installers on Windows; on Debian and Ubuntu install
+   `python3-tk`.
 3. Start the target window and leave it visible, not covered by other windows:
 
    ```bash
@@ -63,6 +64,26 @@ and the pad is at (150, 30), 300x150. Positions in its log are real pixels.
 | 150 %, detected | Set the display to 150 % (Windows: Settings, Display; Xfce: Appearance, Fonts, custom DPI 144, which sets `Xft.dpi`), start `target.py --scale 1.5` and run `j5 run examples/smoke/pointer.yaml` without `--display-scale` | The same as the run above, with `display scale 1.5` detected. `j5 run --json` shows `display_scale_source: detected` in `run_started` |
 | Mismatch | At 150 % detected, start `target.py` without `--scale` (it draws at 100 % size) and run `pointer.yaml` | `wait_pattern` fails with `image_not_found` (the template is searched 1.5 times larger than the pattern); `j5 run --display-scale 1 examples/smoke/pointer.yaml` passes as at 100 % |
 | Capture scale | Copy `pointer_embedded.yaml` to an empty directory, add `scale: 1.5` to its `pattern` entry, and run it with `--display-scale 1.5` against `target.py` without `--scale` | Exit code 0 and the results of the 100 % run: `image_search` reports `display_scale` 1.5, `capture_scale` 1.5 and `scale` 1. With `capture_scale: 1.5` at the top of the script instead of the entry's `scale`, the same; with both removed, `wait_pattern` fails as in the mismatch above |
+
+## Authoring tools
+
+The overlay of `j5 capture`, `j5 pick` and `j5 find --show` is checked here; the rest of
+the tools are covered by the automated tests (see [cli.md](cli.md#authoring-tools)). Keep
+`target.py` open, and on Windows start the terminal so it does **not** have the focus
+when the overlay opens (click the target first): Escape must still reach the overlay.
+
+| Check | How | Expected |
+| --- | --- | --- |
+| Windows | `j5 windows` | `j5 smoke target` is listed with its client area (its content, without the title bar); a `j5 screenshot --window "smoke target"` PNG shows exactly that content |
+| Capture | `j5 capture -o /tmp/pattern.png` (`%TEMP%\pattern.png` on Windows) and drag tightly around the pattern | The screen freezes and the overlay covers every monitor, including one left of or above the primary. A magnifier follows the pointer with its desktop coordinates, the rectangle shows its position and size while dragging, and releasing ends it. The PNG is 48x48 (at 100 %) and identical to `examples/smoke/img/pattern.png`; the printed step is `click: {image: ..., window: {title: j5 smoke target}}` |
+| Click without dragging | `j5 capture -o /tmp/x.png`, click once without moving, then drag | The click is ignored and the drag is captured |
+| Cancel | `j5 pick`, press Escape; again, and press the right button | Each time the overlay closes at once, `j5: cancelled`, exit code 3, and the screen and focus are as before |
+| Pick | `j5 pick`, click the centre of the pattern | Prints `click: {window: {title: j5 smoke target}, x: 44, y: 44}` (give or take a pixel); pasting it into a script and running it makes the target log a click on the pattern at that point |
+| Embed and find | Copy `examples/hello.yaml` to `/tmp/s.yaml`, run `j5 capture --embed /tmp/s.yaml --name pattern` around the pattern, then `j5 find '#pattern' --script /tmp/s.yaml --show` | The script gets an `images` section with `pattern`, its comments untouched; `find` exits 0 and outlines the pattern in green for three seconds, with the score |
+| Not found | `j5 find examples/smoke/img/pattern.png --region 300,0,100,100 --show` | A red outline at the best candidate with `not found: best score ...`; exit code 1 |
+| Transparent | `j5 capture -o /tmp/t.png --transparent` around the pattern with a few pixels of window background around it | The PNG has a transparent border (open it in an image viewer); `j5 find /tmp/t.png` finds it with a score near 1 |
+| Scaled display | At 150 % (see "Display scale"), `target.py --scale 1.5`, then `j5 capture --embed /tmp/s.yaml --name big -f` around the pattern, and `j5 capture -o /tmp/big.png` | The overlay is sharp and covers the whole screen (no blurry, scaled-up window on Windows); the PNG is 72x72; the embedded entry has `scale: 1.5`; the file capture prints the `capture_scale: 1.5` hint |
+| Mixed monitors (Windows) | Two monitors at different scales: `j5 pick` on each monitor | The overlay covers both without gaps, the magnifier's coordinates match the reported `x`, `y`, and the picked point is where the pointer was |
 
 ## Safety checks
 
