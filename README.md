@@ -91,6 +91,20 @@ $ j5 runs                                # past runs
 Stop a run at any time with `ctrl+alt+shift+q`, or by pushing the mouse into a screen
 corner.
 
+## For AI agents
+
+[skills/j5-macro](skills/j5-macro/SKILL.md) is an Agent Skill that teaches an AI agent
+to use j5: look at the screen with `j5 windows` and `j5 screenshot`, capture and test
+templates, write and validate scripts, dry-run them and read the results, with the
+safety rules for sending input to someone's desktop. Copy the folder into the agent's
+skills directory, for Claude Code `~/.claude/skills/`:
+
+```console
+$ cp -r skills/j5-macro ~/.claude/skills/
+```
+
+See [docs/automation.md](docs/automation.md#for-ai-agents).
+
 ## Documentation
 
 | | |
