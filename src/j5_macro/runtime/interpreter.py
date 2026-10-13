@@ -24,6 +24,7 @@ from j5_macro.runtime.api import (
 )
 from j5_macro.runtime.clock import Clock, MonotonicClock
 from j5_macro.runtime.control import RunControl, RunStopped
+from j5_macro.runtime.display import DisplayScale
 from j5_macro.runtime.emitter import Emitter
 from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.machine import Machine, failure_info
@@ -56,7 +57,10 @@ class Interpreter:
                                  backend_reason=options.backend_reason,
                                  dry_run=options.mode == "dry", captures=options.captures,
                                  run_dir=options.run_dir, script_path=script.source_path,
-                                 emit=emit, clock=clock, images=script.images)
+                                 emit=emit, clock=clock, images=script.images,
+                                 display=DisplayScale(override=options.display_scale,
+                                                      backend=options.backend,
+                                                      capture_scale=script.capture_scale))
         predefined = {**PREDEFINED_CONDITIONS, **(conditions or {})}
         self._machine = Machine(script, registry, self._events, self._control, clock, options,
                                 predefined, self._input, self._vision)

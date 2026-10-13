@@ -50,7 +50,8 @@ CheckFn = Callable[[str, dict[str, Any]], list[ParamProblem]]
 SUPPORTED_VERSION = 1
 ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
-_TOP_LEVEL = ("version", "name", "input", "params", "vars", "steps", "images")
+_TOP_LEVEL = ("version", "name", "input", "capture_scale", "params", "vars", "steps",
+              "images")
 """Top-level keys, in the order the editor places a new section."""
 _COMMON = ("id", "break", "timeout", "on_error", "input", "as")
 _ON_ERROR = ("stop", "continue", "retry", "pause")
@@ -277,6 +278,7 @@ class _Loader:
         script_vars = self.mapping(data, "vars")
         script_params = self.params(data, script_vars)
         script_images = self.images(data)
+        capture_scale = self.capture_scale(data)
 
         steps: list[_Node] = []
         if "steps" not in data:
@@ -306,11 +308,24 @@ class _Loader:
             params=script_params,
             vars=script_vars,
             images=script_images,
+            capture_scale=capture_scale,
             source_path=source_path,
             text=text,
             warnings=_by_line(self.warnings),
         )
         return LoadResult(script, [])
+
+    def capture_scale(self, data: Any) -> float | None:
+        value = data.get("capture_scale")
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int | float) \
+                or not 0 < value < float("inf"):
+            self.error("'capture_scale' must be a positive number: the display scale the "
+                       "templates and pixel offsets were taken at, e.g. 1.5 for 150 %",
+                       _key_line(data, "capture_scale"), field="capture_scale")
+            return None
+        return float(value)
 
     def mapping(self, data: Any, key: str) -> dict[str, Any]:
         value = data.get(key)

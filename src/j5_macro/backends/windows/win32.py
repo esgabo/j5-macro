@@ -46,6 +46,11 @@ SM_CYVIRTUALSCREEN = 79
 
 DWMWA_CLOAKED = 14
 
+MONITOR_DEFAULTTONEAREST = 2
+MDT_EFFECTIVE_DPI = 0
+BASE_DPI = 96
+"""The DPI of a 100 % display: a monitor's display scale is its effective DPI / 96."""
+
 ULONG_PTR = ctypes.c_size_t
 
 
@@ -157,6 +162,15 @@ class Win32Api(Protocol):
         """Top-level window handles, topmost first."""
         ...
 
+    def scale_at(self, x: int, y: int) -> float | None:
+        """The display scale of the monitor at (x, y), or the nearest one; None when
+        the system cannot say (``GetDpiForMonitor`` needs Windows 8.1)."""
+        ...
+
+    def monitor_scales(self) -> list[tuple[Rect, float]]:
+        """Every monitor and its display scale; empty when the system cannot say."""
+        ...
+
     def window_title(self, hwnd: int) -> str: ...
 
     def window_shown(self, hwnd: int) -> bool:
@@ -212,10 +226,19 @@ class User32:
         except OSError:  # pragma: no cover - dwmapi exists since Vista
             self._dwmapi = None
         self._kernel32 = win_dll("kernel32", use_last_error=True)
+        try:
+            self._shcore: Any = win_dll("shcore")
+        except OSError:  # Windows 8 and older: no per-monitor DPI
+            self._shcore = None
         winfunctype: Any = getattr(ctypes, "WINFUNCTYPE")  # noqa: B009 - Windows only
         # BOOL CALLBACK EnumWindowsProc(HWND, LPARAM)
         self._enum_proc: Any = winfunctype(ctypes.c_int32, ctypes.c_void_p, ctypes.c_ssize_t)
+        # BOOL CALLBACK MonitorEnumProc(HMONITOR, HDC, LPRECT, LPARAM)
+        self._monitor_proc: Any = winfunctype(ctypes.c_int32, ctypes.c_void_p,
+                                              ctypes.c_void_p, ctypes.POINTER(RECT),
+                                              ctypes.c_ssize_t)
         _declare(user32, self._dwmapi, self._kernel32, self._enum_proc)
+        _declare_dpi(user32, self._shcore, self._monitor_proc)
 
     def send_input(self, events: Sequence[InputEvent]) -> None:
         if not events:
@@ -248,6 +271,34 @@ class User32:
             return 1
 
         self._user32.EnumWindows(self._enum_proc(collect), 0)
+        return found
+
+    def _monitor_scale(self, monitor: Any) -> float | None:
+        if self._shcore is None or not monitor:
+            return None
+        dpi_x, dpi_y = ctypes.c_uint32(0), ctypes.c_uint32(0)
+        result = self._shcore.GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI,
+                                               ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+        if result != 0 or dpi_x.value <= 0:
+            return None
+        return dpi_x.value / BASE_DPI
+
+    def scale_at(self, x: int, y: int) -> float | None:
+        monitor = self._user32.MonitorFromPoint(POINT(x, y), MONITOR_DEFAULTTONEAREST)
+        return self._monitor_scale(monitor)
+
+    def monitor_scales(self) -> list[tuple[Rect, float]]:
+        found: list[tuple[Rect, float]] = []
+
+        def collect(monitor: Any, _dc: Any, rect: Any, _: Any) -> int:
+            scale = self._monitor_scale(monitor)
+            if scale is not None:
+                r = rect.contents
+                found.append((Rect(int(r.left), int(r.top), int(r.right - r.left),
+                                   int(r.bottom - r.top)), scale))
+            return 1
+
+        self._user32.EnumDisplayMonitors(None, None, self._monitor_proc(collect), 0)
         return found
 
     def window_title(self, hwnd: int) -> str:
@@ -317,6 +368,25 @@ def last_error() -> int:
     ``use_last_error`` (``ctypes.get_last_error`` only exists on Windows)."""
     getter: Any = getattr(ctypes, "get_last_error", None)
     return int(getter()) if getter is not None else 0
+
+
+def _declare_dpi(user32: Any, shcore: Any, monitor_proc: Any) -> None:
+    """Signatures of the monitor and DPI calls (``shcore`` is None before Windows 8.1)."""
+    c = ctypes
+    handle = c.c_void_p
+    signatures: list[tuple[Any, str, list[Any], Any]] = [
+        (user32, "MonitorFromPoint", [POINT, c.c_uint32], handle),
+        (user32, "EnumDisplayMonitors", [handle, c.POINTER(RECT), monitor_proc,
+                                         c.c_ssize_t], c.c_int32),
+    ]
+    if shcore is not None:
+        signatures.append((shcore, "GetDpiForMonitor",
+                           [handle, c.c_int32, c.POINTER(c.c_uint32),
+                            c.POINTER(c.c_uint32)], c.c_int32))
+    for library, name, argtypes, restype in signatures:
+        function = getattr(library, name)
+        function.argtypes = argtypes
+        function.restype = restype
 
 
 def _declare(user32: Any, dwmapi: Any, kernel32: Any, enum_proc: Any) -> None:

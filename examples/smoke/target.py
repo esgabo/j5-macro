@@ -14,6 +14,11 @@ Only the standard library is used (tkinter: the ``python3-tk`` package on Debian
 Ubuntu). ``--write-template PATH`` writes the pattern as a PNG instead of opening the
 window. On Windows the window declares per-monitor DPI awareness, like the engine, so
 the pattern keeps its size on a scaled display.
+
+``--scale 1.5`` draws everything 1.5 times larger, as an application that follows a
+150 % display scale would (positions and sizes above are then multiplied by 1.5; the
+event log keeps reporting real pixels of the client area). The smoke scripts' image
+steps and relative offsets then follow it when j5 runs at the same display scale.
 """
 
 from __future__ import annotations
@@ -65,10 +70,20 @@ def pattern_png() -> bytes:
             + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
 
 
+def _scale(text: str) -> float:
+    value = float(text)
+    if not 0.5 <= value <= 4:
+        raise argparse.ArgumentTypeError("the scale must be between 0.5 and 4")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write-template", metavar="PATH",
                         help="write the pattern as a PNG and exit")
+    parser.add_argument("--scale", type=_scale, default=1.0,
+                        help="draw everything this many times larger, like an "
+                             "application on a scaled display (e.g. 1.5 for 150%%)")
     args = parser.parse_args(argv)
     if args.write_template:
         Path(args.write_template).write_bytes(pattern_png())
@@ -79,37 +94,44 @@ def main(argv: list[str] | None = None) -> int:
 
         with contextlib.suppress(AttributeError, OSError):
             ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_ssize_t(-4))
-    _run_window()
+    _run_window(args.scale)
     return 0
 
 
-def _run_window() -> None:
+def _run_window(scale: float = 1.0) -> None:
     import tkinter as tk
+
+    def s(value: int) -> int:
+        return round(value * scale)
+
+    def place(widget: Any, area: tuple[int, int, int, int]) -> None:
+        x, y, width, height = area
+        widget.place(x=s(x), y=s(y), width=s(width), height=s(height))
 
     root = tk.Tk()
     root.title(TITLE)
-    root.geometry(f"{WINDOW_SIZE[0]}x{WINDOW_SIZE[1]}")
+    root.geometry(f"{s(WINDOW_SIZE[0])}x{s(WINDOW_SIZE[1])}")
     root.resizable(False, False)
 
-    canvas = tk.Canvas(root, width=PATTERN_SIZE, height=PATTERN_SIZE, bd=0,
-                       highlightthickness=0)
-    canvas.place(x=PATTERN_AT[0], y=PATTERN_AT[1])
+    size = s(PATTERN_SIZE)
+    canvas = tk.Canvas(root, width=size, height=size, bd=0, highlightthickness=0)
+    canvas.place(x=s(PATTERN_AT[0]), y=s(PATTERN_AT[1]))
     for row in range(GRID):
         for column in range(GRID):
-            canvas.create_rectangle(column * CELL, row * CELL, (column + 1) * CELL,
-                                    (row + 1) * CELL, fill=pattern_cell(row, column),
-                                    width=0)
+            canvas.create_rectangle(s(column * CELL), s(row * CELL),
+                                    s((column + 1) * CELL), s((row + 1) * CELL),
+                                    fill=pattern_cell(row, column), width=0)
 
     # A canvas, so its caption takes no events (a label would swallow clicks on it).
     pad = tk.Canvas(root, bg="#dddddd", bd=0, highlightthickness=0)
-    pad.place(x=PAD[0], y=PAD[1], width=PAD[2], height=PAD[3])
-    pad.create_text(6, 6, text="click, drag, scroll", anchor="nw")
+    place(pad, PAD)
+    pad.create_text(s(6), s(6), text="click, drag, scroll", anchor="nw")
 
     text = tk.Text(root, bd=1, highlightthickness=0, wrap="char")
-    text.place(x=TEXT[0], y=TEXT[1], width=TEXT[2], height=TEXT[3])
+    place(text, TEXT)
 
     log = tk.Listbox(root, bd=1, highlightthickness=0)
-    log.place(x=LOG[0], y=LOG[1], width=LOG[2], height=LOG[3])
+    place(log, LOG)
 
     def record(line: str) -> None:
         print(line, flush=True)
@@ -164,7 +186,7 @@ def _run_window() -> None:
     # On the widget, so the keys its class handles (Tab inserts a tab) are logged too.
     text.bind("<KeyPress>", on_key)
     text.focus_set()
-    record(f"ready: {TITLE}")
+    record(f"ready: {TITLE}" + (f" at scale {scale:g}" if scale != 1 else ""))
     root.mainloop()
 
 

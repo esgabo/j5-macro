@@ -94,6 +94,11 @@
                 "description": "Let the script's exec steps run programs (without it they fail with capability_missing).",
                 "default": false
               },
+              "displayScale": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "The display scale of the run (1.5 for 150 %), instead of detecting it per monitor; templates and pixel offsets are scaled by it over the script's capture_scale."
+              },
               "noDebug": {
                 "type": "boolean",
                 "description": "Run without stopping at breakpoints (also set by Run Without Debugging).",

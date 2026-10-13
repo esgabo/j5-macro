@@ -11,16 +11,24 @@ event; restoring at once could make them translate the key with the old mapping.
 from __future__ import annotations
 
 import contextlib
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from Xlib import XK, X
+from Xlib import XK, X, Xatom
 from Xlib import error as xerror
 from Xlib.display import Display
 from Xlib.ext import xtest
 
-from j5_macro.backends.base import MODIFIER_KEYS, Button, Capabilities, Rect, UnknownKey
+from j5_macro.backends.base import (
+    MODIFIER_KEYS,
+    Button,
+    Capabilities,
+    MonitorScale,
+    Rect,
+    UnknownKey,
+)
 from j5_macro.backends.x11.hotkey import HotkeyWatcher, lock_variants
 from j5_macro.backends.x11.keys import (
     NUM_LOCK_KEYSYM,
@@ -33,6 +41,7 @@ from j5_macro.backends.x11.keys import (
     remap_row,
     spare_keycodes,
 )
+from j5_macro.backends.x11.scale import display_scale_from
 from j5_macro.backends.x11.windows import find_window
 
 DEFAULT_REMAP_GRACE_SECONDS = 0.25
@@ -80,7 +89,7 @@ class X11Backend:
     name = "x11"
     capabilities = Capabilities(pointer_position=True, move_abs=True, move_rel=True,
                                 char_input=True, screen_capture=False, windows=True,
-                                hotkey=True)
+                                hotkey=True, display_scale=True)
 
     def __init__(self, display_name: str | None = None, *,
                  remap_grace_seconds: float = DEFAULT_REMAP_GRACE_SECONDS) -> None:
@@ -117,6 +126,28 @@ class X11Backend:
             self._check_open()
             pointer = self._root.query_pointer()
             return int(pointer.root_x), int(pointer.root_y)
+
+    def display_scale(self, x: int, y: int) -> float | None:
+        """``Xft.dpi / 96``, else ``GDK_SCALE``, else 1, wherever the point is
+        (``j5_macro.backends.x11.scale``); read again on every call, so a change of the
+        desktop's setting applies at once."""
+        return display_scale_from(self._resources(), os.environ)
+
+    def display_scales(self) -> list[MonitorScale]:
+        """The whole screen as one monitor: X11 has one scale for all of them."""
+        bounds = self.screen_bounds()
+        return [(bounds, display_scale_from(self._resources(), os.environ))]
+
+    def _resources(self) -> str | None:
+        """The X resource database (``RESOURCE_MANAGER`` of the first screen's root)."""
+        with self._lock:
+            self._check_open()
+            root = self._display.screen(0).root
+            prop = root.get_full_property(Xatom.RESOURCE_MANAGER, Xatom.STRING)
+        if prop is None or not isinstance(prop.value, bytes | str):
+            return None
+        value = prop.value
+        return value.decode("latin-1") if isinstance(value, bytes) else value
 
     def move_abs(self, x: int, y: int) -> None:
         with self._lock:

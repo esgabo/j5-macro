@@ -292,6 +292,11 @@ class StepContext(Protocol):
         """True when the run allows starting programs (``run``'s ``allow_exec``)."""
         ...
 
+    def display_ratio(self, point: tuple[int, int]) -> float:
+        """The display scale at a desktop point divided by the script's capture scale:
+        what pixel offsets measured when the script was written are multiplied by."""
+        ...
+
     @property
     def vision(self) -> StepVision:
         """Screen searches for this step (``j5_macro.vision.api.StepVision``). Raises

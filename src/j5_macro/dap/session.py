@@ -333,6 +333,11 @@ class DebugSession:
         seed = args.get("seed")
         if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
             raise DapError("'seed' must be an integer")
+        display_scale = args.get("displayScale")
+        if display_scale is not None and (
+                isinstance(display_scale, bool) or not isinstance(display_scale, int | float)
+                or not 0 < display_scale < float("inf")):
+            raise DapError("'displayScale' must be a positive number, such as 1.5")
         self._no_debug = args.get("noDebug") is True
         dry = args.get("dryRun") is True
         self._stop_on_entry = args.get("stopOnEntry") is True and not self._no_debug
@@ -346,6 +351,8 @@ class DebugSession:
             payload["input_profile"] = copy.deepcopy(FAST_PROFILE)
         if args.get("allowExec") is True:
             payload["allow_exec"] = True
+        if display_scale is not None:
+            payload["display_scale"] = display_scale
         self._run_payload = payload
         self._program = program
 

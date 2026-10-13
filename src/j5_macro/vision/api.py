@@ -26,7 +26,8 @@ from j5_macro.backends.base import Rect
 DEFAULT_THRESHOLD = 0.9
 """Minimum match score of image searches when a step gives no ``threshold``."""
 DEFAULT_SCALE = 1.0
-"""Template scale of image searches when a step gives no ``scale``."""
+"""Template scale of image searches when a step gives no ``scale`` (the display scale
+ratio applies on top)."""
 DEFAULT_INTERVAL = 0.25
 """Seconds between attempts of a wait."""
 
@@ -73,6 +74,9 @@ class Match:
     frame: Rect | None = None
     """Client area of the window searched in, when the search had a ``window``, as it
     was for this attempt (set by ``StepVision``, not by the locator)."""
+    display_ratio: float = 1.0
+    """The display scale / capture scale ratio the template was resized by, besides the
+    step's ``scale`` (set by ``StepVision``); pixel offsets from the match use it."""
 
 
 class Capturer(Protocol):

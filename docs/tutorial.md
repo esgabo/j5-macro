@@ -267,8 +267,10 @@ run r-20261012-215611-a8b5  Save with the button  (mode normal, seed 7, backend 
   if the button looks slightly different each time (anti-aliasing, a hover glow).
 - `region: [x, y, width, height]` searches only part of the screen, which is faster and
   avoids look-alikes. With `window`, the region is relative to that window.
-- `scale` compensates a template captured at another display scaling (`scale: 0.5` for
-  a template taken at 200% used on a 100% screen).
+- Templates follow the display scale on their own: j5 detects the screen's scale and
+  resizes them from the scale they were captured at (the script's `capture_scale`, 1 by
+  default; see [Display scale](scripts.md#display-scale)). `scale` is an extra factor
+  on top, rarely needed.
 - A `click`, `move` or `drag` on an image searches only once. Add the common field
   `timeout: 5s` to the step to let it wait for the image first.
 

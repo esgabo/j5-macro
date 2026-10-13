@@ -79,7 +79,8 @@ class EmbeddedImage:
     width: int
     height: int
     scale: float | None = None
-    """The display scale it was captured at, when given (reserved: not applied yet)."""
+    """The display scale it was captured at, when given: its capture scale, replacing
+    the script's ``capture_scale``."""
     line: int | None = None
 
     def to_json(self) -> dict[str, Any]:
@@ -134,6 +135,9 @@ class Script:
     vars: dict[str, Any] = field(default_factory=dict)
     images: dict[str, EmbeddedImage] = field(default_factory=dict)
     """Embedded templates, by name, in declaration order."""
+    capture_scale: float | None = None
+    """The display scale the templates and pixel offsets were taken at (the top-level
+    ``capture_scale``); None when not given, which means 1."""
     source_path: str | None = None
     text: str = ""
     warnings: list[ErrorInfo] = field(default_factory=list)

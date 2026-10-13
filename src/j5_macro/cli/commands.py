@@ -276,6 +276,8 @@ class RunOptions:
     """``on_failure`` or ``all`` (``--captures``); None leaves the engine's default."""
     allow_exec: bool = False
     """Let ``exec`` steps run programs (``--allow-exec``)."""
+    display_scale: float | None = None
+    """The display scale of the whole run (``--display-scale``); None detects it."""
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
@@ -302,6 +304,8 @@ class RunOptions:
             payload["captures"] = self.captures
         if self.allow_exec:
             payload["allow_exec"] = True
+        if self.display_scale is not None:
+            payload["display_scale"] = self.display_scale
         return payload
 
 

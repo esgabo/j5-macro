@@ -218,6 +218,20 @@ window, pointer or capture call: per-monitor v2 (`SetProcessDpiAwarenessContext`
 per-monitor (`SetProcessDpiAwareness`, Windows 8.1), else system awareness. Every
 coordinate, window rectangle and mss capture is then in physical pixels.
 
+**Display scale.** Physical pixels make coordinates exact, but an application at 150 %
+still draws 1.5 times larger than at 100 %. The backend's `display_scale(x, y)` reads
+the effective DPI of the monitor at a point (`MonitorFromPoint` with
+`MONITOR_DEFAULTTONEAREST`, then `GetDpiForMonitor` from `shcore`, Windows 8.1 and
+later) divided by 96, and `display_scales()` lists every monitor (`EnumDisplayMonitors`).
+On X11 ([scale.py](../src/j5_macro/backends/x11/scale.py)) there is no per-monitor scale
+that applications agree on: the backend reads `Xft.dpi` from the root window's
+`RESOURCE_MANAGER` property on every call (desktops change it at run time), else
+`GDK_SCALE`, else 1. The run combines it with the script's capture scale in
+[display.py](../src/j5_macro/runtime/display.py): every search resizes its template by
+`display / capture` times the step's `scale`, and pixel offsets of image and `at`
+targets are multiplied by the same ratio, so scripts survive a change of display scale
+without logical-pixel coordinates.
+
 **Pointer.** Moves are absolute `MOUSEINPUT` events over the virtual desktop
 (`MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`), so they span every monitor, accept
 negative coordinates, and skip pointer acceleration. Windows maps a normalized
@@ -442,8 +456,9 @@ region entirely outside it fails with `validation_failed` (`details.param: regio
 mean-subtracted template and each frame window, which is insensitive to uniform
 brightness and contrast changes. Scores are clipped to [0, 1], and NaN or out-of-range
 values become 0. A template with no variation in its visible pixels scores 0 everywhere,
-so a flat colour never matches: templates need some texture or an edge. `scale` resizes
-the template (area interpolation down, cubic up) before matching. `found` means
+so a flat colour never matches: templates need some texture or an edge. The effective
+scale (the step's `scale` times the display scale ratio) resizes the template (area
+interpolation down, cubic up) before matching. `found` means
 `best_score >= threshold` (0.9 by default), and the best location is reported even when
 it is below the threshold.
 

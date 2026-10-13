@@ -286,11 +286,13 @@ plugin and runs it through the engine.
 A backend implements the `Backend` protocol of `j5_macro.backends.base`, and nothing more:
 `screen_bounds`, `pointer_position`, `move_abs`/`move_rel`, `button_down`/`button_up`,
 `scroll`, `key_down`/`key_up` (physical keys by lowercase name), `char_down`/`char_up`
-(characters, whatever the layout), `find_window`, `watch_hotkey` and `close` (which
-releases anything still held). Its `capabilities` say which optional parts exist
+(characters, whatever the layout), `find_window`, `display_scale`/`display_scales`
+(the display scale of a monitor, and of every monitor), `watch_hotkey` and `close`
+(which releases anything still held). Its `capabilities` say which optional parts exist
 (`pointer_position`, `move_abs`, `move_rel`, `char_input`, `screen_capture`, `windows`,
-`hotkey`), and the masters adapt: for example, without `pointer_position` there is no
-interference detection. The table of primitives is in the
+`hotkey`, `display_scale`), and the masters adapt: for example, without
+`pointer_position` there is no interference detection, and without `display_scale`
+every display scale is 1 unless the run sets one. The table of primitives is in the
 [contract](contract.md#mouse-and-keyboard-masters).
 
 Then add it to `select_backend` (`j5_macro.backends.select`) and to the values of

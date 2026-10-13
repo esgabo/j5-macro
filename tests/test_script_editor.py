@@ -9,6 +9,7 @@ import pytest
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads import EditScriptPayload
+from j5_macro.protocol.payloads.codec import PayloadError
 from j5_macro.script.editor import EditError, Indent, apply_edits, detect_indent
 from j5_macro.script.loader import load_script
 from j5_macro.script.model import Script, Step
@@ -502,6 +503,16 @@ def test_set_meta_adds_missing_keys_in_header_order() -> None:
     assert edit(out, {"op": "set_meta", "input": {}, "params": {}, "vars": {}}) == BASIC
     named = edit("steps: []\n", {"op": "set_meta", "name": "New"})
     assert named == "name: New\nsteps: []\n"
+
+
+def test_set_meta_sets_the_capture_scale() -> None:
+    out = edit(BASIC, {"op": "set_meta", "capture_scale": 1.5})
+    assert out.startswith("version: 1\nname: Basic\ncapture_scale: 1.5\nsteps:\n")
+    assert load(out).capture_scale == 1.5
+    again = edit(out, {"op": "set_meta", "capture_scale": 1.25})
+    assert again == out.replace("capture_scale: 1.5", "capture_scale: 1.25")
+    with pytest.raises(PayloadError):
+        edit(BASIC, {"op": "set_meta", "capture_scale": 0})
 
 
 # --- several edits, errors, formats -----------------------------------------------------

@@ -16,7 +16,8 @@ from j5_macro.protocol.messages import Command
 from j5_macro.steps import default_registry
 
 CAPABILITIES = {"backend": None, "input_strategies": [],
-                "step_types": default_registry().names(), "vision": vision_installed()}
+                "step_types": default_registry().names(), "vision": vision_installed(),
+                "display_scales": []}
 HELLO = {"v_min": 1, "v_max": 1, "client": "tests"}
 
 

@@ -117,6 +117,7 @@ def test_initialize_answers_capabilities_then_initialized(tmp_path: Path) -> Non
       "input_profile": {"mouse": {"strategy": "direct"}, "keyboard": {"strategy": "direct"}}}),
     ({"allowExec": True}, {"mode": "normal", "allow_exec": True}),
     ({"allowExec": "yes"}, {"mode": "normal"}),
+    ({"displayScale": 1.5}, {"mode": "normal", "display_scale": 1.5}),
 ])
 def test_launch_builds_the_run(tmp_path: Path, launch: Message, payload: Message) -> None:
     async def scenario() -> None:
@@ -142,6 +143,9 @@ def test_params_from_env(tmp_path: Path) -> None:
     ({"paramsFromEnv": {"token": "MISSING"}}, "the environment variable MISSING is not set"),
     ({"params": "x"}, "'params' must be an object"),
     ({"seed": "1"}, "'seed' must be an integer"),
+    ({"displayScale": 0}, "'displayScale' must be a positive number"),
+    ({"displayScale": "150%"}, "'displayScale' must be a positive number"),
+    ({"displayScale": True}, "'displayScale' must be a positive number"),
     ({"program": ""}, "launch needs 'program'"),
 ])
 def test_bad_launch_arguments(tmp_path: Path, launch: Message, message: str) -> None:

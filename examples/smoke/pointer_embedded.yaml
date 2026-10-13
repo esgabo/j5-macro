@@ -9,7 +9,7 @@
 # Start the target window first (python examples/smoke/target.py), leave it visible,
 # then run: j5 run examples/smoke/pointer_embedded.yaml
 # Each step's expected line in the target's event log is in its comment; see
-# docs/manual-testing.md for the whole checklist.
+# docs/manual-testing.md for the whole checklist, including the run at 150 %.
 version: 1
 name: Smoke - pointer (embedded image)
 input:
@@ -45,18 +45,20 @@ steps:
   - id: middle_click_pad
     click: {window: {title: "${target}"}, x: 200, y: 70, button: middle}
 
-  # The offset is added to the image centre: "left down at (54, 44)".
+  # The offset is added to the image centre, in units of the match's size: a quarter of
+  # its width (48 / 4 = 12 pixels), "pattern clicked at (56, 44)".
   - id: click_with_offset
-    click: {image: "#pattern", window: {title: "${target}"}, offset: [10, 0]}
+    click: {image: "#pattern", window: {title: "${target}"}, offset: [0.25w, 0]}
 
   # The kept result, without searching again: "pattern clicked at (x, y)", anywhere on
   # the pattern like click_pattern. It follows the window if it moved since wait_pattern.
   - id: click_kept_pattern
     click: {at: "${pattern}"}
 
-  # An offset from the kept result's centre (44, 44): "left down at (144, 64)" on the pad.
+  # An offset from the kept result's centre (44, 44), two pattern widths right and half a
+  # height down: "left down at (140, 68)" on the pad.
   - id: click_next_to_pattern
-    click: {at: "${pattern}", offset: [100, 20]}
+    click: {at: "${pattern}", offset: [2w, 0.5h]}
 
   # "left down at (120, 40)" then "left up at (280, 100)".
   - id: drag_across_pad
@@ -96,10 +98,14 @@ steps:
         - id: not_elsewhere
           log: pattern correctly absent from the event log area
 
-  # A region placed at the kept result: logs "pattern visible where it was kept".
+  # A region placed at the kept result, half as large again: logs "pattern visible where
+  # it was kept".
   - id: check_kept_region
     if:
-      when: {image_visible: {image: "#pattern", region: {at: "${pattern}"}}}
+      when:
+        image_visible:
+          image: "#pattern"
+          region: {at: "${pattern}", size: [1.5w, 1.5h]}
       then:
         - id: seen_kept
           log: pattern visible where it was kept

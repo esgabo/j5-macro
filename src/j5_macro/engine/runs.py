@@ -41,6 +41,7 @@ from j5_macro.protocol.payloads import (
     StopPayload,
 )
 from j5_macro.runtime.api import ControlError, RunController, RunFactory, RunOptions, RunOutcome
+from j5_macro.runtime.display import DEFAULT_SCALE, run_display_scale
 from j5_macro.script.params import (
     ParamProblem,
     mask,
@@ -306,6 +307,7 @@ class RunManager:
                 backend=None if self.backend is None else self.backend.backend,
                 backend_reason=None if self.backend is None else self.backend.reason,
                 allow_exec=payload.allow_exec,
+                display_scale=payload.display_scale,
             )
             meta: JsonObject = {
                 "run_id": run_id,
@@ -331,6 +333,7 @@ class RunManager:
                 "seed": seed,
                 "backend": self._backend_name(run.controller),
                 "input_profile": merge_profile(entry.script.input, payload.input_profile),
+                **self._display_scale(payload.display_scale, script.capture_scale),
             }
             self.active = run
             self.runs[run_id] = run
@@ -339,6 +342,16 @@ class RunManager:
         run.files = self._create_files(run)
         run.start(run_started)
         return run
+
+    def _display_scale(self, override: float | None,
+                       capture_scale: float | None) -> JsonObject:
+        """``run_started``'s ``display_scale``, ``display_scale_source`` and
+        ``capture_scale``."""
+        scale, source = run_display_scale(
+            override, None if self.backend is None else self.backend.backend)
+        return {"display_scale": round(scale, 4), "display_scale_source": source,
+                "capture_scale": capture_scale if capture_scale is not None
+                else DEFAULT_SCALE}
 
     def _backend_name(self, controller: RunController) -> str:
         """``run_started.backend``: the controller's backend name if it reports one, else

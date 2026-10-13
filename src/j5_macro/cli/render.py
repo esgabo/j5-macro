@@ -122,6 +122,10 @@ def _point(value: Any) -> str:
     return compact(value, 40)
 
 
+def _number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value)
 
@@ -243,6 +247,10 @@ class RunRenderer:
             parts.append(f"seed {self.seed}")
         if p.get("backend"):
             parts.append(f"backend {p['backend']}")
+        for name in ("display_scale", "capture_scale"):
+            scale = p.get(name)
+            if _number(scale) and scale != 1:
+                parts.append(f"{name.replace('_', ' ')} {scale:g}")
         title = self.style.paint(f"run {self.run_id or '?'}", "bold")
         name = _text(p.get("script_name")) or _text(p.get("script_id"))
         head = f"{title}  {name}" if name else title

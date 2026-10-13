@@ -203,7 +203,8 @@ def unpack(bundle: str, directory: str, *, force: bool, err: TextIO,
         for image in loaded.images.values():
             if image.scale is not None:
                 print(f"j5: warning: image #{image.name}: its capture scale "
-                      f"{image.scale:g} cannot be kept in a file and is dropped", file=err)
+                      f"{image.scale:g} cannot be kept in a file and is dropped; set "
+                      "the script's capture_scale if the templates share it", file=err)
     references = {f"{embedded.REFERENCE_PREFIX}{name}": f"{IMAGES_DIR}/{path.name}"
                   for name, path in files.items()}
     try:

@@ -267,6 +267,25 @@ def test_find_window_returns_the_client_area_of_the_topmost_shown_match() -> Non
     assert backend.find_window("Calculator") is None
 
 
+# --- display scale ----------------------------------------------------------------------
+
+
+def test_display_scale_is_per_monitor() -> None:
+    left, main = Rect(-1920, 0, 1920, 1080), Rect(0, 0, 2560, 1440)
+    backend, _ = make(monitors=[(main, 1.5), (left, 1.0)])
+    assert backend.capabilities.display_scale
+    assert backend.display_scale(100, 100) == 1.5
+    assert backend.display_scale(-100, 100) == 1.0
+    assert backend.display_scale(5000, 100) == 1.5  # off every monitor: the nearest
+    assert backend.display_scales() == [(main, 1.5), (left, 1.0)]
+
+
+def test_display_scale_unknown_without_per_monitor_dpi() -> None:
+    backend, _ = make()
+    assert backend.display_scale(0, 0) is None
+    assert backend.display_scales() == []
+
+
 # --- hotkeys ----------------------------------------------------------------------------
 
 
@@ -320,6 +339,10 @@ def test_real_backend_reports_the_desktop() -> None:
         bounds = backend.screen_bounds()
         assert bounds.width > 0 and bounds.height > 0
         assert backend.find_window(f"j5-no-such-window-{uuid.uuid4()}") is None
+        monitors = backend.display_scales()
+        assert monitors and all(scale > 0 for _, scale in monitors)
+        origin = monitors[0][0]
+        assert backend.display_scale(origin.x, origin.y) == monitors[0][1]
 
 
 @on_windows

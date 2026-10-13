@@ -60,6 +60,16 @@ def test_load_and_get_script_describe_the_images_without_their_data(engine: Engi
     assert script.source == SCRIPT  # the section itself is in the text
 
 
+def test_load_and_get_script_report_the_capture_scale(engine: Engine) -> None:
+    loaded = engine.ok("load", {"source": SCRIPT})
+    assert "capture_scale" not in loaded
+    loaded = engine.ok("load", {"source": "capture_scale: 1.25\n" + SCRIPT})
+    assert loaded["capture_scale"] == 1.25
+    script = GetScriptResult.from_json(engine.ok("get_script",
+                                                 {"script_id": loaded["script_id"]}))
+    assert script.capture_scale == 1.25
+
+
 def test_an_unknown_reference_fails_load_with_the_step_and_parameter(engine: Engine) -> None:
     error = engine.error("load", {"source": SCRIPT.replace('"#icon"', '"#nope"')})
     assert error["code"] == "validation_failed"

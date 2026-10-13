@@ -263,6 +263,7 @@ in the active editor and stops before its first step. An example `.vscode/launch
 | `dryRun` | Send no input: input steps describe what they would do, image searches run once. With `stopOnEntry` it stops at the first step too |
 | `fast` | Use the `direct` strategy for mouse and keyboard instead of human-like movement |
 | `allowExec` | Let the script's `exec` steps run programs (`j5 run --allow-exec`) |
+| `displayScale` | The display scale of the run, e.g. `1.5` (`j5 run --display-scale`); detected per monitor when not given |
 | `seed` | Integer seed of the run, to repeat the same human-like input |
 | `params` | Values for the script's `params`, by name |
 | `paramsFromEnv` | Params read from environment variables of the adapter process (param name to variable name). Use it for secrets, so they stay out of `launch.json` |

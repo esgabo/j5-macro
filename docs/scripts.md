@@ -25,6 +25,7 @@ A script is a UTF-8 YAML file with these top-level keys:
 | `version` | no | Format version. Only `1` exists; it is the default |
 | `name` | no | Name shown in the output and the run history; defaults to the file name without extension |
 | `input` | no | The script's [input profile](#input-profiles): `{mouse: {...}, keyboard: {...}}` |
+| `capture_scale` | no | The display scale the script's templates and pixel offsets were taken at, `1` (100 %) by default; see [Display scale](#display-scale) |
 | `params` | no | Values the script takes from outside; see [Params and secrets](#params-and-secrets) |
 | `vars` | no | Variables and their starting values (any YAML value: numbers, text, lists, mappings) |
 | `steps` | yes | The list of steps |
@@ -120,7 +121,7 @@ Every step reports a result when it finishes (shown after `✓` in `j5 run`; see
   wait_image: {image: img/email_label.png, window: {title: Login}, timeout: 10s}
   as: label                     # label = {found, score, bbox, center, window, window_bbox}
 - id: click_email_field
-  click: {at: "${label}", offset: [0, 40]}      # 40 px below the label, wherever it is now
+  click: {at: "${label}", offset: [0, 1.5h]}    # 1.5 label heights below its centre
 - id: show
   log: "label found with score ${label.score}"
 ```
@@ -202,9 +203,9 @@ both `x` and `y`.
 | `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text (not with `at`) |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 | `clicks` | integer | `1` | Number of clicks (2 for a double click) |
-| `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
+| `offset` | `[dx, dy]` | - | Added to the target point: pixels, or with `image` and `at` multiples of the target's size such as `0.5w` (see [Offsets](#offsets)) |
 | `threshold` | number | `0.9` | Minimum image match score, from 0 to 1 |
-| `scale` | number | `1` | Scale applied to the template before searching (image targets only) |
+| `scale` | number | `1` | Extra factor the template is resized by, on top of the [display scale](#display-scale) (image targets only) |
 | `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only; relative to `window` when given), or [next to a kept result](#images) |
 
 ```yaml
@@ -224,9 +225,9 @@ Moves the pointer to an image, a kept image result or `x`/`y`, without clicking.
 | `x`, `y` | integer | - | Position in physical pixels |
 | `at` | kept result | - | An image result kept with `as` |
 | `window` | mapping | - | `{title: ...}`; coordinates become relative to it (not with `at`) |
-| `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
+| `offset` | `[dx, dy]` | - | Added to the target point (see [Offsets](#offsets)) |
 | `threshold` | number | `0.9` | Minimum image match score |
-| `scale` | number | `1` | Template scale (image targets only) |
+| `scale` | number | `1` | Extra template scale (image targets only) |
 | `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only) |
 
 ```yaml
@@ -326,7 +327,7 @@ Waits until an image is on screen, checking every 0.25 s.
 | `threshold` | number | `0.9` | Minimum image match score |
 | `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
 | `window` | mapping | - | `{title: ...}`: search only in that window |
-| `scale` | number | `1` | Template scale |
+| `scale` | number | `1` | Extra template scale, on top of the [display scale](#display-scale) |
 
 The result is `{found, score, bbox, center}` and, with a `window`, `window` (its title)
 and `window_bbox` (the match inside the window); keep it with `as` to act on the match
@@ -547,7 +548,7 @@ describes these fields too (`$defs/<type>_result`).
   up when the step runs. The first visible window whose title contains the text is used
   (case-sensitive). No match fails the step with `window_not_found`.
 - **Offset.** `offset: [dx, dy]` (on `click`, `move` and each point of `drag`) is added
-  to the final point.
+  to the final point; see [Offsets](#offsets) for its units.
 - **Image targets.** `click`, `move` and the points of `drag` can take an `image`. It is
   searched once (or until the step's common `timeout`), and a miss fails the step with
   `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
@@ -567,6 +568,65 @@ describes these fields too (`$defs/<type>_result`).
   coordinates from when the result was kept: use them without `window`, and prefer `at`
   when the window may move.
 
+### Offsets
+
+Each item of an `offset` is either a number of pixels or a multiple of the target's size:
+a number followed by `w` (its width) or `h` (its height), written without spaces.
+
+```yaml
+- click: {image: img/email_label.png, offset: [0, 1.5h]}   # 1.5 label heights below its centre
+- click: {at: "${label}", offset: [1w, 0]}                 # one label width to the right
+- click: {at: "${label}", offset: [-0.5w, 10]}             # its left edge, 10 px lower
+```
+
+- The size is that of the match for an `image` target, and of the kept area for `at`.
+  Either unit works on either axis: `[1h, 0]` moves right by one height.
+- `x`/`y` targets have no size, so `w` and `h` there are an error (`validation_failed`,
+  `param: offset`).
+- Sizes follow the screen: if the application draws the label larger, `1.5h` is still
+  one and a half label heights. Pixel offsets of `image` and `at` targets are scaled by
+  the [display scale](#display-scale) too; the offsets of `x`/`y` targets never are,
+  since those are positions.
+
+### Display scale
+
+The same application draws everything 1.5 times larger at 150 % than at 100 %, so a
+template captured at 100 % no longer matches, and an `offset: [0, 20]` measured there
+falls short. j5 compensates with two scales (1 means 100 %, 1.5 means 150 %):
+
+- The **display scale** is that of the screen the run works on. j5 detects it: on
+  Windows per monitor (the monitor the searched area or the target is on), on X11 from
+  `Xft.dpi` (what `xrdb -query` shows; 144 is 150 %), else the `GDK_SCALE` environment
+  variable, else 1. `j5 run --display-scale 1.5` sets it for the whole run instead.
+- The **capture scale** is the display scale the templates and pixel offsets were
+  taken at. The script's top-level `capture_scale` sets it (1 by default); an [embedded
+  image](#embedded-images)'s `scale` sets it for that image only.
+
+Every image search resizes its template by `display scale / capture scale` (times the
+step's own `scale`, which still works on top of it), and pixel offsets of `image` and
+`at` targets, and of [regions next to a kept result](#images), are multiplied by the
+same ratio. `x`/`y` positions, their offsets and `region: [x, y, width, height]` are
+never changed. `j5 run` shows the display and capture scales when they are not 1, and
+each `image_search` event reports the effective `scale`, `display_scale` and
+`capture_scale`.
+
+```yaml
+version: 1
+name: Log in
+capture_scale: 1.5          # the templates were captured on a 150 % screen
+steps:
+  - id: find_label
+    wait_image: img/email_label.png
+    as: label
+  - click: {at: "${label}", offset: [0, 1.5h]}
+```
+
+On a 100 % screen the templates are searched at 2/3 of their size; on a 150 % one, as
+they are. A script written before display scales were applied, with templates captured
+at another scale, needs `capture_scale` (and should drop a step `scale` set by hand for
+one machine). `--display-scale 1` with the default `capture_scale` turns the adjustment
+off.
+
 ## Images
 
 - **Paths** are relative to the script file's directory. A missing or unreadable file
@@ -585,10 +645,12 @@ describes these fields too (`$defs/<type>_result`).
 - **Region next to a kept result.** `region: {at: "${label}", offset: [dx, dy], size:
   [width, height]}` searches an area the size of the kept result (or `size`), centred on
   its centre plus `offset`. It follows the result's window like an `at` target and is
-  never relative to the step's `window`. For example, the field to the right of a label:
-  `region: {at: "${label}", offset: [150, 0], size: [250, 40]}`.
-- **Scale.** `scale` (greater than 0; 1 by default) resizes the template before
-  searching, to use a template captured at another display scaling. On an `x`/`y`
+  never relative to the step's `window`. `offset` and `size` take pixels or
+  [multiples of the result's size](#offsets); pixels follow the [display
+  scale](#display-scale). For example, the field to the right of a label: `region: {at:
+  "${label}", offset: [2.5w, 0], size: [4w, 1.5h]}`.
+- **Scale.** j5 resizes templates by the [display scale](#display-scale) ratio itself.
+  `scale` (greater than 0; 1 by default) is an extra factor on top of it. On an `x`/`y`
   target any `scale` other than 1 is an error.
 - **Captures.** When a search fails, the run saves a capture of the searched area with
   the best candidate outlined in red, in the run's `captures/` directory.
@@ -638,8 +700,8 @@ images:
   a failure in the middle of a run. A reference built with `${...}` is resolved when the
   step runs; an unknown name then fails with `template_missing`.
 - **`scale`** is the display scale the image was captured at (a positive number, `1.5`
-  for 150 %). It is reserved: j5 checks it and keeps it with the image, but does not
-  apply it yet, so use the step's own `scale` to compensate a different scaling.
+  for 150 %): its capture scale, which replaces the script's `capture_scale` for this
+  image (see [Display scale](#display-scale)).
 - **In the output.** Events and errors show the reference as written (`#pattern`) and
   never the image data, which is not copied to captures or the run history either.
 - **No working directory.** A script whose templates are all embedded does not depend on

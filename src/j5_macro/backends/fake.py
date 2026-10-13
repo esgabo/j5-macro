@@ -15,8 +15,10 @@ from j5_macro.backends.base import (
     NAMED_KEYS,
     Button,
     Capabilities,
+    MonitorScale,
     Rect,
     UnknownKey,
+    scale_at,
 )
 
 
@@ -33,9 +35,12 @@ class FakeBackend:
     name: str = "fake"
     capabilities: Capabilities = field(default_factory=lambda: Capabilities(
         pointer_position=True, move_abs=True, move_rel=True, char_input=True,
-        screen_capture=False, windows=True, hotkey=True))
+        screen_capture=False, windows=True, hotkey=True,
+        display_scale=True))
     bounds: Rect = field(default_factory=lambda: Rect(0, 0, 1920, 1080))
     windows: dict[str, Rect] = field(default_factory=dict)
+    monitors: list[MonitorScale] | None = None
+    """Monitors and their display scales; None is one monitor, :attr:`bounds`, at 1.0."""
     pointer: tuple[int, int] = (0, 0)
     calls: list[Call] = field(default_factory=list)
     held_keys: list[str] = field(default_factory=list)
@@ -111,6 +116,16 @@ class FakeBackend:
         self._record("char_up", char)
         if char in self.held_chars:
             self.held_chars.remove(char)
+
+    def display_scale(self, x: int, y: int) -> float | None:
+        if not self.capabilities.display_scale:
+            return None
+        return scale_at(self.display_scales(), x, y)
+
+    def display_scales(self) -> list[MonitorScale]:
+        if not self.capabilities.display_scale:
+            return []
+        return list(self.monitors) if self.monitors is not None else [(self.bounds, 1.0)]
 
     def find_window(self, title: str) -> Rect | None:
         return next((rect for name, rect in self.windows.items() if title in name), None)

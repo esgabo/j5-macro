@@ -139,6 +139,20 @@ def _runs_dir_option() -> argparse.ArgumentParser:
     return parent
 
 
+def _display_scale(text: str) -> float:
+    """``--display-scale``: a positive number, ``1.5`` or ``150%``."""
+    value = text.strip()
+    percent = value.endswith("%")
+    try:
+        number = float(value[:-1] if percent else value)
+    except ValueError:
+        number = float("nan")
+    if not 0 < number < float("inf"):
+        raise argparse.ArgumentTypeError(
+            f"expected a positive number such as 1.5 or 150%, got {text!r}")
+    return number / 100 if percent else number
+
+
 def _stop_key(text: str) -> str:
     try:
         parse_combo(text)
@@ -177,6 +191,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--allow-exec", action="store_true",
                      help="let the script's exec steps run programs (without it they fail "
                           "with capability_missing)")
+    run.add_argument("--display-scale", metavar="SCALE", type=_display_scale,
+                     help="the display scale of this run, e.g. 1.5 or 150%%, instead of "
+                          "detecting it per monitor; templates and pixel offsets are "
+                          "scaled by it over the script's capture_scale")
     run.add_argument("--param", dest="params", metavar="NAME=VALUE", action="append",
                      type=parse_param, default=[],
                      help="set a script param to VALUE, taken as text exactly as written "
@@ -390,6 +408,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         input_profile=copy.deepcopy(FAST_PROFILE) if args.fast else None,
         captures=args.captures,
         allow_exec=args.allow_exec,
+        display_scale=args.display_scale,
         as_json=args.json,
         interactive=interactive,
     )

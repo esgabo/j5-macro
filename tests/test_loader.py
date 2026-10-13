@@ -644,6 +644,20 @@ def test_bad_header_fields(text: str, field: str) -> None:
     assert error.line == 1
 
 
+@pytest.mark.parametrize("value", ["0", "-1.5", "true", "big", "[1]", ".inf"])
+def test_bad_capture_scale(value: str) -> None:
+    error = only_error(f"capture_scale: {value}\nsteps: []\n")
+    assert error.details == {"field": "capture_scale"}
+    assert error.line == 1
+    assert "positive number" in error.message
+
+
+def test_capture_scale() -> None:
+    assert ok("steps: []\n").capture_scale is None
+    assert ok("capture_scale: 1.5\nsteps: []\n").capture_scale == 1.5
+    assert ok("capture_scale: 2\nsteps: []\n").capture_scale == 2.0
+
+
 def test_unknown_top_level_key_is_a_warning() -> None:
     script = ok("steps: []\nauthor: Gabriel\n")
     [warning] = script.warnings

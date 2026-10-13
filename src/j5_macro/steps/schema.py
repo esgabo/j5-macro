@@ -216,6 +216,12 @@ def script_json_schema(registry: StepRegistry) -> JsonSchema:
                     ],
                 },
             },
+            "capture_scale": {
+                "type": "number", "exclusiveMinimum": 0, "default": 1,
+                "description": "Display scale the templates and pixel offsets were taken "
+                               "at (1.5 for 150 %); j5 scales them by the run's display "
+                               "scale over this one.",
+            },
             "vars": {"type": "object", "description": "Initial variables."},
             "steps": {"type": "array", "items": {"$ref": STEP_REF}},
             "images": {
@@ -232,8 +238,8 @@ def script_json_schema(registry: StepRegistry) -> JsonSchema:
                                                "decoded); line breaks are ignored."},
                         "scale": {"type": "number", "exclusiveMinimum": 0,
                                   "description": "Display scale the image was captured "
-                                                 "at, e.g. 1.5 (reserved: not applied "
-                                                 "yet)."},
+                                                 "at, e.g. 1.5; replaces capture_scale "
+                                                 "for this image."},
                     },
                     "required": ["png"],
                     "additionalProperties": False,

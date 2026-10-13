@@ -41,7 +41,8 @@ $ j5 run report.yaml --param 'customer=ACME #42'
   optional corrected typos. Or `direct` and `linear` when speed matters. Runs are seeded
   and reproducible.
 - **Sees the screen.** Waits for and clicks on images, with thresholds, regions,
-  transparent templates and screenshots of failed searches.
+  transparent templates and screenshots of failed searches. Templates and offsets follow
+  the display scale, so a script captured at 100 % still works at 150 %.
 - **Debuggable.** `j5 run --step` with breakpoints, stepping into loops and branches,
   variables and expressions; the same in VS Code through a Debug Adapter Protocol server.
 - **Values from outside.** Params from the command line, files or environment variables;

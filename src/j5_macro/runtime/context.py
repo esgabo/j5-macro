@@ -34,6 +34,8 @@ class ContextHost(Protocol):
 
     def step_vision(self, context: RunContext) -> StepVision: ...
 
+    def display_ratio(self, point: tuple[int, int]) -> float: ...
+
 
 class RunContext:
     """One attempt of one step."""
@@ -104,6 +106,9 @@ class RunContext:
 
     def check_stop(self) -> None:
         self._host.check_stop()
+
+    def display_ratio(self, point: tuple[int, int]) -> float:
+        return self._host.display_ratio(point)
 
     @property
     def vision(self) -> StepVision:

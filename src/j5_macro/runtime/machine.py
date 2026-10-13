@@ -109,6 +109,9 @@ class Machine:
                            wait=context.wait, check_stop=context.check_stop, log=context.log,
                            paused=lambda: self._paused)
 
+    def display_ratio(self, point: tuple[int, int]) -> float:
+        return self._vision.display.ratio_at(point)
+
     def wait(self, seconds: float, depth: int) -> None:
         remaining = seconds
         while remaining > 0:

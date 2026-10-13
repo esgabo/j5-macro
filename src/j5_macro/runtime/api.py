@@ -67,6 +67,9 @@ class RunOptions:
     in tests) masks nothing."""
     allow_exec: bool = False
     """Whether ``exec`` steps may start programs (the ``run`` command's ``allow_exec``)."""
+    display_scale: float | None = None
+    """The run's display scale (the ``run`` command's ``display_scale``); None detects
+    it with the backend, per monitor (``j5_macro.runtime.display``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -17,6 +17,11 @@ docs/contract.md, "Script format and step registry" (images, coordinates), "Even
   window (:func:`~j5_macro.steps.positions.anchored_region`).
 - Matches carry the client area of the window searched in (``Match.frame``), so image
   results can report where they are relative to it (``window_bbox``).
+- Templates are resized by the step's ``scale`` times the display scale ratio: the
+  display scale at the centre of the searched area (the primary monitor's for the whole
+  desktop) over the template's capture scale (its embedded ``scale``, else the
+  script's ``capture_scale``); see :mod:`j5_macro.runtime.display`. Matches carry that
+  ratio (``Match.display_ratio``) for the offsets measured from them.
 - Every attempt emits ``image_search``. Captures go to ``<run_dir>/captures/`` following
   the run's ``captures`` policy, and events carry their path relative to ``run_dir``.
 - :meth:`BoundVision.wait` sleeps between attempts through the step's interruptible
@@ -37,6 +42,7 @@ from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads.events import ImageSearchEvent
 from j5_macro.runtime.api import RunEventSink
 from j5_macro.runtime.clock import Clock
+from j5_macro.runtime.display import DisplayScale
 from j5_macro.script.images import reference_name
 from j5_macro.script.model import EmbeddedImage
 from j5_macro.steps.positions import anchored_region
@@ -79,7 +85,8 @@ class RunVision:
     def __init__(self, *, factory: ToolkitFactory | None, backend: Backend | None,
                  backend_reason: str | None, dry_run: bool, captures: CapturePolicy,
                  run_dir: Path | None, script_path: str | None, emit: RunEventSink,
-                 clock: Clock, images: Mapping[str, EmbeddedImage] | None = None) -> None:
+                 clock: Clock, images: Mapping[str, EmbeddedImage] | None = None,
+                 display: DisplayScale | None = None) -> None:
         self._factory = factory
         self._backend = backend
         self._backend_reason = backend_reason
@@ -88,6 +95,8 @@ class RunVision:
         self.run_dir = run_dir
         self._script_dir = Path(script_path).parent if script_path else None
         self._images: Mapping[str, EmbeddedImage] = images or {}
+        self.display = display if display is not None else DisplayScale(backend=backend)
+        """The run's display and capture scales."""
         self._embedded: dict[str, Template] = {}
         """Embedded templates decoded so far in this run, by name."""
         self._emit = emit
@@ -153,6 +162,15 @@ class RunVision:
             raise StepError(ErrorCode.TEMPLATE_MISSING,
                             f"{path} is not a readable image: {exc}", details) from exc
 
+    def capture_scale(self, image: str) -> float:
+        """The capture scale of a template: an embedded image's ``scale``, else the
+        script's ``capture_scale``."""
+        name = reference_name(image)
+        entry = None if name is None else self._images.get(name)
+        if entry is not None and entry.scale is not None:
+            return entry.scale
+        return self.display.capture_scale
+
     def embedded_template(self, image: str, name: str) -> Template:
         """The template of ``images[name]``, decoded once per run. No path is reported:
         the image lives in the script."""
@@ -209,7 +227,8 @@ class RunVision:
         if region is None:
             return frame
         if isinstance(region, Mapping):
-            return anchored_region(region, lambda title: self.window_rect({"title": title}))
+            return anchored_region(region, lambda title: self.window_rect({"title": title}),
+                                   ratio_at=self.display.ratio_at)
         if (not isinstance(region, list) or len(region) != 4
                 or any(isinstance(v, bool) or not isinstance(v, int | float) for v in region)):
             raise StepError(ErrorCode.VALIDATION_FAILED,
@@ -321,7 +340,8 @@ class BoundVision:
         # Fail early on a bad region or window.
         self._run.search_area(region, self._run.window_frame(window))
         return _Search(image=image, template=template, threshold=float(threshold),
-                       scale=float(scale), region=region, window=window)
+                       scale=float(scale), region=region, window=window,
+                       capture_scale=self._run.capture_scale(image))
 
     def _attempt(self, search: _Search, attempt: int, *, final_miss_fails: bool,
                  out_of_time: Callable[[], bool] | None = None) -> Match:
@@ -337,7 +357,13 @@ class BoundVision:
         except ValueError as exc:  # e.g. a region entirely outside the virtual desktop
             raise StepError(ErrorCode.VALIDATION_FAILED, f"cannot search there: {exc}",
                             {"param": "region"}) from exc
-        match = toolkit.locate(search.template, capture, search.threshold, search.scale)
+        # The display scale where the search looks: the area's centre, else the primary
+        # monitor's (a search of the whole desktop).
+        display_scale = run.display.at(None if area is None else area.center)
+        ratio = display_scale / search.capture_scale
+        scale = search.scale * ratio
+        match = toolkit.locate(search.template, capture, search.threshold, scale)
+        match = dataclasses.replace(match, display_ratio=ratio)
         if frame is not None:
             match = dataclasses.replace(match, frame=frame)
         elapsed_ms = max(0, round((clock.now() - began) * 1000))
@@ -355,7 +381,10 @@ class BoundVision:
             template=search.image, threshold=search.threshold, found=match.found,
             best_score=round(float(match.score), 4),
             bbox=None if match.bbox is None else rect_list(match.bbox),
-            region=rect_list(area), attempt=attempt, elapsed_ms=elapsed_ms,
+            region=rect_list(area), scale=round(scale, 4),
+            display_scale=round(display_scale, 4),
+            capture_scale=round(search.capture_scale, 4),
+            attempt=attempt, elapsed_ms=elapsed_ms,
             screenshot=screenshot))
         return match
 
@@ -363,12 +392,13 @@ class BoundVision:
 class _Search:
     """One find or wait: its resolved inputs and how its last attempt ended."""
 
-    __slots__ = ("failed", "failed_capture", "image", "region", "scale", "template",
-                 "threshold", "window")
+    __slots__ = ("capture_scale", "failed", "failed_capture", "image", "region", "scale",
+                 "template", "threshold", "window")
 
     def __init__(self, *, image: str, template: Template, threshold: float, scale: float,
-                 region: Any, window: Any) -> None:
+                 region: Any, window: Any, capture_scale: float = 1.0) -> None:
         self.image = image
+        self.capture_scale = capture_scale
         self.template = template
         self.threshold = threshold
         self.scale = scale

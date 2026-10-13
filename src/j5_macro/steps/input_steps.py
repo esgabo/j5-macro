@@ -9,7 +9,9 @@ description says where the target would be.
 Coordinates (contract, "Script format and step registry"): ``x``/``y`` are absolute
 desktop pixels; with ``window: {title: ...}`` they are relative to the top-left corner
 of the client area of the first visible window whose title contains ``title``;
-``offset: [dx, dy]`` is added to the resulting point.
+``offset: [dx, dy]`` is added to the resulting point. Offsets of image and ``at``
+targets may be multiples of the target's size (``0.5w``, ``-2h``), and their pixels are
+multiplied by the display scale ratio (:mod:`j5_macro.steps.positions`).
 
 Image targets (``image``, with ``threshold``, ``scale``, ``region`` and ``window``) are
 searched through ``ctx.vision``: once, or until the step's common ``timeout`` when it is
@@ -42,6 +44,7 @@ from j5_macro.steps.positions import (
     FindWindow,
     aim,
     area_report,
+    lengths_problem,
     locate_stored,
     read_stored,
     rect_list,
@@ -204,15 +207,19 @@ def _resolve_target(ctx: StepContext, inp: StepInput, target: Mapping[str, Any],
         del report["found"]
         area = match.bbox
         point = area.center
+        # The offset follows the template: the same display scale ratio.
+        ratio = match.display_ratio
     elif "at" in target:
         stored = read_stored(target["at"], f"{prefix}at")
         area, frame = locate_stored(stored, _finder(inp, f"{prefix}at"), f"{prefix}at")
         report = area_report(area, stored.window, relative(area, frame))
         point = area.center
+        ratio = ctx.display_ratio(point)
     else:
         point, report = _resolve_point(inp, target, where)
         area = None
-    x, y, landing = aim(point, area, target.get("offset"), f"{prefix}offset")
+        ratio = 1.0  # x/y and their offsets are positions: never scaled
+    x, y, landing = aim(point, area, target.get("offset"), f"{prefix}offset", ratio)
     return (x, y), landing, report
 
 
@@ -354,17 +361,17 @@ def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
     return problems
 
 
-def _check_length(params: Mapping[str, Any], name: str, length: int,
-                  where: str = "") -> list[ParamProblem]:
-    value = params.get(name)
-    if isinstance(value, list) and len(value) != length:
-        return [ParamProblem(f"{where}{name}", f"expected {length} numbers")]
-    return []
+def _check_offset(params: Mapping[str, Any], where: str = "") -> list[ParamProblem]:
+    """``offset``: two items, each pixels or, for targets with a size (``image``,
+    ``at``), a multiple of it (``0.5w``)."""
+    sized = "image" in params or "at" in params
+    problem = lengths_problem(params.get("offset"), sized)
+    return [] if problem is None else [ParamProblem(f"{where}offset", problem)]
 
 
 def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
     problems = check_point(params) + _check_image_options(params)
-    problems += _check_length(params, "offset", 2)
+    problems += _check_offset(params)
     clicks = params.get("clicks")
     if isinstance(clicks, int) and clicks < 1:
         problems.append(ParamProblem("clicks", "must be 1 or more"))
@@ -372,8 +379,7 @@ def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
 
 
 def check_move(params: Mapping[str, Any]) -> list[ParamProblem]:
-    return (check_point(params) + _check_image_options(params)
-            + _check_length(params, "offset", 2))
+    return check_point(params) + _check_image_options(params) + _check_offset(params)
 
 
 def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
@@ -381,8 +387,7 @@ def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
     for name in ("from", "to"):
         value = params.get(name)
         if isinstance(value, Mapping):
-            problems += check_point(value, name) + _check_length(value, "offset", 2,
-                                                                 f"{name}.")
+            problems += check_point(value, name) + _check_offset(value, f"{name}.")
     return problems
 
 
@@ -454,20 +459,22 @@ AT = ParamSpec(name="at", type="any",
                doc="An image result kept with 'as', e.g. \"${label}\": the action aims at "
                    "its area, where it is now (following its window).")
 OFFSET = ParamSpec(name="offset", type="list",
-                   doc="[dx, dy] added to the target point, in pixels; with an image or "
-                       "'at' target the mouse aims at that exact point.")
+                   doc="[dx, dy] added to the target point: pixels, or with an image or "
+                       "'at' target multiples of its size such as 0.5w or -2h; with an "
+                       "image or 'at' target the mouse aims at that exact point, and "
+                       "pixels follow the display scale.")
 WINDOW = ParamSpec(name="window", type="object",
                    doc="Window to work in, e.g. {title: ...}; coordinates become relative.")
 THRESHOLD = ParamSpec(name="threshold", type="number", default=DEFAULT_THRESHOLD,
                       doc="Minimum image match score, from 0 to 1.")
 SCALE = ParamSpec(name="scale", type="number", default=DEFAULT_SCALE,
-                  doc="Scale applied to the image before searching, to compensate images "
-                      "captured at another display scaling.")
+                  doc="Extra factor the image is resized by before searching, on top of "
+                      "the display scale / capture scale ratio j5 applies itself.")
 REGION = ParamSpec(name="region", type="any",
                    doc="[x, y, width, height] to search in (relative to 'window' when "
                        "given), or {at: <image result>, offset: [dx, dy], size: [w, h]} "
-                       "next to a kept result; defaults to the window, else the whole "
-                       "desktop.")
+                       "next to a kept result (pixels, or multiples of its size such as "
+                       "2w); defaults to the window, else the whole desktop.")
 DEFAULT_WAIT = "10s"
 BUTTON = ParamSpec(name="button", type="string", default="left", choices=BUTTONS,
                    doc="Mouse button.")

@@ -843,6 +843,8 @@ class _Tree:
     def set_meta(self, edit: SetMetaEdit) -> None:
         if edit.name is not None:
             self._set_header("name", edit.name)
+        if edit.capture_scale is not None:
+            self._set_header("capture_scale", edit.capture_scale)
         for key, value in (("input", edit.input), ("params", edit.params),
                            ("vars", edit.vars), ("images", edit.images)):
             if value is None:

@@ -54,7 +54,9 @@ def test_wait_image_found_on_the_third_attempt(tmp_path: Path) -> None:
     assert [s["found"] for s in searches] == [False, False, True]
     assert searches[2] == {"template": "img/x.png", "threshold": 0.9, "found": True,
                            "best_score": 0.97, "bbox": [300, 400, 40, 20],
-                           "region": [0, 0, 1920, 1080], "attempt": 3, "elapsed_ms": 0}
+                           "region": [0, 0, 1920, 1080], "scale": 1.0,
+                           "display_scale": 1.0, "capture_scale": 1.0, "attempt": 3,
+                           "elapsed_ms": 0}
     assert run.recorder.of("step_finished")[0]["result"] == {
         "found": True, "score": 0.97, "bbox": [300, 400, 40, 20], "center": [320, 410]}
     assert run.clock.t == pytest.approx(0.5)  # two intervals of 0.25 s

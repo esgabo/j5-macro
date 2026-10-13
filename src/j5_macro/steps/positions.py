@@ -6,6 +6,9 @@
   target (``x``/``y``, ``image``, ``at``) and for regions placed ``at`` a stored result.
   The point belongs to an *area* (the match, the stored result's area; None for
   coordinates), which is what the human strategy lands in when there is no offset.
+  Offset items are pixels, multiplied by the display scale ratio (display / capture
+  scale) when the target has an area, or multiples of the area's size (``0.5w``,
+  ``-2h``), which only targets with an area have (:func:`length_problem`).
 - A *stored result* is an image result kept with ``as`` (``wait_image``, an image or
   ``at`` target of ``click``/``move``): ``bbox`` on the desktop and, when the search had a
   window, ``window`` (its title) and ``window_bbox`` (relative to its client area).
@@ -17,6 +20,8 @@ Nothing here touches the backend: window lookups go through a :data:`FindWindow`
 
 from __future__ import annotations
 
+import math
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -29,8 +34,14 @@ FindWindow = Callable[[str], Rect]
 """The client area of the window whose title contains the given text; raises
 ``StepError`` (``window_not_found``, ``capability_missing``) when it cannot."""
 
+RatioAt = Callable[[tuple[int, int]], float]
+"""The display scale ratio (display / capture scale) at a desktop point."""
+
 REGION_KEYS = ("at", "offset", "size")
 """The keys of a region placed next to a stored result."""
+
+SIZE_UNIT = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([wh])$")
+"""A length relative to the target's area: ``0.5w``, ``-2h``."""
 
 
 def _failure(param: str, message: str) -> StepError:
@@ -70,22 +81,91 @@ def _rect(value: Any) -> Rect | None:
 # --- offsets ----------------------------------------------------------------------------
 
 
-def offset_delta(offset: Any, area: Rect | None, param: str = "offset") -> tuple[int, int]:
+def _unit(value: Any) -> tuple[float, str] | None:
+    """``0.5w`` as ``(0.5, "w")``; None for anything else."""
+    if not isinstance(value, str):
+        return None
+    found = SIZE_UNIT.match(value)
+    if found is None:
+        return None
+    number = float(found.group(1))
+    return (number, found.group(2)) if math.isfinite(number) else None
+
+
+def length_problem(value: Any, sized: bool, *, positive: bool = False) -> str | None:
+    """What is wrong with one item of an ``offset`` (or of an anchored region's
+    ``size``), or None: a number of pixels, or a multiple of the target's width or
+    height (``0.5w``) when the target has a size (``sized``). Strings with ``${`` are
+    only checked once interpolated."""
+    if _interpolated(value):
+        return None
+    unit = _unit(value)
+    if unit is not None:
+        if not sized:
+            return (f"{value!r} is relative to the target's size, but an x/y target has "
+                    "none; use pixels")
+        number = unit[0]
+    elif _number(value) and math.isfinite(value):
+        number = value
+    else:
+        what = ("a number of pixels or a multiple of the target's width or height, such "
+                "as 0.5w or -2h") if sized else "a number of pixels"
+        return f"items must be {what}, got {value!r}"
+    if positive and number <= 0:
+        return "must be positive"
+    return None
+
+
+def lengths_problem(value: Any, sized: bool, *, positive: bool = False) -> str | None:
+    """What is wrong with an ``offset`` (``[dx, dy]``) or a ``size`` (``[w, h]``,
+    ``positive``), or None; the whole value may still be ``${...}``."""
+    if value is None or _interpolated(value):
+        return None
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        return "expected 2 numbers"
+    for item in value:
+        problem = length_problem(item, sized, positive=positive)
+        if problem is not None:
+            return problem
+    return None
+
+
+def _length(value: Any, area: Rect | None, ratio: float, param: str,
+            positive: bool = False) -> float:
+    """One offset or size item in pixels: a number times ``ratio``, or a multiple of the
+    area's width or height."""
+    problem = length_problem(value, area is not None, positive=positive)
+    if problem is None and _interpolated(value):
+        problem = f"items must be numbers, got {value!r}"
+    if problem is not None:
+        raise _failure(param, problem)
+    unit = _unit(value)
+    if unit is not None:
+        assert area is not None  # length_problem refuses units without an area
+        number, axis = unit
+        return number * (area.width if axis == "w" else area.height)
+    return float(value) * ratio
+
+
+def offset_delta(offset: Any, area: Rect | None, param: str = "offset",
+                 ratio: float = 1.0) -> tuple[int, int]:
     """``offset`` (``[dx, dy]`` or None) in pixels. ``area`` is the area the offset is
-    relative to (None for plain coordinates); it is what relative units would refer to."""
+    relative to (None for plain coordinates): ``w``/``h`` items are multiples of its
+    size, and pixel items are multiplied by ``ratio`` (the display scale ratio; callers
+    pass 1 for plain coordinates)."""
     if offset is None:
         return 0, 0
-    if not isinstance(offset, list | tuple) or len(offset) != 2 \
-            or not all(map(_number, offset)):
+    if not isinstance(offset, list | tuple) or len(offset) != 2:
         raise _failure(param, "must be [dx, dy]")
-    return round(offset[0]), round(offset[1])
+    return (round(_length(offset[0], area, ratio, param)),
+            round(_length(offset[1], area, ratio, param)))
 
 
 def aim(point: tuple[int, int], area: Rect | None, offset: Any,
-        param: str = "offset") -> tuple[int, int, Rect | None]:
+        param: str = "offset", ratio: float = 1.0) -> tuple[int, int, Rect | None]:
     """The point to act on (``point`` plus ``offset``) and the area the input layer may
     land in: ``area`` itself, unless an offset moves the point away from it."""
-    dx, dy = offset_delta(offset, area, param)
+    dx, dy = offset_delta(offset, area, param, ratio)
     if (dx, dy) == (0, 0):
         return point[0], point[1], area
     return point[0] + dx, point[1] + dy, None
@@ -208,28 +288,32 @@ def region_problem(value: Any) -> str | None:
     if problem is not None:
         return f"'at' {problem}"
     for name in ("offset", "size"):
-        item = value.get(name)
-        if item is not None and not _interpolated(item) and (
-                not isinstance(item, list) or len(item) != 2):
-            return f"'{name}' expected 2 numbers"
+        problem = lengths_problem(value.get(name), True, positive=name == "size")
+        if problem is not None:
+            return f"'{name}' {problem}"
     return None
 
 
 def anchored_region(value: Mapping[str, Any], find_window: FindWindow,
-                    param: str = "region") -> Rect:
+                    param: str = "region", ratio_at: RatioAt | None = None) -> Rect:
     """A region ``{at, offset?, size?}``: ``size`` (the stored area's size by default)
-    centred on the stored area's centre plus ``offset``, on the desktop."""
+    centred on the stored area's centre plus ``offset``, on the desktop. Pixel items of
+    ``offset`` and ``size`` are multiplied by the display scale ratio at the stored
+    area's centre (``ratio_at``; 1 without it)."""
     problem = region_problem(value)
     if problem is not None:
         raise _failure(param, problem)
     area, _ = locate_stored(read_stored(value["at"], f"{param}.at"), find_window,
                             f"{param}.at")
+    ratio = 1.0 if ratio_at is None else ratio_at(area.center)
     size = value.get("size")
     if size is None:
         width, height = area.width, area.height
-    elif all(map(_number, size)) and min(size) > 0:
-        width, height = round(size[0]), round(size[1])
     else:
-        raise _failure(f"{param}.size", "must be [width, height], both positive")
-    x, y, _ = aim(area.center, area, value.get("offset"), f"{param}.offset")
+        if not isinstance(size, list | tuple) or len(size) != 2:
+            raise _failure(f"{param}.size", "must be [width, height], both positive")
+        width, height = (max(1, round(_length(item, area, ratio, f"{param}.size",
+                                              positive=True)))
+                         for item in size)
+    x, y, _ = aim(area.center, area, value.get("offset"), f"{param}.offset", ratio)
     return Rect(x - width // 2, y - height // 2, width, height)
