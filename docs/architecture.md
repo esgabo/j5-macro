@@ -183,10 +183,11 @@ the interpreter.
 | [`engine`](../src/j5_macro/engine) | The engine process: commands, scripts, runs, history | `app.py` (entry point), `server.py`, `dispatch.py`, `commands.py`, `scripts.py`, `editing.py`, `runs.py`, `persistence.py`, `history.py`, `events.py`, `backend.py`, `transport.py` |
 | [`client`](../src/j5_macro/client) | Asyncio client that launches the engine and speaks the protocol | `engine_client.py` (`EngineClient`), `sequencer.py` (gap detection), `stderr.py` |
 | [`script`](../src/j5_macro/script) | Script model, YAML loader, params and secrets, structured editor | `model.py`, `loader.py`, `params.py`, `editor.py` |
-| [`steps`](../src/j5_macro/steps) | Step specs, registry, built-in steps, editor schema | `spec.py`, `registry.py`, `builtins.py`, `input_steps.py`, `basic.py`, `control.py`, `images.py`, `conditions.py`, `schema.py` |
+| [`steps`](../src/j5_macro/steps) | Step specs, registry, built-in steps, editor schema | `spec.py`, `registry.py`, `builtins.py`, `input_steps.py`, `basic.py`, `programs.py`, `control.py`, `images.py`, `conditions.py`, `schema.py` |
 | [`expr`](../src/j5_macro/expr) | Safe expression evaluator and `${}` interpolation | `evaluator.py`, `interpolation.py`, `functions.py` |
 | [`runtime`](../src/j5_macro/runtime) | The interpreter | `api.py`, `interpreter.py`, `machine.py`, `frames.py`, `control.py`, `context.py`, `seeding.py`, `input.py`, `vision.py`, `emitter.py`, `resolve.py` |
 | [`input`](../src/j5_macro/input) | Mouse and keyboard masters | `api.py` (profiles, plans, protocols), `planning.py`, `human_mouse.py`, `human_keys.py`, `session.py`, `keys.py` (combinations) |
+| [`processes`](../src/j5_macro/processes.py) | Starting, detaching and killing the programs of `exec` steps, per platform | `processes.py` (one module) |
 | [`backends`](../src/j5_macro/backends) | Platform primitives and backend selection | `base.py` (`Backend`, `Capabilities`), `select.py`, `fake.py`, `x11/` |
 | [`vision`](../src/j5_macro/vision) | Screen capture and template matching | `api.py`, `toolkit.py`, `capture.py`, `matching.py`, `templates.py`, `drawing.py` |
 | [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
