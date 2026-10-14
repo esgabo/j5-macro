@@ -56,6 +56,7 @@ from j5_macro.gui.views.fields import (
     ChoiceField,
     Field,
     FieldEnv,
+    ImageEdit,
     LineField,
     ProfileField,
     TargetField,
@@ -130,6 +131,7 @@ class StepFormPanel(QWidget):
         self._rows: list[_Row] = []
         self._by_key: dict[tuple[bool, str], _Row] = {}
         self._dirty: set[int] = set()
+        self._env = FieldEnv()
 
         self._title = QLabel()
         self._title.setWordWrap(True)
@@ -209,14 +211,20 @@ class StepFormPanel(QWidget):
             self._show_problems([])
             return
         names = tuple(image_names(state.images)) if state is not None else ()
-        key = (step.id, step.type, names, state.path if state else None, id(self._registry))
+        # The embedded images are not in the key: a capture that embeds one must not
+        # rebuild the form, whose field tools set the new image once it is there.
+        key = (step.id, step.type, state.path if state else None, id(self._registry))
         if key != self._key:
             if self._dirty:
                 self.flush()  # what was typed is sent before the form is rebuilt
             self._build(step, state)
             self._key = key
-        elif state is None or state.valid:
-            self._refresh(step)
+        else:
+            self._env.image_names = names
+            for edit in self._body.findChildren(ImageEdit):
+                edit.set_names(names)
+            if state is None or state.valid:
+                self._refresh(step)
         line = f", line {step.line}" if step.line is not None else ""
         self._title.setText(f"<b>{_escape(step.id)}</b> ({_escape(step.type)}{line})")
         self._show_engine_problems()
@@ -279,7 +287,7 @@ class StepFormPanel(QWidget):
         step_type = self._registry.get(step.type)
         self._doc.setText(step_type.doc if step_type is not None else
                           "This step type is not in the engine's registry.")
-        env = FieldEnv(
+        env = self._env = FieldEnv(
             ctx=self._ctx, step_id=step.id, step_type=step.type,
             image_names=image_names(state.images) if state is not None else (),
             script_dir=os.path.dirname(state.path) if state and state.path else None,

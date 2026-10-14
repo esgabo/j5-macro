@@ -43,8 +43,11 @@ from j5_macro.gui.models.header import image_names
 from j5_macro.gui.models.registry import StepRegistry, new_step
 from j5_macro.gui.models.script import ScriptState, format_problem
 from j5_macro.gui.models.steps import find_step, iter_steps
+from j5_macro.gui.views.fields import TargetEdit
 from j5_macro.gui.views.header_form import ScriptHeaderPanel
 from j5_macro.gui.views.palette import StepPalette
+from j5_macro.gui.views.screen_dialogs import ImageFieldTools, PointFieldTools, WindowChooser
+from j5_macro.gui.views.screen_fields import WindowButton
 from j5_macro.gui.views.step_form import StepFormPanel
 from j5_macro.gui.views.step_tree import StepTreeView
 from j5_macro.gui.views.yaml_view import YamlView
@@ -58,7 +61,7 @@ class EditorPanel(QWidget):
         super().__init__(parent)
         self._ctx = ctx
         self.registry = StepRegistry()
-        self.queue = EditQueue(ctx.document, self)
+        self.queue = EditQueue(ctx.document, self, bridge=ctx.bridge)
         self.title = QLabel()
         self.title.setObjectName("editorTitle")
         self.problems = QLabel()
@@ -325,6 +328,66 @@ class EditorPanel(QWidget):
         self.tree.addAction(action)
         return action
 
+    # -- screen tools (the Tools menu) ----------------------------------------------------
+
+    def _visible(self, widgets: Sequence[QWidget]) -> list[Any]:
+        """The widgets not hidden on purpose (a target's rows of the other modes), even
+        before Qt has shown a form just built."""
+
+        def shown(widget: QWidget | None) -> bool:
+            while widget is not None and widget is not self.form:
+                if widget.isHidden() and widget.testAttribute(
+                        Qt.WidgetAttribute.WA_WState_ExplicitShowHide):
+                    return False
+                widget = widget.parentWidget()
+            return True
+
+        return [w for w in widgets if shown(w)]
+
+    def image_tools(self) -> list[ImageFieldTools]:
+        """The image field tools of the selected step's form, in form order."""
+        return self._visible(self.form.findChildren(ImageFieldTools))
+
+    def point_tools(self) -> list[PointFieldTools]:
+        return self._visible(self.form.findChildren(PointFieldTools))
+
+    def window_buttons(self) -> list[WindowButton]:
+        return self._visible(self.form.findChildren(WindowButton))
+
+    def screen_tool(self, name: str) -> Any:
+        """A Tools menu entry (``capture``, ``test``, ``pick``, ``windows``) on the first
+        field of the selected step's form that has it."""
+        self.tabs.setCurrentWidget(self.form)
+        if name in ("capture", "test"):
+            images = self.image_tools()
+            if not images:
+                self._message("Select a step that searches for an image (click, move, "
+                              "wait_image_in...) to capture or test its template.")
+                return None
+            return images[0].open_capture() if name == "capture" else images[0].test()
+        if name == "pick":
+            points = self.point_tools()
+            if not points:  # a target aiming at an image: show its Position row
+                hidden = self.form.findChildren(PointFieldTools)
+                target = _ancestor(hidden[0], TargetEdit) if hidden else None
+                if target is not None:
+                    target.set_mode("point")
+                    points = [hidden[0]]
+            if not points:
+                self._message("Select a click, move or drag step aiming at a position to "
+                              "pick its point.")
+                return None
+            return points[0].pick()
+        buttons = self.window_buttons()
+        if buttons:
+            return buttons[0].choose()
+        chooser = WindowChooser(self._ctx, self.window())
+        chooser.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        chooser.chosen.connect(lambda title: self._message(f"Window: {title}"))
+        chooser.show()
+        chooser.refresh()
+        return chooser
+
     # -- single files --------------------------------------------------------------------
 
     def ask_save_packed(self) -> None:
@@ -424,6 +487,13 @@ class EditorPanel(QWidget):
         if os.path.abspath(result.script_path) != os.path.abspath(state.path):
             self._ctx.document.open(str(result.script_path))
         self._message(message)
+
+
+def _ancestor(widget: QWidget, kind: type[Any]) -> Any:
+    parent = widget.parentWidget()
+    while parent is not None and not isinstance(parent, kind):
+        parent = parent.parentWidget()
+    return parent
 
 
 def _local_registry() -> Any:

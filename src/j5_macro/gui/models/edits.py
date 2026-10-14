@@ -19,6 +19,7 @@ from j5_macro.gui.models.steps import StepItem, iter_steps
 Position = dict[str, Any]
 Edit = dict[str, Any]
 Where = Literal["before", "after", "into"]
+DEFAULT_ON_ERROR = "stop"
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,6 +223,8 @@ def step_as_yaml(step: StepItem, registry: StepRegistry, *,
     if step.breakpoint:
         node["break"] = True
     for name, value in step.common.items():
+        if name == "on_error" and value == DEFAULT_ON_ERROR:
+            continue  # reported even when not written
         node[name] = _as_written(value) if name == "as" else value
     return node
 

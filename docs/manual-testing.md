@@ -126,14 +126,14 @@ real screen. Check them on Linux with X11 (Xfce) and on Windows, each at 100 % a
 
 | Check | How | Expected |
 | --- | --- | --- |
-| Capture | Select `press`, Tools > Capture template…, keep **Embed in the script as** `press`, **Capture…**, drag tightly around the pattern | The application's windows disappear before the screen freezes and come back afterwards. The YAML shows `click: {image: '#press'}` and an `images` section with `press` (with `scale: 1.5` at 150 %, and the dialog says so); the Screen tab shows the template, 48x48 (72x72 at 150 %), over a checkerboard |
+| Capture | Select `press`, Tools > Capture template…, keep **Embed in the script as** `press`, **Capture…**, drag tightly around the pattern | The application's windows disappear before the screen freezes and come back afterwards. The YAML shows `click: {image: '#press'}` and an `images` section with `press` (with `scale: 1.5` at 150 %, and the dialog says so); the step form shows the template under its image, 48x48 (72x72 at 150 %), over a checkerboard |
 | Capture to a file | Capture again with **Save as a file next to the script** and **Transparent background**, a few pixels of window background around the pattern | `press.png` is written next to the script with a transparent border, the step uses `image: press.png`, the preview shows the checkerboard through the border. At 150 % the dialog shows the `capture_scale` hint |
 | Flat template | Capture a rectangle of plain window background | The dialog warns that the template has a single colour |
 | Cancel | **Capture…**, then Escape; **Pick…**, then the right button | Each time the windows come back at once, the tool says "Cancelled." and the script does not change |
 | Test | With the pattern captured, Tools > Test image search | The windows hide for a moment; the result says Found with a score near 1 and shows a screenshot of the searched area with the pattern outlined in green. Cover the pattern with another window and test again: Not found, the best location outlined in red with its score |
 | Pick | Tools > Pick point…, click the centre of the pattern | The step becomes `click: {x: 44, y: 44, window: {title: j5 smoke target}}` ((66, 66) at 150 %, give or take a pixel) and loses its `image`; Run makes the target log a click on the pattern |
 | Windows | Tools > Windows… | `j5 smoke target` is listed with its client area; choosing it sets the step's `window` |
-| Busy | Open `examples/smoke/keyboard.yaml`, Run, and press **Pick…** in the Screen tab of a click step while it types | "A script is running…": nothing opens |
+| Busy | Open `examples/smoke/keyboard.yaml`, Run, and press **Pick…** in the form of a click step aiming at a position while it types | "A script is running…": nothing opens |
 | History | Capture `press` again, close `target.py` and Run `/tmp/gui.yaml` | The run fails; the History tab lists it with its status in red; its Failed search tab shows the template next to what the step saw, with the best location outlined in red and its score. **Open folder** opens the run's directory; **Delete…** asks, then removes the run and its folder |
 
 ## Safety checks

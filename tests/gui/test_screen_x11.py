@@ -101,7 +101,7 @@ def test_capture_embeds_and_test_finds_it(qtbot: Any, window: Any, scripts: Path
     script.write_text(SCRIPT, encoding="utf-8")
     open_script(qtbot, window, script)
     window.editor.tree.select_step("look")
-    tools = window.step_tools.image_tools[None]
+    [tools] = window.editor.image_tools()
 
     dialog = tools.open_capture()
     assert dialog.embedding and dialog.name_edit.text() == "look"
@@ -148,7 +148,7 @@ def test_capture_to_a_file_and_the_window_list(qtbot: Any, window: Any,
     script.write_text(SCRIPT, encoding="utf-8")
     open_script(qtbot, window, script)
     window.editor.tree.select_step("look")
-    tools = window.step_tools.image_tools[None]
+    [tools] = window.editor.image_tools()
     dialog = tools.open_capture()
     dialog.file_option.setChecked(True)
     assert dialog.file_edit.text() == "look.png"
@@ -162,7 +162,7 @@ def test_capture_to_a_file_and_the_window_list(qtbot: Any, window: Any,
     wait_for(qtbot, lambda: tools.preview.image is not None)
     assert tools.preview.caption.text() == "look.png · 64 x 44 px · file"
 
-    chooser = window.step_tools.windows()
+    chooser = window.editor.screen_tool("windows")
     with qtbot.waitSignal(chooser.listed, timeout=WAIT):
         pass
     assert TITLE in chooser.titles()

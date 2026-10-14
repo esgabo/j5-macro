@@ -169,44 +169,6 @@ it produced before sending the next, so edits made in a row never conflict; a
   `j5_macro.script.bundle` (the code behind `j5 pack` and `j5 unpack`) in the GUI
   process, after the pending edits are saved (`EditQueue.when_idle`).
 
-### Field tools
-
-Image, point, region and window fields have a hook for screen tools (Capture, Pick,
-Test...): `views/fields.py` calls every factory registered with
-`register_field_tools(factory)` when it builds such a field, and puts the widgets the
-factory returns next to the field. Nothing is registered by default. A factory gets a
-`FieldContext`:
-
-| Member | Meaning |
-| --- | --- |
-| `kind` | `image`, `point`, `region` or `window` |
-| `param` | The parameter as the engine names it: `image`, `x/y`, `region`, `window`, `from.image`, `to.x/y`, `when.image_visible`... |
-| `get_value()` | The field's value: a path or `#name`; `{"x", "y"}`; `[x, y, w, h]` or `{at, offset?, size?}`; `{"title"}` or None |
-| `set_value(value)` | Show a value in the field and save it, as if the user typed it |
-| `ctx` | The `AppContext` (`ctx.screen` for `capture_region`, `pick_point`, `find_image`; `ctx.document` for the script) |
-| `step_id`, `step_type` | The step being edited |
-| `window()` | The window the field is relative to (the step's or the target's `window`), or None |
-| `step_params()` | The step's parameters as the form shows them now (`threshold`, `region`, `scale`...) |
-
-```python
-from j5_macro.gui.views.fields import FieldContext, register_field_tools
-
-def pick_tools(context: FieldContext) -> list[QWidget]:
-    if context.kind != "point":
-        return []
-    button = QPushButton("Pick")
-    title = (context.window() or {}).get("title")
-    button.clicked.connect(lambda: context.ctx.screen.pick_point(
-        window=title,       # relative to the step's window: use r["window_point"]
-        on_result=lambda r: context.set_value({"x": r["x"], "y": r["y"]})))
-    return [button]
-
-unregister = register_field_tools(pick_tools)   # once, when the application starts
-```
-
-Register before the editor builds its forms (forms are rebuilt for every selected step,
-so a factory registered later shows from the next selection on).
-
 ## Extension points
 
 Work on the next features stays inside these modules, so it can go on in parallel:
@@ -230,6 +192,45 @@ Shared files (`context.py`, `views/main_window.py`, `controllers/document.py`) s
 only get small, additive changes: a new service in `AppContext`, a menu entry, a signal.
 
 ## Field tools
+
+The screen tools (Capture, Test, Pick, Window) sit next to the fields they fill. Two
+layers: a hook in the forms, and the widgets that plug into it.
+
+### The hook (`views/fields.py`)
+
+Image, point, region and window fields call every factory registered with
+`register_field_tools(factory)` (it returns a function that unregisters it) when they
+are built, and show the widgets the factory returns below the field (a window field: on
+its line). A widget with a `refresh()` method has it called whenever the field's value
+changes. A factory gets a `FieldContext`:
+
+| Member | Meaning |
+| --- | --- |
+| `kind` | `image`, `point`, `region` or `window` |
+| `param` | The parameter as the engine names it: `image`, `x/y`, `region`, `window`, `from.image`, `to.x/y`, `when.image_visible`... |
+| `get_value()` | The field's value: a path or `#name` (None when empty); `{x, y, window}` (plus `image` or `at` when the target aims at one); `[x, y, w, h]` or `{at, offset?, size?}`; `{title}` or None |
+| `set_value(value)` | Show a value in the field and save it, as if the user typed it. An image makes a target an image target; a point (`x`, `y`, `window`, `image: None`, `at: None`, as `pick_values` gives it) a position target; `{window}` alone only sets the window |
+| `search()` | For an image: how the step searches for it (`window`, `region`, `threshold`, `scale`, the ones set) |
+| `ctx` | The `AppContext` |
+| `step_id`, `step_type` | The step being edited |
+| `window()` | The window the field is relative to (the step's or the target's `window`), or None |
+| `step_params()` | The step's parameters as the form shows them now |
+
+`views/screen_fields.py` is the factory the application installs
+(`install_screen_tools()`, from `MainWindow`, before the editor builds its forms):
+`ImageFieldTools` for image fields, `PointFieldTools` for points (its Window… button
+hidden: the window field has its own) and a `WindowButton` (a `WindowChooser`) for
+windows. `EditorPanel.image_tools()`, `point_tools()`, `window_buttons()` find them in
+the selected step's form, and `screen_tool(name)` runs the Tools menu entries on the
+first one.
+
+A capture that embeds an image changes the script (a new version) before the tools set
+the field: `ImageFieldTools` waits until the document shows that version
+(`when_document_at`), the form is not rebuilt when only the embedded images change, and
+the field's edit goes through the `EditQueue`, based on that version.
+
+### The widgets (`views/screen_dialogs.py`)
+
 
 The screen tools are self-contained widgets (`views/screen_dialogs.py`) that any form
 embeds next to its field. They only need the `AppContext` and callables to read and

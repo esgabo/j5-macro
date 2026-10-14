@@ -3,6 +3,7 @@ the step form, drag and drop, the header form, images, and saving as one file.""
 
 from __future__ import annotations
 
+import base64
 import os
 import struct
 import zlib
@@ -420,7 +421,7 @@ def test_field_tools_are_added_to_image_and_point_fields(
                 ("window", "window")} <= kinds
         point = next(c for c in contexts if c.kind == "point")
         assert (point.ctx, point.step_id, point.step_type) == (window.ctx, "tap", "click")
-        assert point.get_value() == {"x": 10, "y": 20}
+        assert point.get_value() == {"x": 10, "y": 20, "window": None}
         assert point.step_params()["x"] == 10
         buttons = [b for b in window.editor.form.findChildren(QPushButton)
                    if b.text() == "Pick"]
@@ -430,7 +431,7 @@ def test_field_tools_are_added_to_image_and_point_fields(
         assert "    click: {x: 300, y: 400}\n" in text
     finally:
         unregister()
-    assert field_views.field_tools(contexts[0]) == []
+    assert tools not in field_views._FIELD_TOOLS
 
 
 def test_new_script_and_engine_restart_keep_editing(qtbot: Any, window: Any,
@@ -443,13 +444,47 @@ def test_new_script_and_engine_restart_keep_editing(qtbot: Any, window: Any,
     wait_for(qtbot, lambda: len(window.editor.registry) > 0)
     window.editor.step_palette.insert_requested.emit("log")
     wait_for(qtbot, lambda: "log_1" in (scripts / "fresh.yaml").read_text(encoding="utf-8"))
-    old_id = window.ctx.document.script_id
     with qtbot.waitSignal(window.ctx.bridge.engine_started, timeout=WAIT):
         window.ctx.bridge.restart()
-    # Script ids belong to the engine: the document opens the file again.
-    wait_for(qtbot, lambda: window.ctx.document.script_id not in (None, old_id)
-             and window.ctx.document.state is not None
-             and window.ctx.document.state.script_id == window.ctx.document.script_id)
+    # Right away: the document is still opening the file in the new engine (script ids
+    # belong to the engine), so the edit waits for it and is sent again.
+    wait_for(qtbot, lambda: window.editor.tree.item_for("log_1") is not None)
     window.editor.tree.select_step("log_1")
     window.editor.duplicate_action.trigger()
     wait_for(qtbot, lambda: "log_2" in (scripts / "fresh.yaml").read_text(encoding="utf-8"))
+    assert "on_error" not in (scripts / "fresh.yaml").read_text(encoding="utf-8")
+
+
+def test_a_capture_then_its_value_does_not_conflict(qtbot: Any, editor_window: Any) -> None:
+    """A capture embeds the image (the engine changes the script: a new version), then
+    the image tools set the field once the document shows that version; the form is not
+    rebuilt meanwhile, and its edit is based on the new version."""
+    from j5_macro.gui.views.screen_dialogs import ImageFieldTools
+
+    window = editor_window
+    editor = window.editor
+    editor.tree.select_step("tap")
+    wait_for(qtbot, lambda: editor.form.field("x") is not None)
+    field = editor.form.field("x")
+    [tools] = field.target.image.tools
+    assert isinstance(tools, ImageFieldTools)
+    assert len(editor.point_tools()) == 1 and editor.image_tools() == []  # Position mode
+    # Typing in another field at the same time: queued, sent after the capture's edit.
+    type_into(qtbot, editor.form.field("clicks").edit, "2")
+    results: list[Any] = []
+    data = base64.b64encode(png(9, 7, seed=6)).decode("ascii")
+    window.ctx.document.edit([{"op": "add_image", "name": "shot", "png": data}],
+                             on_result=results.append)
+    wait_for(qtbot, lambda: results)
+    tools._captured("#shot", {"image_name": "shot", "version": results[0]["version"]})
+    text = wait_disk(qtbot, window, lambda t: "#shot" in t and "clicks: 2" in t)
+    line = next(line for line in text.splitlines() if line.startswith("    click:"))
+    assert sorted(line.removeprefix("    click: {").removesuffix("}").split(", ")) == [
+        "clicks: 2", "image: '#shot'"]
+    assert "images:\n  shot:\n" in text
+    assert editor.form.field("x") is field  # the same form, not rebuilt
+    assert field.target.current_mode() == "image"
+    assert field.target.image.combo.findText("#shot") >= 0
+    assert "conflict" not in editor.last_message
+    wait_for(qtbot, lambda: len(editor.image_tools()) == 1)
+    assert tools.message.text() == "Captured #shot."

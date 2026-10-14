@@ -41,7 +41,6 @@ engine, so it behaves exactly as `j5 run` does.
 | Right: YAML | The script's file, read-only, exactly as it is on disk. The selected step's line is highlighted; clicking a line selects its step |
 | Bottom, Run tab | The run and debugging buttons, the run state, the emergency stop key, the pause box, the live log and, while paused, the variables (see below) |
 | Bottom, History tab | The saved runs of the open script, newest first, and the selected run's events and captures (see [History](#history)) |
-| Bottom, Screen tab | The screen tools of the selected step: capture its template, test its search, pick its point (see [Screen tools](#screen-tools)) |
 | Status bar | The engine's input backend, whether image search is available, and the emergency stop key |
 
 The steps view and the YAML always show the file as it is: when the script changes on
@@ -212,12 +211,12 @@ duration, its mode, the number of warnings and its seed.
 
 ## Screen tools
 
-Select a step in the tree and open the **Screen** tab (or use the **Tools** menu, which
-acts on the selected step). For every image the step searches for (the `image` of
-`click`, `move`, `wait_image_in` and `wait_image_out`, an endpoint of `drag`, the
-`image_visible` of an `if` or `loop` condition) it shows the template and two buttons;
-for every point it clicks or moves to (`click`, `move`, the endpoints of `drag`), two
-more. They are the engine's [authoring tools](contract.md#authoring-tools), the same as
+The screen tools are in the step form, next to the fields they fill: every image field
+(the `image` of `click`, `move`, `wait_image_in` and `wait_image_out`, an endpoint of
+`drag`, the `image_visible` of an `if` or `loop` condition) shows the template and
+**Capture…** and **Test**; every position (`x` and `y` of `click`, `move` and the
+endpoints of `drag`) has **Pick…**; every window field has **Window…**. The **Tools**
+menu runs them on the selected step's first image or position field. They are the engine's [authoring tools](contract.md#authoring-tools), the same as
 `j5 capture`, `j5 pick`, `j5 find` and `j5 windows` ([cli.md](cli.md#authoring-tools)).
 
 | Tool | What it does |
@@ -225,7 +224,7 @@ more. They are the engine's [authoring tools](contract.md#authoring-tools), the 
 | Template preview | The image the step looks for: a file (relative to the script) or an embedded `#name`, over a checkerboard so transparent pixels show, with its size and, for an embedded image captured at another display scale, that scale |
 | **Capture…** (Ctrl+Shift+C) | Opens the capture dialog: **Embed in the script as** a name (the step id by default) adds the template to the script's `images`; **Save as a file next to the script** writes a PNG beside it. **Padding** grows the rectangle on every side, **Transparent background** makes the border's colour transparent (for icons on any background), **Replace** overwrites an image or file of the same name. **Capture…** hides the application, freezes the screen and lets you drag a rectangle; Escape or the right button cancels. The step then searches for the new template (a click on a point becomes a click on the image). A template of one flat colour gets a warning: it would match anywhere |
 | **Test** (Ctrl+T) | Searches the screen once, exactly as the step would (its window, region, threshold and scale), with the application hidden for a moment, and shows the result: found or not, the score against the threshold, where the best match is, and a screenshot of the searched area with the match outlined (green when found, red with the best score when not). A template, window title or region computed at run time (`${...}`) cannot be tested outside a run |
-| **Pick…** (Ctrl+Shift+P) | Hides the application, freezes the screen and lets you click a point. The step's `x` and `y` become that point, relative to the window it is in (and `window: {title}` is set to that window), so the step keeps working when the window moves; clear **Relative to its window** for desktop coordinates. Picking replaces an `image` or `at` the step had |
+| **Pick…** (Ctrl+Shift+P) | Hides the application, freezes the screen and lets you click a point. The step's `x` and `y` become that point, relative to the window it is in (and `window: {title}` is set to that window), so the step keeps working when the window moves; clear **Relative to its window** for desktop coordinates. Picking replaces an `image` or `at` the step had; in a click's form **Pick…** is under **Aim at** Position, and Tools > Pick point… switches to it |
 | **Window…** | Lists the visible windows, topmost first; choosing one sets the step's `window` title |
 
 Every change is an edit of the script through the engine, so the step tree, the YAML

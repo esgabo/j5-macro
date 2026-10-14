@@ -4,9 +4,10 @@ Areas (each in its own module, each built from the shared :class:`AppContext`):
 
 - left: :class:`ScriptListPanel` (script_list.py)
 - center: :class:`EditorPanel` (editor.py), with the step tree, the form and the YAML
-- bottom tabs: :class:`RunPanel` (run_panel.py), :class:`HistoryPanel`
-  (history_panel.py) and :class:`StepToolsPanel` (step_tools.py: the screen tools of
-  the selected step, also in the Tools menu)
+- bottom tabs: :class:`RunPanel` (run_panel.py) and :class:`HistoryPanel`
+  (history_panel.py)
+- the screen tools live in the step forms' fields (screen_fields.py); the Tools menu
+  acts on the selected step's first image or point field
 - top: :class:`EngineBanner` (engine_banner.py) when the engine died
 - status bar: the engine's backend, vision and stop key
 """
@@ -36,8 +37,8 @@ from j5_macro.gui.views.engine_banner import EngineBanner
 from j5_macro.gui.views.history_panel import HistoryPanel
 from j5_macro.gui.views.run_panel import RunPanel
 from j5_macro.gui.views.screen_dialogs import TopLevelHider
+from j5_macro.gui.views.screen_fields import install_screen_tools
 from j5_macro.gui.views.script_list import ScriptListPanel
-from j5_macro.gui.views.step_tools import StepToolsPanel
 
 TITLE = "j5"
 STATUS_TIMEOUT_MS = 8000
@@ -50,24 +51,24 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(TITLE)
         self.resize(1200, 800)
 
+        install_screen_tools()  # before the editor builds its forms
         self.banner = EngineBanner(ctx.bridge)
         self.script_list = ScriptListPanel(ctx)
         self.editor = EditorPanel(ctx)
         self.run_panel = RunPanel(ctx)
         self.history = HistoryPanel(ctx)
-        self.step_tools = StepToolsPanel(ctx)
         self.bottom_tabs = QTabWidget()
         self.bottom_tabs.addTab(self.run_panel, "Run")
         self.bottom_tabs.addTab(self.history, "History")
-        self.bottom_tabs.addTab(self.step_tools, "Screen")
         if ctx.screen.hider is None:
             ctx.screen.hider = TopLevelHider()
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.editor)
         right.addWidget(self.bottom_tabs)
-        right.setStretchFactor(0, 3)
-        right.setStretchFactor(1, 2)
+        right.setStretchFactor(0, 7)
+        right.setStretchFactor(1, 3)
+        right.setSizes([560, 240])
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.script_list)
         self.splitter.addWidget(right)
@@ -93,8 +94,6 @@ class MainWindow(QMainWindow):
         ctx.document.notice.connect(self.show_message)
         ctx.document.load_failed.connect(lambda message, _: self.show_message(message))
         self.script_list.message.connect(self.show_message)
-        self.step_tools.message.connect(self.show_message)
-        self.editor.tree.step_selected.connect(self.step_tools.set_step)
         ctx.run.error.connect(self.show_message)
         ctx.run.active_changed.connect(self._run_active)
         ctx.run.state_changed.connect(
@@ -198,9 +197,8 @@ class MainWindow(QMainWindow):
             self.ctx.run.toggle_breakpoint(step_id)
 
     def _screen_tool(self, name: str) -> None:
-        """A Tools menu entry: the screen tool on the selected step."""
-        self.bottom_tabs.setCurrentWidget(self.step_tools)
-        getattr(self.step_tools, name)()
+        """A Tools menu entry: the screen tool on the selected step's form."""
+        self.editor.screen_tool(name)
 
     def _engine_started(self, info: EngineInfo) -> None:
         self.engine_label.setText(f"j5 {__version__} · {info.summary()}")

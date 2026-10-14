@@ -155,35 +155,47 @@ def test_an_embedded_template_comes_from_the_engine(qtbot: Any, window: Any, scr
     assert preview.image is None
 
 
-def test_the_step_tools_write_a_picked_point(qtbot: Any, window: Any, scripts: Path) -> None:
+def test_the_form_tools_write_a_picked_point(qtbot: Any, window: Any, scripts: Path) -> None:
     script = scripts / "point.yaml"
     script.write_text("name: Point\nsteps:\n  - id: press\n    click: {image: a.png}\n"
                       "  - id: note\n    log: hi\n", encoding="utf-8")
     open_script(qtbot, window, script)
     window.editor.tree.select_step("press")
-    tools = window.step_tools
-    assert tools.step_id == "press"
-    assert list(tools.image_tools) == [None] and list(tools.point_tools) == [None]
-    assert tools.point_labels[None].text() == "an image"
-
-    tools.point_tools[None].apply_pick({
+    editor = window.editor
+    wait_for(qtbot, lambda: editor.form.step is not None and editor.form.step.id == "press"
+             and editor.form.field("x") is not None)
+    # An image target: Capture and Test show; Pick is in the hidden Position row.
+    assert len(editor.image_tools()) == 1 and editor.point_tools() == []
+    target = editor.form.field("x").target
+    [pick] = target.point.tools
+    pick.apply_pick({
         "x": 620, "y": 340, "display_scale": 1.0, "window": "Notes",
         "window_area": [500, 300, 400, 300], "window_point": [120, 40]})
     wait_for(qtbot, lambda: "window: {title: Notes}" in window.editor.yaml_view
              .toPlainText())
-    step = tools.step()
-    assert step is not None
+    step = window.ctx.document.state.steps[0]
     assert (step.params["x"], step.params["y"], step.params["window"]) == \
         (120, 40, {"title": "Notes"})
     assert "image" not in step.params
-    assert tools.point_labels[None].text() == "x=120, y=40 in “Notes”"
-    assert tools.point_tools[None].message.text() == \
-        "Picked (120, 40) in “Notes” ((620, 340) on the desktop)."
+    assert target.current_mode() == "point"
+    assert pick.message.text() == "Picked (120, 40) in “Notes” ((620, 340) on the desktop)."
+    assert len(editor.point_tools()) == 1
+
+    # Tools > Pick point… on an image target shows the Position row first.
+    editor.tree.select_step("note")
+    editor.tree.select_step("press")
+    wait_for(qtbot, lambda: editor.form.step is not None and editor.form.step.id == "press")
+    window.ctx.document.edit([{"op": "update", "step_id": "press",
+                               "params": {"x": None, "y": None, "image": "a.png"}}])
+    wait_for(qtbot, lambda: editor.form.field("x").target.current_mode() == "image")
+    editor.form.field("x").target.point.tools[0].pick = lambda: None  # no overlay here
+    window.pick_action.trigger()
+    assert editor.form.field("x").target.current_mode() == "point"
 
     window.editor.tree.select_step("note")
-    assert tools.image_tools == {} and tools.point_tools == {}
+    assert editor.image_tools() == [] and editor.point_tools() == []
     window.capture_action.trigger()
-    assert window.bottom_tabs.currentWidget() is tools
+    assert "searches for an image" in editor.last_message
 
 
 needs_screen = pytest.mark.skipif(

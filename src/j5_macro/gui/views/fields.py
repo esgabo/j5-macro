@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -113,6 +114,9 @@ class FieldContext:
     """The window the field is relative to (the step's or the target's ``window``)."""
     step_params: Callable[[], Mapping[str, Any]] = lambda: {}
     """The step's parameters as the form shows them now (``threshold``, ``region``...)."""
+    search: Callable[[], Mapping[str, Any]] = lambda: {}
+    """For an ``image`` field: how the step searches for it, in the step's own shape
+    (``window``, ``region``, ``threshold``, ``scale``; only those that are set)."""
 
 
 class FieldTools(Protocol):
@@ -135,7 +139,8 @@ def register_field_tools(factory: FieldTools) -> Callable[[], None]:
 
 
 def field_tools(context: FieldContext) -> list[QWidget]:
-    """The widgets every registered factory makes for ``context``."""
+    """The widgets every registered factory makes for ``context``. A widget with a
+    ``refresh()`` method has it called whenever the field's value changes."""
     widgets: list[QWidget] = []
     for factory in list(_FIELD_TOOLS):
         widgets.extend(factory(context))
@@ -264,11 +269,37 @@ def _labelled(label: str, widget: QWidget) -> QWidget:
 
 def _tools(kind: ToolKind, param: str, env: FieldEnv, get_value: Callable[[], Any],
            set_value: Callable[[Any], None],
-           window: Callable[[], Mapping[str, Any] | None] | None = None) -> list[QWidget]:
+           window: Callable[[], Mapping[str, Any] | None] | None = None,
+           search: Callable[[], Mapping[str, Any]] | None = None) -> list[QWidget]:
     return field_tools(FieldContext(
         kind=kind, param=param, get_value=get_value, set_value=set_value, ctx=env.ctx,
         step_id=env.step_id, step_type=env.step_type, window=window or env.window,
-        step_params=env.step_params))
+        step_params=env.step_params, search=search or (lambda: {})))
+
+
+def _refresh(widgets: Sequence[QWidget]) -> None:
+    for widget in widgets:
+        refresh = getattr(widget, "refresh", None)
+        if callable(refresh):
+            refresh()
+
+
+SEARCH_KEYS = ("window", "region", "threshold", "scale")
+
+
+def search_of(params: Mapping[str, Any]) -> dict[str, Any]:
+    """The search parameters among ``params`` (those that are set)."""
+    return {k: params[k] for k in SEARCH_KEYS if params.get(k) is not None}
+
+
+def _tools_row(widgets: Sequence[QWidget]) -> QWidget:
+    holder = QWidget()
+    layout = QVBoxLayout(holder)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+    for widget in widgets:
+        layout.addWidget(widget)
+    return holder
 
 
 # --- simple fields ----------------------------------------------------------------------
@@ -403,7 +434,9 @@ class ImageEdit(QWidget):
     changed = Signal(bool)
 
     def __init__(self, param: str, env: FieldEnv,
-                 window: Callable[[], Mapping[str, Any] | None] | None = None) -> None:
+                 window: Callable[[], Mapping[str, Any] | None] | None = None, *,
+                 search: Callable[[], Mapping[str, Any]] | None = None,
+                 setter: Callable[[Any], None] | None = None) -> None:
         super().__init__()
         self.env = env
         self.combo = QComboBox()
@@ -415,26 +448,44 @@ class ImageEdit(QWidget):
         line = self.combo.lineEdit()
         assert line is not None
         line.setPlaceholderText("#name or img/file.png")
-        for name in env.image_names:
-            self.combo.addItem(f"{REFERENCE_PREFIX}{name}")
+        self.set_names(env.image_names)
         self.browse = QPushButton("File…")
         self.browse.setToolTip("Choose a PNG file (saved relative to the script)")
         self.browse.clicked.connect(self.choose_file)
-        layout = QHBoxLayout(self)
+        self.setter = setter or self.set_and_send
+        self.tools = _tools("image", param, env, lambda: self.text() or None,
+                            lambda value: self.setter(value), window, search)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self.combo, 1)
-        layout.addWidget(self.browse)
-        for widget in _tools("image", param, env, self.text, self.set_and_send, window):
-            layout.addWidget(widget)
-        line.textEdited.connect(lambda _: self.changed.emit(False))
-        self.combo.activated.connect(lambda _: self.changed.emit(True))
+        layout.setSpacing(2)
+        layout.addWidget(_row(self.combo, self.browse, stretch_last=True))
+        if self.tools:
+            layout.addWidget(_tools_row(self.tools))
+        self.combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        line.textEdited.connect(lambda _: self._changed(False))
+        self.combo.activated.connect(lambda _: self._changed(True))
+
+    def _changed(self, now: bool) -> None:
+        _refresh(self.tools)
+        self.changed.emit(now)
+
+    def set_names(self, names: Sequence[str]) -> None:
+        """List the script's embedded images (``#name``), keeping the text."""
+        text = self.combo.currentText()
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        for name in names:
+            self.combo.addItem(f"{REFERENCE_PREFIX}{name}")
+        self.combo.setEditText(text)
+        self.combo.blockSignals(False)
 
     def text(self) -> str:
         return self.combo.currentText().strip()
 
     def set_text(self, text: str) -> None:
-        self.combo.setEditText(text)
+        if text != self.combo.currentText():
+            self.combo.setEditText(text)
+        _refresh(self.tools)
 
     def set_and_send(self, value: Any) -> None:
         self.set_text("" if value is None else str(value))
@@ -465,7 +516,8 @@ class ImageField(Field):
                  param: str | None = None) -> None:
         super().__init__([key], env)
         self.required = required
-        self.image = ImageEdit(param or key, self.env)
+        self.image = ImageEdit(param or key, self.env,
+                               search=lambda: search_of(self.env.step_params()))
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.image)
@@ -546,21 +598,24 @@ class PointEdit(QWidget):
     changed = Signal(bool)
 
     def __init__(self, param: str, env: FieldEnv,
-                 window: Callable[[], Mapping[str, Any] | None] | None = None) -> None:
+                 window: Callable[[], Mapping[str, Any] | None] | None = None, *,
+                 getter: Callable[[], Mapping[str, Any]] | None = None,
+                 setter: Callable[[Any], None] | None = None) -> None:
         super().__init__()
         self.x_edit = _line_edit("x")
         self.y_edit = _line_edit("y")
         for edit in (self.x_edit, self.y_edit):
             edit.setMaximumWidth(90)
             edit.textEdited.connect(lambda _: self.changed.emit(False))
-        layout = QHBoxLayout(self)
+        self.setter = setter or self.set_and_send
+        self.tools = _tools("point", param, env, getter or self.value,
+                            lambda value: self.setter(value), window)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        layout.addWidget(_labelled("x", self.x_edit))
-        layout.addWidget(_labelled("y", self.y_edit))
-        for widget in _tools("point", param, env, self.value, self.set_and_send, window):
-            layout.addWidget(widget)
-        layout.addStretch(1)
+        layout.setSpacing(2)
+        layout.addWidget(_row(_labelled("x", self.x_edit), _labelled("y", self.y_edit)))
+        if self.tools:
+            layout.addWidget(_tools_row(self.tools))
 
     def value(self) -> dict[str, Any]:
         return {"x": parse_integer(self.x_edit.text()).value,
@@ -762,8 +817,10 @@ class TargetEdit(QWidget):
         for mode, label in self.MODES:
             self.mode.addItem(label, mode)
         self.window_edit = WindowEdit(f"{prefix}window", env)
-        self.image = ImageEdit(f"{prefix}image", env, self.window_edit.value)
-        self.point = PointEdit(f"{prefix}x/y", env, self.window_edit.value)
+        self.image = ImageEdit(f"{prefix}image", env, self.window_edit.value,
+                               search=self.search, setter=self.use_image)
+        self.point = PointEdit(f"{prefix}x/y", env, self.window_edit.value,
+                               getter=self.point_value, setter=self.use_point)
         self.at = _line_edit("${label}: a result kept with 'as'")
         self.threshold = _line_edit(f"default: {format_scalar(threshold_default)}")
         self.scale = _line_edit(f"default: {format_scalar(scale_default)}")
@@ -801,6 +858,54 @@ class TargetEdit(QWidget):
 
     def current_mode(self) -> str:
         return str(self.mode.currentData())
+
+    def set_mode(self, mode: str) -> None:
+        self.mode.setCurrentIndex([m for m, _ in self.MODES].index(mode))
+        self._sync()
+
+    def search(self) -> dict[str, Any]:
+        """How an image target searches: its window, region, threshold and scale."""
+        values: dict[str, Any] = {}
+        window = self.window_edit.value()
+        if window is not None:
+            values["window"] = window
+        if self.region is not None:
+            region = self.region.read()
+            if region.ok and region.value is not None:
+                values["region"] = region.value
+        for key, edit in (("threshold", self.threshold), ("scale", self.scale)):
+            parsed = parse_number(edit.text())
+            if parsed.ok and parsed.value is not None:
+                values[key] = parsed.value
+        return values
+
+    def use_image(self, value: Any) -> None:
+        """Aim at the image ``value`` (a capture or a file): the target becomes an
+        image target, and the change is sent."""
+        self.set_mode("image")
+        self.image.set_text("" if value is None else str(value))
+        self.changed.emit(True)
+
+    def point_value(self) -> dict[str, Any]:
+        """The point as the screen tools read it: ``x``, ``y``, ``window`` and, for an
+        image target, ``image``."""
+        values: dict[str, Any] = {**self.point.value(), "window": self.window_edit.value()}
+        if self.current_mode() == "image" and self.image.text():
+            values["image"] = self.image.text()
+        if self.current_mode() == "at":
+            values["at"] = self.at.text()
+        return values
+
+    def use_point(self, values: Any) -> None:
+        """Set the point from a pick (``x``, ``y``, ``window``; ``image``/``at`` None)
+        or a window choice (``window`` alone), and send the change."""
+        mapping = values if isinstance(values, Mapping) else {}
+        if "x" in mapping or "y" in mapping:
+            self.set_mode("point")
+            self.point.set_value(mapping)
+        if "window" in mapping:
+            self.window_edit.set_value(mapping["window"])
+        self.changed.emit(True)
 
     def _mode_chosen(self) -> None:
         self._sync()
@@ -960,7 +1065,7 @@ class ConditionField(Field):
         for mode, label in self.MODES:
             self.mode.addItem(label, mode)
         self.expression = _line_edit("an expression, e.g. n < 3 or found")
-        self.image = ImageEdit(f"{key}.image_visible", self.env)
+        self.image = ImageEdit(f"{key}.image_visible", self.env, search=self._search)
         self.threshold = _line_edit("default: 0.9")
         self.threshold.setMaximumWidth(110)
         self.window_edit = WindowEdit(f"{key}.image_visible.window", self.env)
@@ -983,6 +1088,16 @@ class ConditionField(Field):
     def _mode_chosen(self) -> None:
         self._sync()
         self._emit(True)
+
+    def _search(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        threshold = parse_number(self.threshold.text())
+        if threshold.ok and threshold.value is not None:
+            values["threshold"] = threshold.value
+        window = self.window_edit.value()
+        if window is not None:
+            values["window"] = window
+        return values
 
     def _sync(self) -> None:
         expression = self.mode.currentData() == "expression"

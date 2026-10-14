@@ -15,7 +15,8 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QTimer, Signal
 
-from j5_macro.client import EngineError
+from j5_macro.client import ClientError, EngineError
+from j5_macro.gui.bridge import EngineBridge
 from j5_macro.gui.controllers.document import ScriptDocument
 from j5_macro.gui.engine_thread import describe_error
 from j5_macro.gui.models.script import ScriptState
@@ -30,6 +31,7 @@ class _Pending:
     edits: list[dict[str, Any]]
     on_result: Callable[[Mapping[str, Any]], None] | None
     on_error: Callable[[str], None] | None
+    retried: bool = False
 
 
 class EditQueue(QObject):
@@ -39,9 +41,11 @@ class EditQueue(QObject):
     """An edit was refused (the message), when it has no ``on_error`` of its own."""
     idle_changed = Signal(bool)
 
-    def __init__(self, document: ScriptDocument, parent: QObject | None = None) -> None:
+    def __init__(self, document: ScriptDocument, parent: QObject | None = None, *,
+                 bridge: EngineBridge | None = None) -> None:
         super().__init__(parent)
         self._document = document
+        self._generation = 0
         self._queue: deque[_Pending] = deque()
         self._busy = False
         self._waiting_for: str | None = None
@@ -51,6 +55,19 @@ class EditQueue(QObject):
         self._timer.setInterval(RELOAD_WAIT_MS)
         self._timer.timeout.connect(self._reloaded)
         document.state_changed.connect(self._state_changed)
+        if bridge is not None:
+            bridge.engine_started.connect(lambda _: self.engine_restarted())
+
+    def engine_restarted(self) -> None:
+        """A new engine: the answer to an edit sent to the old one never comes (it is
+        dropped), so stop waiting for it; the reload shows whether it was applied. Edits
+        still queued are sent to the new engine (once it has the script again)."""
+        if not self._busy:
+            return
+        self._generation += 1
+        self._timer.stop()
+        self._waiting_for = None
+        self._finish()
 
     @property
     def idle(self) -> bool:
@@ -92,8 +109,11 @@ class EditQueue(QObject):
         pending = self._queue.popleft()
         self._busy = True
         self.idle_changed.emit(False)
+        generation = self._generation
 
         def done(result: Mapping[str, Any]) -> None:
+            if generation != self._generation:
+                return
             version = result.get("version")
             state = self._document.state
             if pending.on_result is not None:
@@ -105,6 +125,16 @@ class EditQueue(QObject):
                 self._finish()
 
         def failed(exc: BaseException) -> None:
+            if generation != self._generation:
+                return
+            if not pending.retried and _engine_restarting(exc):
+                # A new engine: the document opens the file again (script ids belong to
+                # the engine), then the edit is sent again, once.
+                pending.retried = True
+                self._queue.appendleft(pending)
+                self._waiting_for = ANY_VERSION
+                self._timer.start()
+                return
             message = describe_error(exc)
             if pending.on_error is not None:
                 pending.on_error(message)
@@ -137,3 +167,11 @@ class EditQueue(QObject):
     def _finish(self) -> None:
         self._busy = False
         self._next()
+
+
+def _engine_restarting(exc: BaseException) -> bool:
+    """The edit failed because the engine was replaced (its script ids are gone) or is
+    not running yet."""
+    if isinstance(exc, EngineError):
+        return exc.code == "script_not_found"
+    return isinstance(exc, ClientError)
