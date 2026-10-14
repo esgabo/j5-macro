@@ -159,11 +159,7 @@ def run_exec(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     cwd, env = _cwd(ctx, params), processes.environment(_env(params))
     timeout = _timeout(ctx, params) if wait else None
     if ctx.dry_run:
-        description = f"would {_describe(command, shell, cwd, wait, timeout)}"
-        ctx.log("info", description)
-        if not ctx.allow_exec:
-            ctx.log("warning", f"dry-run: {NOT_ALLOWED}")
-        return {"dry_run": True, "description": description}
+        return _dry_run(ctx, command, shell=shell, cwd=cwd, wait=wait, timeout=timeout)
     if not ctx.allow_exec:
         raise StepError(ErrorCode.CAPABILITY_MISSING, NOT_ALLOWED, {"capability": "exec"})
     if not wait:
@@ -175,6 +171,22 @@ def run_exec(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
         return {"pid": pid}
     return _wait_for(ctx, command, shell=shell, cwd=cwd, env=env, timeout=timeout,
                      check=bool(params["check"]))
+
+
+def _dry_run(ctx: StepContext, command: processes.Command, *, shell: bool, cwd: Path,
+             wait: bool, timeout: float | None) -> dict[str, Any]:
+    """Describe the command without running it. The result stands in for the output
+    (empty, exit code 0; no pid), so later steps that use it still validate. A strict
+    dry run fails, as the real run would, when the run does not allow ``exec``."""
+    if not ctx.allow_exec and ctx.strict:
+        raise StepError(ErrorCode.CAPABILITY_MISSING, NOT_ALLOWED, {"capability": "exec"})
+    description = f"would {_describe(command, shell, cwd, wait, timeout)}"
+    ctx.log("info", description)
+    if not ctx.allow_exec:
+        ctx.log("warning", f"dry-run: {NOT_ALLOWED}")
+    output: dict[str, Any] = ({"exit_code": 0, "stdout": "", "stderr": ""} if wait
+                              else {"pid": None})
+    return {"dry_run": True, "description": description, **output}
 
 
 def _wait_for(ctx: StepContext, command: processes.Command, *, shell: bool, cwd: Path,
@@ -249,9 +261,12 @@ EXEC = StepType(StepSpec(
         ResultField(name="truncated", type="boolean", optional=True,
                     doc="With wait: true when stdout or stderr was cut at 64 KiB."),
         ResultField(name="pid", type="integer", optional=True,
-                    doc="Without wait: the process id of the program started."),
+                    doc="Without wait: the process id of the program started (null in "
+                        "dry runs)."),
         ResultField(name="dry_run", type="boolean", optional=True,
-                    doc="True in dry runs, whose result is only dry_run and description."),
+                    doc="True in dry runs, whose result adds a description to stand-in "
+                        "output: exit_code 0 and empty stdout and stderr with wait, a "
+                        "null pid without."),
         ResultField(name="description", type="string", optional=True,
                     doc="Dry runs: what the step would run."),
     ),

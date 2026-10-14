@@ -55,6 +55,23 @@ def test_run_header_names_the_run_and_the_script(capsys):
                      r"backend \w+\)$", out, re.MULTILINE)
 
 
+def test_strict_dry_runs_fail_where_dry_runs_warn(tmp_path, capsys):
+    script = tmp_path / "prog.yaml"
+    script.write_text("name: Prog\nsteps:\n  - id: prog\n    as: out\n"
+                      "    exec: {command: [some-program], wait: true}\n"
+                      "  - id: show\n    log: \"${strip(out.stdout)}|${out.exit_code}\"\n",
+                      encoding="utf-8", newline="\n")
+    assert main(["run", "--dry-run", "--seed", "3", str(script)]) == 0
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last.startswith("✓ dry run completed in ") and " with 1 warning  (seed 3)" in last
+    assert main(["run", "--dry-run", "--strict", "--seed", "3", str(script)]) == 1
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last.startswith("✗ dry run failed after ")
+    assert "[capability_missing]" in last and "--allow-exec" in last
+    assert main(["run", "--dry-run", "--strict", "--allow-exec", str(script)]) == 0
+    assert "|0" in capsys.readouterr().out
+
+
 def test_real_run_without_backend_fails_cleanly(capsys, monkeypatch):
     monkeypatch.setenv("J5_BACKEND", "none")
     assert main(["run", str(EXAMPLE)]) == 1

@@ -20,11 +20,14 @@ from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
 """Search failures a dry run reports as a warning instead of failing the step (also
 :class:`~j5_macro.steps.positions.NoPosition`: a region placed at a kept result that a dry
-run could not find)."""
+run could not find). A strict dry run fails the step with them."""
 
 
-def dry_run_skips(exc: StepError) -> bool:
-    """Whether a dry run reports ``exc`` as a warning and goes on."""
+def dry_run_skips(ctx: StepContext, exc: StepError) -> bool:
+    """Whether a dry run reports ``exc`` as a warning and goes on: never outside dry runs
+    or in strict ones."""
+    if not ctx.dry_run or ctx.strict:
+        return False
     return exc.info.code in DRY_RUN_SKIPPABLE or isinstance(exc, NoPosition)
 
 
@@ -72,11 +75,12 @@ def locate_target(ctx: StepContext, target: Mapping[str, Any]) -> Match:
 def dry_locate(ctx: StepContext, target: Mapping[str, Any],
                wait: float = 0.0) -> Match | None:
     """The single search of a dry run; None (after a warning) when vision or the window
-    is not available, so the dry run goes on."""
+    is not available, so the dry run goes on. A strict dry run raises instead, and
+    raises ``image_not_found`` when the image is not found."""
     try:
         return ctx.vision.wait(target["image"], timeout=wait, **search_options(target))
     except StepError as exc:
-        if not dry_run_skips(exc):
+        if not dry_run_skips(ctx, exc):
             raise
         ctx.log("warning", f"dry-run: image {target['image']} not searched: "
                 f"{exc.info.message}")
@@ -101,7 +105,8 @@ def describe_match(match: Match | None, label: str = "") -> str:
 def image_visible(ctx: StepContext, argument: Any) -> bool:
     """``{image_visible: img/x.png}`` or ``{image_visible: {image: ..., threshold: ...,
     scale: ..., region: ..., window: ...}}``: one search. In dry runs a search that
-    cannot be made (no vision, no window) is false with a warning."""
+    cannot be made (no vision, no window) is false with a warning; strict dry runs fail
+    as a real run does. Not finding the image is false, never a failure."""
     if isinstance(argument, str):
         target: Mapping[str, Any] = {"image": argument}
     elif isinstance(argument, Mapping):
@@ -121,7 +126,7 @@ def image_visible(ctx: StepContext, argument: Any) -> bool:
     try:
         match = ctx.vision.find(image, **search_options(target))
     except StepError as exc:
-        if not ctx.dry_run or not dry_run_skips(exc):
+        if not dry_run_skips(ctx, exc):
             raise
         ctx.log("warning", f"image_visible {image}: {exc.info.message}; treated as false "
                 "in dry-run")

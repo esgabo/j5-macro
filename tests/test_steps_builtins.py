@@ -197,9 +197,10 @@ def test_cross_field_accepts(name, params):
 class FakeContext:
     """Records what the executor asks of the interpreter."""
 
-    def __init__(self, *, dry_run: bool = False, seed: int = 1) -> None:
+    def __init__(self, *, dry_run: bool = False, seed: int = 1, strict: bool = False) -> None:
         self.step_id = "s1"
         self.dry_run = dry_run
+        self.strict = strict
         self.rng = random.Random(seed)
         self.variables: dict[str, Any] = {"a": 2}
         self.calls: list[tuple[str, Any]] = []

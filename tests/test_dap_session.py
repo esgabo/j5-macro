@@ -118,6 +118,8 @@ def test_initialize_answers_capabilities_then_initialized(tmp_path: Path) -> Non
     ({"allowExec": True}, {"mode": "normal", "allow_exec": True}),
     ({"allowExec": "yes"}, {"mode": "normal"}),
     ({"displayScale": 1.5}, {"mode": "normal", "display_scale": 1.5}),
+    ({"dryRun": True, "strict": True}, {"mode": "dry", "strict": True}),
+    ({"dryRun": True, "strict": "yes"}, {"mode": "dry"}),
 ])
 def test_launch_builds_the_run(tmp_path: Path, launch: Message, payload: Message) -> None:
     async def scenario() -> None:
@@ -147,6 +149,8 @@ def test_params_from_env(tmp_path: Path) -> None:
     ({"displayScale": "150%"}, "'displayScale' must be a positive number"),
     ({"displayScale": True}, "'displayScale' must be a positive number"),
     ({"program": ""}, "launch needs 'program'"),
+    ({"strict": True}, "'strict' only applies with 'dryRun'"),
+    ({"strict": True, "stopOnEntry": True}, "'strict' only applies with 'dryRun'"),
 ])
 def test_bad_launch_arguments(tmp_path: Path, launch: Message, message: str) -> None:
     async def scenario() -> None:
@@ -428,6 +432,19 @@ def test_run_finished_exits_and_terminates(tmp_path: Path, status: str, code: in
         # later events of the run are ignored
         await client.emit("log", {"level": "info", "message": "late"})
         assert not any("late" in o["output"] for o in client.events("output"))
+
+    run(scenario())
+
+
+def test_run_finished_counts_the_warnings(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        client = Client(tmp_path)
+        await client.start(dryRun=True, strict=True)
+        client.take("output")
+        await client.emit("run_finished", {"status": "completed", "duration_ms": 5,
+                                           "warnings": 2})
+        (output,) = client.events("output")
+        assert output["output"].startswith("run completed in 5 ms with 2 warnings")
 
     run(scenario())
 

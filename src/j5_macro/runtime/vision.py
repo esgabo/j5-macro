@@ -86,11 +86,13 @@ class RunVision:
                  backend_reason: str | None, dry_run: bool, captures: CapturePolicy,
                  run_dir: Path | None, script_path: str | None, emit: RunEventSink,
                  clock: Clock, images: Mapping[str, EmbeddedImage] | None = None,
-                 display: DisplayScale | None = None) -> None:
+                 display: DisplayScale | None = None, strict: bool = False) -> None:
         self._factory = factory
         self._backend = backend
         self._backend_reason = backend_reason
         self.dry_run = dry_run
+        self.strict = strict
+        """A strict dry run: the single search of a wait fails when it misses."""
         self.captures = captures
         self.run_dir = run_dir
         self._script_dir = Path(script_path).parent if script_path else None
@@ -295,12 +297,22 @@ class BoundVision:
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
         ``timeout`` replaces it when set) seconds of unpaused time pass. Dry runs make
-        exactly one attempt and return its match, found or not."""
+        exactly one attempt and return its match, found or not; strict dry runs fail
+        with ``image_not_found`` when it misses, like a wait that ran out of time."""
         if self._step_timeout is not None:
             timeout = self._step_timeout
         search = self._prepare(image, threshold, scale, region, window)
         if self._run.dry_run:
-            return self._attempt(search, 1, final_miss_fails=False)
+            match = self._attempt(search, 1, final_miss_fails=self._run.strict)
+            if search.failed:
+                raise StepError(
+                    ErrorCode.IMAGE_NOT_FOUND,
+                    f"{image} not found in a strict dry run (one attempt; best score "
+                    f"{match.score:.3f}, threshold {threshold:g})",
+                    {"best_score": round(match.score, 4), "threshold": threshold,
+                     "template": image, "attempts": 1},
+                    screenshot=search.failed_capture)
+            return match
         clock = self._run.clock
         started, paused_before = clock.now(), self._paused()
 

@@ -6,7 +6,7 @@
 # recapture them (j5 capture --bbox ... --embed fill_rows.yaml --name ... -f) and check
 # them with j5 find before running.
 #
-#   j5 run --dry-run fill_rows.yaml       # describes every click and key, sends nothing
+#   j5 run --dry-run --strict fill_rows.yaml   # describes every click and key, sends nothing
 #   j5 run fill_rows.yaml --json < /dev/null
 version: 1
 name: Fill the practice form once per row

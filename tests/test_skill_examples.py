@@ -171,3 +171,25 @@ def test_the_command_check_sees_the_commands() -> None:
                  "pack"):
         assert any(line.startswith(f"j5 {name}") for line in shown), name
     assert any("--allow-exec" in line for line in shown)
+
+
+def test_open_editor_dry_runs_to_the_end() -> None:
+    """A dry ``exec`` stands in for the output, so the steps that use it still check."""
+    from j5_macro.runtime.api import RunOptions
+    from j5_macro.runtime.interpreter import create_run
+
+    def no_vision() -> object:
+        raise ImportError("vision is disabled in this test")
+
+    script_path = SKILL / "examples" / "open_editor.yaml"
+    registry = default_registry()
+    loaded = load_script(script_path.read_text(encoding="utf-8"), lookup=registry.spec,
+                         check=registry.check_params, source_path=str(script_path))
+    assert loaded.script is not None
+    events: list[tuple[str, dict[str, object]]] = []
+    outcome = create_run(loaded.script, registry, lambda kind, payload: events.append(
+        (kind, payload)), RunOptions(mode="dry", allow_exec=True, variables={"note": "hi"}),
+        vision_factory=no_vision).run()
+    assert outcome.status == "completed", outcome.error
+    finished = [p["step_id"] for kind, p in events if kind == "step_finished"]
+    assert finished[-2:] == ["focus_text", "write"]
