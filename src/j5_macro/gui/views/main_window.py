@@ -4,8 +4,9 @@ Areas (each in its own module, each built from the shared :class:`AppContext`):
 
 - left: :class:`ScriptListPanel` (script_list.py)
 - center: :class:`EditorPanel` (editor.py), with the step tree, the form and the YAML
-- bottom tabs: :class:`RunPanel` (run_panel.py) and :class:`HistoryPanel`
-  (history_panel.py)
+- bottom tabs: :class:`RunPanel` (run_panel.py), :class:`HistoryPanel`
+  (history_panel.py) and :class:`StepToolsPanel` (step_tools.py: the screen tools of
+  the selected step, also in the Tools menu)
 - top: :class:`EngineBanner` (engine_banner.py) when the engine died
 - status bar: the engine's backend, vision and stop key
 """
@@ -34,7 +35,9 @@ from j5_macro.gui.views.editor import EditorPanel
 from j5_macro.gui.views.engine_banner import EngineBanner
 from j5_macro.gui.views.history_panel import HistoryPanel
 from j5_macro.gui.views.run_panel import RunPanel
+from j5_macro.gui.views.screen_dialogs import TopLevelHider
 from j5_macro.gui.views.script_list import ScriptListPanel
+from j5_macro.gui.views.step_tools import StepToolsPanel
 
 TITLE = "j5"
 STATUS_TIMEOUT_MS = 8000
@@ -52,9 +55,13 @@ class MainWindow(QMainWindow):
         self.editor = EditorPanel(ctx)
         self.run_panel = RunPanel(ctx)
         self.history = HistoryPanel(ctx)
+        self.step_tools = StepToolsPanel(ctx)
         self.bottom_tabs = QTabWidget()
         self.bottom_tabs.addTab(self.run_panel, "Run")
         self.bottom_tabs.addTab(self.history, "History")
+        self.bottom_tabs.addTab(self.step_tools, "Screen")
+        if ctx.screen.hider is None:
+            ctx.screen.hider = TopLevelHider()
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self.editor)
@@ -86,6 +93,8 @@ class MainWindow(QMainWindow):
         ctx.document.notice.connect(self.show_message)
         ctx.document.load_failed.connect(lambda message, _: self.show_message(message))
         self.script_list.message.connect(self.show_message)
+        self.step_tools.message.connect(self.show_message)
+        self.editor.tree.step_selected.connect(self.step_tools.set_step)
         ctx.run.error.connect(self.show_message)
         ctx.run.active_changed.connect(self._run_active)
         ctx.run.state_changed.connect(
@@ -153,6 +162,19 @@ class MainWindow(QMainWindow):
             lambda: self.confirm_action.setChecked(self.ctx.run.confirm_real_input))
         run_menu.addAction(self.confirm_action)
 
+        tools_menu = self.menuBar().addMenu("&Tools")
+        self.capture_action = self._action(tools_menu, "&Capture template…",
+                                           lambda: self._screen_tool("capture"),
+                                           QKeySequence("Ctrl+Shift+C"))
+        self.test_action = self._action(tools_menu, "&Test image search",
+                                        lambda: self._screen_tool("test"),
+                                        QKeySequence("Ctrl+T"))
+        self.pick_action = self._action(tools_menu, "&Pick point…",
+                                        lambda: self._screen_tool("pick"),
+                                        QKeySequence("Ctrl+Shift+P"))
+        self.windows_action = self._action(tools_menu, "&Windows…",
+                                           lambda: self._screen_tool("windows"))
+
         engine_menu = self.menuBar().addMenu("&Engine")
         self._action(engine_menu, "&Restart engine", self.ctx.bridge.restart)
 
@@ -169,6 +191,11 @@ class MainWindow(QMainWindow):
         step_id = self.editor.tree.selected_step_id()
         if step_id is not None:
             self.ctx.run.toggle_breakpoint(step_id)
+
+    def _screen_tool(self, name: str) -> None:
+        """A Tools menu entry: the screen tool on the selected step."""
+        self.bottom_tabs.setCurrentWidget(self.step_tools)
+        getattr(self.step_tools, name)()
 
     def _engine_started(self, info: EngineInfo) -> None:
         self.engine_label.setText(f"j5 {__version__} · {info.summary()}")

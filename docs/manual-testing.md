@@ -113,6 +113,24 @@ cannot: a real window manager, real input and the look of the window.
 | Without PySide6 | In an environment without the `gui` extra, `j5 gui` | `j5: the GUI needs PySide6, which is not installed: pip install "j5-macro[gui]"`, exit code 2 |
 | Display scale | At 150 % (see "Display scale") | The window and its fonts are sharp and scaled, not blurry |
 
+The screen tools and the history ([gui.md](gui.md#screen-tools)) use the overlay and the
+real screen. Check them on Linux with X11 (Xfce) and on Windows, each at 100 % and at
+150 % (with `target.py --scale 1.5`; at 150 % the pattern is 72x72 and its centre is at
+(66, 66)). Write `/tmp/gui.yaml` (`%TEMP%\gui.yaml`) with `name: GUI` and one step,
+`- id: press` with `click: {x: 1, y: 1}`, and open it with `j5 gui /tmp/gui.yaml`.
+
+| Check | How | Expected |
+| --- | --- | --- |
+| Capture | Select `press`, Tools > Capture template…, keep **Embed in the script as** `press`, **Capture…**, drag tightly around the pattern | The application's windows disappear before the screen freezes and come back afterwards. The YAML shows `click: {image: '#press'}` and an `images` section with `press` (with `scale: 1.5` at 150 %, and the dialog says so); the Screen tab shows the template, 48x48 (72x72 at 150 %), over a checkerboard |
+| Capture to a file | Capture again with **Save as a file next to the script** and **Transparent background**, a few pixels of window background around the pattern | `press.png` is written next to the script with a transparent border, the step uses `image: press.png`, the preview shows the checkerboard through the border. At 150 % the dialog shows the `capture_scale` hint |
+| Flat template | Capture a rectangle of plain window background | The dialog warns that the template has a single colour |
+| Cancel | **Capture…**, then Escape; **Pick…**, then the right button | Each time the windows come back at once, the tool says "Cancelled." and the script does not change |
+| Test | With the pattern captured, Tools > Test image search | The windows hide for a moment; the result says Found with a score near 1 and shows a screenshot of the searched area with the pattern outlined in green. Cover the pattern with another window and test again: Not found, the best location outlined in red with its score |
+| Pick | Tools > Pick point…, click the centre of the pattern | The step becomes `click: {x: 44, y: 44, window: {title: j5 smoke target}}` ((66, 66) at 150 %, give or take a pixel) and loses its `image`; Run makes the target log a click on the pattern |
+| Windows | Tools > Windows… | `j5 smoke target` is listed with its client area; choosing it sets the step's `window` |
+| Busy | Open `examples/smoke/keyboard.yaml`, Run, and press **Pick…** in the Screen tab of a click step while it types | "A script is running…": nothing opens |
+| History | Capture `press` again, close `target.py` and Run `/tmp/gui.yaml` | The run fails; the History tab lists it with its status in red; its Failed search tab shows the template next to what the step saw, with the best location outlined in red and its score. **Open folder** opens the run's directory; **Delete…** asks, then removes the run and its folder |
+
 ## Safety checks
 
 | Check | How | Expected |

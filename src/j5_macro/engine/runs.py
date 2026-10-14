@@ -461,6 +461,8 @@ class RunManager:
         }
         if "error" in finished:
             fields["error"] = finished["error"]
+        if isinstance(finished.get("warnings"), int):
+            fields["warnings"] = finished["warnings"]
         try:
             run.files.finish(fields)
         except OSError as exc:
