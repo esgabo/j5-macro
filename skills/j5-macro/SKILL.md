@@ -124,7 +124,7 @@ vars:
   form: j5 practice form
 steps:
   - id: wait_form                      # give every step an explicit, stable id
-    wait_image: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
+    wait_image_in: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
     as: email_label                    # keep the match: {found, score, bbox, center, window, window_bbox}
   - id: click_email
     click: {at: "${email_label}", offset: [3.5w, 0]}   # 3.5 label widths right of its centre
@@ -133,7 +133,7 @@ steps:
   - id: submit
     click: {image: "#submit", window: {title: "${form}"}}
   - id: confirm                        # check the outcome, do not assume it
-    wait_image: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
+    wait_image_in: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
 images:
   email_label: {png: "..."}            # written by j5 capture --embed
 ```
@@ -142,7 +142,7 @@ Prefer, in this order:
 
 1. **Image targets** (`click: {image: "#name", window: {title: ...}}`): they follow the
    layout. Restrict them with `window` (faster, fewer false matches) or `region`.
-2. **Kept results with `at`**: find once with `wait_image` + `as: label`, then
+2. **Kept results with `at`**: find once with `wait_image_in` + `as: label`, then
    `click: {at: "${label}", offset: [...]}`. No new search, and it follows the window if
    it moved. Use it for fields next to labels and repeated clicks in a loop.
 3. **Window-relative coordinates** (`click: {window: {title: ...}, x: 120, y: 48}`) for
@@ -154,10 +154,14 @@ Other rules:
 - **Offsets**: `offset: [dx, dy]` in pixels, or relative to the target's size on image
   and `at` targets: `0.5w` (half its width), `1.5h`. Relative units survive font and
   scale changes; prefer them. `w`/`h` are an error on `x`/`y` targets.
-- **Waiting**: use `wait_image` for what the next step needs, not `sleep`. A `window`
-  that does not exist yet fails **at once** with `window_not_found` (it does not wait), so
-  to wait for a window that is still opening, search without `window` (whole desktop),
-  or give the step `on_error: retry`.
+- **Waiting**: wait for what the next step needs, not with `sleep`. One step per
+  direction: `wait_window_in` / `wait_window_out` for a window to open or close (by
+  title), `wait_image_in` / `wait_image_out` for an image to appear or go away. After a
+  reload or a click that refreshes content, `wait_image_in` alone may match the old
+  screen: wait for the spinner or "Loading..." to go (`wait_image_out`) first. Image
+  waits (and image targets with the common `timeout`) also wait for their `window` to
+  appear; a step without a timeout looks the window up once. `image_visible` is false
+  when its window is missing.
 - **Focus**: start with a step that clicks into the target window, since keys go to the
   focused window.
 - **Unattended errors**: use `on_error: retry` (3 attempts) or `continue`, not `pause`.
@@ -213,7 +217,9 @@ outlined in red: `screenshot` is relative to the run's directory, which
 | --- | --- |
 | `image_not_found` (best score given) | Open the failure capture. Score 0.8–0.9: same thing, slightly different pixels: recapture in the run's state or lower `threshold` a little (0.85). Score low: wrong window, obscured, not there yet (raise `timeout`), or a different theme/scale: re-screenshot and recapture. Test with `j5 find`. |
 | Matches the wrong place | Make the template more distinctive (more context, `--padding`), add `window` or `region` (`region: {at: "${label}", offset: [3w, 0], size: [4w, 1.5h]}`). |
-| `window_not_found` | `j5 windows`: is it open, visible, titled as you think (case-sensitive substring)? Still opening: wait without `window` or use `on_error: retry`. |
+| `window_not_found` | `j5 windows`: is it open, visible, titled as you think (case-sensitive substring)? Still opening: add `wait_window_in: {title: ..., timeout: 20s}` before, or give the image step a longer `timeout` (image waits wait for their window). |
+| `still_visible` | A `wait_image_out`/`wait_window_out` timed out: the spinner or dialog is still there. Raise `timeout`, or check the template matches only the thing that goes away (`j5 find`). |
+| `unknown step type ...; did you mean ...?` | The step type was renamed: use the suggested name (the image wait is `wait_image_in`; its opposite `wait_image_out`). |
 | `capability_missing` | Message says which: no backend (Wayland, no `DISPLAY`, missing `x11` extra), no `vision` extra, `exec` without `--allow-exec` (ask the user), or the overlay without tkinter. |
 | `template_missing` | An image path that does not exist (relative to the script's folder), or a `${...}` reference to an unknown embedded name. |
 | `expression_error` | Unknown variable (a step with `as` failed or was skipped earlier), missing key, bad syntax. Quote expressions with `:` or `#`. |
@@ -233,7 +239,8 @@ overlay for a **human** to click or drag. As an agent, use `--bbox`, screenshots
 - `reference/script-format.md`: script format cheat sheet.
 - `reference/cli.md`: commands, flags, exit codes, JSON outputs.
 - `reference/protocol.md`: driving `python -m j5_macro.engine` over JSON lines.
-- `examples/open_editor.yaml`: `exec` + `wait_image` + an `exec` output + `type`.
+- `examples/open_editor.yaml`: `exec` + `wait_window_in` + `wait_image_in` in that
+  window + an `exec` output + `type`.
 - `examples/sign_in.yaml`: embedded templates, `as` + `at` with relative offsets, a
   secret param, an outcome check.
 - `examples/fill_rows.yaml`: a `for_each` loop over data, `on_error: retry`, a counter.

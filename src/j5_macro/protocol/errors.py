@@ -30,9 +30,13 @@ class ErrorCode(StrEnum):
     TEMPLATE_MISSING = "template_missing"
     """A step's image file does not exist."""
     IMAGE_NOT_FOUND = "image_not_found"
-    """``wait_image`` or an image-based step ran out of time; includes ``best_score``."""
+    """``wait_image_in`` or an image-based step ran out of time; includes ``best_score``."""
     WINDOW_NOT_FOUND = "window_not_found"
-    """No visible window matches a step's ``window`` (``details.title``)."""
+    """No visible window matches a step's ``window`` or ``wait_window_in``'s ``title``
+    (``details.title``; ``details.timeout`` when the step waited)."""
+    STILL_VISIBLE = "still_visible"
+    """``wait_image_out`` or ``wait_window_out`` ran out of time with its target still
+    there (``details.timeout`` and ``details.image`` or ``details.title``)."""
     EXPRESSION_ERROR = "expression_error"
     """An expression or interpolation failed."""
     BACKEND_UNAVAILABLE = "backend_unavailable"

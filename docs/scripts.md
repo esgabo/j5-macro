@@ -93,7 +93,7 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 | --- | --- | --- | --- |
 | `id` | string | generated | Stable id: letters, digits, `_` and `-`, starting with a letter or `_`; unique in the script |
 | `break` | boolean | `false` | A breakpoint written in the script: the run pauses before this step (see [debugging.md](debugging.md)) |
-| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Also replaces `exec`'s `timeout`. Other steps ignore it |
+| `timeout` | duration | none | For waits and image searches: replaces the `timeout` of the `wait_*` steps, and makes `click`, `move` and `drag` wait up to this long for their image targets. Also replaces `exec`'s `timeout`. Other steps ignore it |
 | `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
 | `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
 | `as` | name or mapping | none | Keep the step's result in a variable: `as: label`, or `as: {name: token, secret: true}` (see [Keeping a result](#keeping-a-result-as)) |
@@ -118,7 +118,7 @@ Every step reports a result when it finishes (shown after `✓` in `j5 run`; see
 
 ```yaml
 - id: find_label
-  wait_image: {image: img/email_label.png, window: {title: Login}, timeout: 10s}
+  wait_image_in: {image: img/email_label.png, window: {title: Login}, timeout: 10s}
   as: label                     # label = {found, score, bbox, center, window, window_bbox}
 - id: click_email_field
   click: {at: "${label}", offset: [0, 1.5h]}    # 1.5 label heights below its centre
@@ -175,7 +175,7 @@ Some step types take one value instead of a mapping, for their main parameter:
 | --- | --- |
 | `type: "hello"` | `type: {text: "hello"}` |
 | `key: ctrl+s` | `key: {press: ctrl+s}` |
-| `wait_image: img/ok.png` | `wait_image: {image: img/ok.png}` |
+| `wait_image_in: img/ok.png` | `wait_image_in: {image: img/ok.png}` |
 | `sleep: 2s` | `sleep: {duration: 2s}` |
 | `log: Done` | `log: {message: Done}` |
 | `pause: Check the form` | `pause: {message: Check the form}` |
@@ -316,27 +316,65 @@ released in reverse order.
   key: {press: shift, hold: 500ms}
 ```
 
-### wait_image
+### Waiting: wait_image_in, wait_image_out, wait_window_in, wait_window_out
 
-Waits until an image is on screen, checking every 0.25 s.
+Four steps wait for the screen instead of a fixed `sleep`, one per direction:
+
+| Step | Waits until | Fails on timeout with | Result |
+| --- | --- | --- | --- |
+| `wait_image_in` | the image is visible | `image_not_found` | `{found, score, bbox, center}`, and `window`, `window_bbox` with a window |
+| `wait_image_out` | the image is no longer visible | `still_visible` | `{gone: true, waited_ms}` |
+| `wait_window_in` | a visible window's title contains `title` | `window_not_found` | `{window, bbox}`: the full title and the window's content area |
+| `wait_window_out` | no visible window's title contains `title` | `still_visible` | `{gone: true, waited_ms}` |
+
+```yaml
+- exec: {command: [mousepad, notes.txt]}
+- wait_window_in: {title: Mousepad, timeout: 15s}
+  as: editor
+- wait_image_in: {image: "#menu", window: {title: "${editor.window}"}, timeout: 10s}
+- click: {image: "#reload"}
+- wait_image_out: {image: "#spinner", timeout: 30s}    # the page is loading again
+- wait_image_in: {image: "#results_header", timeout: 30s}
+- key: ctrl+s
+- wait_window_out: {title: "Save as", timeout: 10s}
+```
+
+- They check at once and then every 0.25 s, up to `timeout` (10 s by default; the step's
+  common `timeout` replaces it). A wait that is already satisfied finishes after the
+  first check, so `wait_image_out` on an image that is not there goes straight on.
+- `pause` suspends a wait and the time paused does not count; `stop` ends it at once.
+- `wait_image_out` is the way to wait for a page that reloads: `wait_image_in` alone may
+  match what was on screen before the reload, so first wait for the spinner or
+  "Loading..." to go, then for the new content.
+- `wait_window_in`'s result names the window by its full title, so `window: {title:
+  "${editor.window}"}` targets exactly that window afterwards. Window waits need a
+  backend that can list windows, but not the `vision` extra.
+- All four can be kept with `as`. In a dry run (`j5 run --dry-run`) each checks once
+  and goes on; a `wait_window_in` that finds no window then keeps the `title` it was
+  given as `window`, so `"${editor.window}"` still works in the steps after it.
+
+The image waits take the same parameters:
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `image` | string | required | Template image (a path, or `"#name"`) |
-| `timeout` | duration | `10s` | Give up with `image_not_found` after this long; the step's common `timeout` replaces it |
+| `timeout` | duration | `10s` | Give up after this long; the step's common `timeout` replaces it |
 | `threshold` | number | `0.9` | Minimum image match score |
-| `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
+| `region` | `[x, y, width, height]` or `{at, ...}` | - | Area to search in (relative to `window` when given), or [next to a kept result](#images) |
 | `window` | mapping | - | `{title: ...}`: search only in that window |
 | `scale` | number | `1` | Extra template scale, on top of the [display scale](#display-scale) |
 
-The result is `{found, score, bbox, center}` and, with a `window`, `window` (its title)
-and `window_bbox` (the match inside the window); keep it with `as` to act on the match
-later (`click: {at: "${dialog}"}`).
+With a `window`, the window is looked up again on every check, and a window that is not
+there yet counts as "not found yet": `wait_image_in: {image: "#menu", window: {title:
+Mousepad}}` right after starting Mousepad waits for the window and then for the menu.
+The step fails with `window_not_found` only when the window never appeared within the
+timeout. `wait_image_out` only counts the image as gone once the window is there.
 
-```yaml
-- id: wait_dialog
-  wait_image: {image: img/save_dialog.png, timeout: 30s}
-```
+Keep `wait_image_in`'s result with `as` to act on the match later (`click: {at:
+"${dialog}"}`).
+
+The window waits take `title` (required; short form `wait_window_in: Mousepad`) and
+`timeout`. Waiting for a window to have the keyboard focus is not supported yet.
 
 ### sleep
 
@@ -526,7 +564,10 @@ physical pixels.
 | `scroll` | `dx`, `dy` |
 | `type` | `chars` (never the text) |
 | `key` | `press`, and `hold` (seconds) when given |
-| `wait_image` | `found`, `score`, `bbox`, `center`, and `window`, `window_bbox` with a window |
+| `wait_image_in` | `found`, `score`, `bbox`, `center`, and `window`, `window_bbox` with a window |
+| `wait_image_out` | `gone` (`true`), `waited_ms` (0 when it was already gone) |
+| `wait_window_in` | `window` (the full title), `bbox` (the window's content area) |
+| `wait_window_out` | `gone` (`true`), `waited_ms` |
 | `sleep` | `seconds` |
 | `if` | `branch` (`then` or `else`) |
 | `loop` | `iterations` |
@@ -535,8 +576,9 @@ physical pixels.
 | `pause` | `message` |
 | `exec` | `exit_code`, `stdout`, `stderr` (and `truncated`) with `wait`; `pid` without |
 
-In a dry run, input steps and `exec` report `dry_run: true` and a `description` instead, plus the
-image fields when an image was searched (or the kept area, for `at`). `j5 schema`
+In a dry run, input steps, the waits and `exec` report `dry_run: true` and a `description`
+instead, plus the image fields when an image was searched (or the kept area, for `at`),
+and `found`, `window` and `bbox` when a window wait looked for its window. `j5 schema`
 describes these fields too (`$defs/<type>_result`).
 
 ## Targets and coordinates
@@ -546,18 +588,20 @@ describes these fields too (`$defs/<type>_result`).
 - **Windows.** With `window: {title: ...}`, `x`, `y` and `region` are relative to the
   top-left corner of the window's content area (inside its title bar and borders), looked
   up when the step runs. The first visible window whose title contains the text is used
-  (case-sensitive). No match fails the step with `window_not_found`.
+  (case-sensitive). No match fails the step with `window_not_found`; steps that wait
+  (the image waits, and image targets with the common `timeout`) keep looking for the
+  window until their timeout.
 - **Offset.** `offset: [dx, dy]` (on `click`, `move` and each point of `drag`) is added
   to the final point; see [Offsets](#offsets) for its units.
 - **Image targets.** `click`, `move` and the points of `drag` can take an `image`. It is
-  searched once (or until the step's common `timeout`), and a miss fails the step with
-  `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
+  searched once (or until the step's common `timeout`, waiting for its `window` too),
+  and a miss fails the step with `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
   `human` strategy lands somewhere natural inside the matched area, and a `human` click
   whose pointer is already inside it clicks without moving; with an `offset`, the pointer
   goes to the exact point.
 - **Kept results (`at`).** Instead of searching again, `click`, `move` and the points of
   `drag` can take `at: "${label}"`, an image result kept with [`as`](#keeping-a-result-as)
-  (from `wait_image`, or from an image or `at` target of `click` or `move`). It is aimed
+  (from `wait_image_in`, or from an image or `at` target of `click` or `move`). It is aimed
   at like an image target's match, with the same `offset` rules. A result found in a
   `window` remembers the window's title and where the match was inside it: the window is
   looked up again when the step runs, so the action follows it if it moved, and
@@ -616,7 +660,7 @@ name: Log in
 capture_scale: 1.5          # the templates were captured on a 150 % screen
 steps:
   - id: find_label
-    wait_image: img/email_label.png
+    wait_image_in: img/email_label.png
     as: label
   - click: {at: "${label}", offset: [0, 1.5h]}
 ```
@@ -676,7 +720,7 @@ steps:
         - id: seen
           log: still there
   - id: dialog
-    wait_image: img/dialog.png        # files keep working
+    wait_image_in: img/dialog.png        # files keep working
 images:
   pattern:
     png: |
@@ -817,7 +861,7 @@ can contain `${expression}`:
 `when` (`if`) and `while` (`loop`) take either an expression, true when its value is
 truthy, or a predefined condition written as a one-key mapping. The only predefined
 condition is `image_visible`, which makes one search (not finding the image is not an
-error):
+error, and with a `window` that is not there it is simply false):
 
 ```yaml
 when: {image_visible: img/error.png}
@@ -964,6 +1008,7 @@ Other messages you may see:
 | `'click' has no short form; write its parameters as a mapping` | A scalar given to a step type without a [short form](#short-form) |
 | `block 'do' must be a list of steps` | A block (`then`, `else`, `do`) that is not a list |
 | `step has several type keys (...); use one per step` | Two step types in one step, often a missing `-` |
+| `unknown step type '...'; did you mean '...'? (it was renamed)` | A step type that was renamed, such as the image wait, now `wait_image_in`; use the new name |
 | `warning: generated id 'log_1', add an explicit id ...` | A step without `id` (see [Stable ids](#stable-ids)) |
 | `warning: unknown top-level key 'extra' is ignored` | A top-level key that is not part of the format |
 | `image: no embedded image named 'save'; the script has ...` | A `"#save"` reference with no `save` entry under `images` (the parameter is named, e.g. `from.image` or `when.image_visible`) |

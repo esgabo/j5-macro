@@ -1,4 +1,4 @@
-# Start a text editor, wait until its window is really there, and type a line that
+# Start a text editor, wait until its window is open and ready, and type a line that
 # includes today's date read from a program.
 #
 # Starting programs needs the run's opt-in, which only the user can give:
@@ -21,11 +21,16 @@ steps:
   - id: open_editor
     exec: {command: [mousepad]}
 
-  # Better than a fixed sleep: wait for something only the ready window shows. Search
-  # the whole desktop here: a `window` that does not exist yet fails the step at once
-  # with window_not_found instead of waiting for it.
+  # Better than a fixed sleep: wait for the editor's window, keeping its full title
+  # (editor = {window, bbox}) so the next steps target exactly that window.
+  - id: wait_window
+    wait_window_in: {title: Mousepad, timeout: 20s}
+    as: editor
+
+  # Then for something only the ready window shows, searching inside it (faster and
+  # without look-alikes elsewhere on the desktop).
   - id: wait_editor
-    wait_image: {image: "#menu_bar", timeout: 20s}
+    wait_image_in: {image: "#menu_bar", window: {title: "${editor.window}"}, timeout: 10s}
     as: menu
 
   # Waited for, its output kept: today = {exit_code, stdout, stderr}.

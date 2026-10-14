@@ -168,7 +168,7 @@ def test_a_script_finds_its_embedded_template_on_screen(painted_window: Any) -> 
     ok, encoded = cv2.imencode(".png", pattern())
     assert ok
     block = encode_base64(encoded.tobytes()).replace("\n", "\n      ").rstrip()
-    text = ("steps:\n  - id: w\n    wait_image: {image: \"#window\", timeout: 3s}\n"
+    text = ("steps:\n  - id: w\n    wait_image_in: {image: \"#window\", timeout: 3s}\n"
             f"images:\n  window:\n    png: |\n      {block}\n")
     registry = default_registry()
     result = load_script(text, lookup=registry.spec, check=registry.check_params)
@@ -205,7 +205,7 @@ def test_templates_captured_at_another_scale_are_found(
     assert ok
     block = encode_base64(encoded.tobytes()).replace("\n", "\n      ").rstrip()
     header = "" if capture_scale is None else f"capture_scale: {capture_scale}\n"
-    text = (f"{header}steps:\n  - id: w\n    wait_image: {{image: \"#small\"}}\n"
+    text = (f"{header}steps:\n  - id: w\n    wait_image_in: {{image: \"#small\"}}\n"
             f"images:\n  small:\n    png: |\n      {block}\n")
     registry = default_registry()
     result = load_script(text, lookup=registry.spec, check=registry.check_params)

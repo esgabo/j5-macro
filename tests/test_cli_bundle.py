@@ -25,7 +25,7 @@ name: Save report
 steps:
   - id: open
     click: {image: img/save button.png, threshold: 0.8}   # the toolbar button
-  - wait_image: img/dialog.png
+  - wait_image_in: img/dialog.png
   - id: again
     drag: {from: {image: ./img/save button.png}, to: {image: img/copy/dialog.png}}
   - if:
@@ -75,7 +75,7 @@ def test_pack_embeds_every_file_once_and_keeps_the_rest(
     comment = "# the toolbar button"
     assert lines[4].index(comment) == before[4].index(comment)  # it keeps its column
     assert lines[4].split("#save")[0] == "    click: {image: \""
-    expected = (SCRIPT.replace("wait_image: img/dialog.png", "wait_image: \"#dialog\"")
+    expected = (SCRIPT.replace("wait_image_in: img/dialog.png", "wait_image_in: \"#dialog\"")
                 .replace("./img/save button.png", "\"#save_button\"")
                 .replace("img/copy/dialog.png", "\"#dialog_2\"")).splitlines()
     assert lines[:4] + lines[5:] == expected[:4] + expected[5:]
@@ -94,12 +94,12 @@ def test_pack_embeds_every_file_once_and_keeps_the_rest(
 def test_pack_to_stdout_reuses_identical_embedded_images(
         project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data = png(seed=2)
-    text = SCRIPT.replace("steps:", "steps:\n  - wait_image: \"#same\"", 1)
+    text = SCRIPT.replace("steps:", "steps:\n  - wait_image_in: \"#same\"", 1)
     project.write_text(text + f"images:\n  same: {{png: {embedded.encode_base64(data)}}}\n"
                        .replace("\n}", "}"), encoding="utf-8")
     assert main(["pack", str(project)]) == 0
     out = capsys.readouterr().out
-    assert out.count("wait_image: \"#same\"\n") == 2  # img/dialog.png has the same bytes
+    assert out.count("wait_image_in: \"#same\"\n") == 2  # img/dialog.png has the same bytes
     assert "  dialog:\n" in out and "dialog_2" not in out
 
 
@@ -156,12 +156,12 @@ def test_unpack_drops_the_section_and_warns_about_scales(
         tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     data = embedded.encode_base64(png()).replace("\n", "")
     bundle = tmp_path / "b.yaml"
-    bundle.write_text("steps:\n  - id: w\n    wait_image: \"#icon\"   # wait\n"
+    bundle.write_text("steps:\n  - id: w\n    wait_image_in: \"#icon\"   # wait\n"
                       f"images:\n  icon: {{png: {data}, scale: 1.25}}\n", encoding="utf-8")
     assert main(["unpack", str(bundle), "-d", str(tmp_path / "out")]) == 0
     assert "capture scale 1.25 cannot be kept in a file" in capsys.readouterr().err
     assert (tmp_path / "out" / "b.yaml").read_text(encoding="utf-8") == (
-        "steps:\n  - id: w\n    wait_image: img/icon.png # wait\n")
+        "steps:\n  - id: w\n    wait_image_in: img/icon.png # wait\n")
 
 
 def test_unpack_needs_embedded_images(project: Path, tmp_path: Path,

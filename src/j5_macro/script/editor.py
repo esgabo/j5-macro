@@ -67,7 +67,7 @@ from j5_macro.protocol.payloads import (
 from j5_macro.script.images import FORMATS as IMAGE_FORMATS
 from j5_macro.script.images import compact_base64, image_slots, wrap_base64
 from j5_macro.script.loader import _TOP_LEVEL, ID_PATTERN, _parse_error, _plain
-from j5_macro.steps.spec import StepLookup, StepSpec
+from j5_macro.steps.spec import StepLookup, StepSpec, unknown_step_type
 
 COMMON_FIELDS = ("break", "timeout", "on_error", "input", "as")
 """Common step fields an ``update`` may change (``id`` is not one of them)."""
@@ -720,7 +720,7 @@ class _Tree:
         type_name = types[0]
         spec = self.lookup(type_name)
         if spec is None:
-            raise _Refused(f"{where}: unknown step type {type_name!r}")
+            raise _Refused(f"{where}: {unknown_step_type(type_name)[0]}")
         step_id = fields.get("id")
         if step_id is not None:
             if not isinstance(step_id, str) or not ID_PATTERN.match(step_id):

@@ -227,7 +227,7 @@ version: 1
 name: Save with the button
 steps:
   - id: wait_save_button
-    wait_image: {image: img/save_button.png, timeout: 15s}
+    wait_image_in: {image: img/save_button.png, timeout: 15s}
   - id: click_save
     click: {image: img/save_button.png}
   - id: check_error
@@ -241,8 +241,10 @@ steps:
           log: Saved without errors
 ```
 
-- `wait_image` checks the screen every 0.25 s until the image appears, for up to
-  `timeout` (10 s by default).
+- `wait_image_in` checks the screen every 0.25 s until the image appears, for up to
+  `timeout` (10 s by default). Its opposite, `wait_image_out`, waits until an image is
+  gone (a spinner, a "Loading..." label), and `wait_window_in` and `wait_window_out`
+  wait for a window to open or close (see [Waiting](scripts.md#waiting-wait_image_in-wait_image_out-wait_window_in-wait_window_out)).
 - `click: {image: ...}` searches once and clicks inside the match. With the `human`
   strategy it lands at a natural spot inside the button, not always its exact centre.
 - `image_visible` in an `if` searches once and picks a branch; not finding the image is
@@ -251,7 +253,7 @@ steps:
 ```console
 $ j5 run --seed 7 save_button.yaml
 run r-20261012-215611-a8b5  Save with the button  (mode normal, seed 7, backend x11)
-  0.003s  ▶ wait_save_button  wait_image  {"image": "img/save_button.png", "timeout": "15s", "threshold": 0.9}
+  0.003s  ▶ wait_save_button  wait_image_in  {"image": "img/save_button.png", "timeout": "15s", "threshold": 0.9}
   1.513s  ✓ wait_save_button  1510ms  {"found": true, "score": 1.0, "bbox": [620, 440, 90, 36]}
   1.514s  ▶ click_save  click  {"image": "img/save_button.png", "button": "left", "clicks": 1, "threshold": ...
   1.906s  ✓ click_save  392ms  {"x": 665, "y": 458, "button": "left", "clicks": 1, "image": "img/save_button...
@@ -283,7 +285,7 @@ editor's window:
 
 ```yaml
   - id: wait_save_button
-    wait_image:
+    wait_image_in:
       image: img/save_button.png
       timeout: 2s
       region: [400, 300, 300, 100]

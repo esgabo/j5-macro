@@ -29,7 +29,7 @@ NOTES = Rect(100, 200, 800, 600)
 MOVED = Rect(150, 250, 800, 600)
 LABEL = {"found": True, "score": 0.97, "bbox": [300, 400, 40, 20], "center": [320, 410],
          "window": "Notes", "window_bbox": [200, 200, 40, 20]}
-"""A wait_image result in the Notes window, kept while the window was at ``NOTES``."""
+"""A wait_image_in result in the Notes window, kept while the window was at ``NOTES``."""
 
 
 def finished(recorder: Recorder, step_id: str) -> dict[str, Any]:
@@ -302,7 +302,7 @@ def vision_run(tmp_path: Path, steps: str, matches: list[Any], **options: Any) -
 def test_window_searches_report_where_the_match_is_in_the_window(tmp_path: Path) -> None:
     run_ = vision_run(tmp_path, """
   - id: find
-    wait_image: {image: img/x.png, window: {title: Notes}}
+    wait_image_in: {image: img/x.png, window: {title: Notes}}
     as: label
   - id: press
     click: {at: "${label}"}
@@ -316,7 +316,7 @@ def test_results_of_embedded_images_are_kept_and_used(
         monkeypatch: pytest.MonkeyPatch) -> None:
     script = with_embedded("""\
   - id: find
-    wait_image: {image: "#box", window: {title: Notes}}
+    wait_image_in: {image: "#box", window: {title: Notes}}
     as: label
   - id: press
     click: {image: "#box", offset: [0, 40]}
@@ -324,7 +324,7 @@ def test_results_of_embedded_images_are_kept_and_used(
   - id: again
     click: {at: "${pressed}"}
   - id: near
-    wait_image: {image: "#box", region: {at: "${label}", offset: [0, 40]}}
+    wait_image_in: {image: "#box", region: {at: "${label}", offset: [0, 40]}}
 """, monkeypatch, box=png_header())
     toolkit = FakeToolkit([hit(0.97, BOX)])
     run_ = VisionRun(script, toolkit, backend=backend(Notes=NOTES))
@@ -355,7 +355,7 @@ def test_image_targets_report_their_window_too(tmp_path: Path) -> None:
 ])
 def test_regions_next_to_a_kept_result_follow_its_window(tmp_path: Path, region: str,
                                                          grab: Rect) -> None:
-    run_ = vision_run(tmp_path, f"  - id: near\n    wait_image: {{image: img/x.png, "
+    run_ = vision_run(tmp_path, f"  - id: near\n    wait_image_in: {{image: img/x.png, "
                       f"region: {region}}}\n", [hit(0.99, BOX)],
                       backend=backend(Notes=MOVED), variables={"label": LABEL})
     assert run_.join().status == "completed"
@@ -364,7 +364,7 @@ def test_regions_next_to_a_kept_result_follow_its_window(tmp_path: Path, region:
 
 
 def test_a_region_next_to_a_kept_result_ignores_the_step_window(tmp_path: Path) -> None:
-    run_ = vision_run(tmp_path, "  - id: near\n    wait_image: {image: img/x.png, "
+    run_ = vision_run(tmp_path, "  - id: near\n    wait_image_in: {image: img/x.png, "
                       "window: {title: Other}, region: {at: '${spot}'}}\n", [hit(0.99, BOX)],
                       backend=backend(Notes=NOTES, Other=Rect(5, 5, 100, 100)),
                       variables={"spot": {"bbox": [10, 20, 30, 40]}})
@@ -375,7 +375,7 @@ def test_a_region_next_to_a_kept_result_ignores_the_step_window(tmp_path: Path) 
 
 
 def test_a_region_next_to_a_result_whose_window_is_gone(tmp_path: Path) -> None:
-    run_ = vision_run(tmp_path, "  - id: near\n    wait_image: {image: img/x.png, "
+    run_ = vision_run(tmp_path, "  - id: near\n    wait_image_in: {image: img/x.png, "
                       "region: {at: '${label}'}}\n", [hit(0.99, BOX)],
                       backend=backend(), variables={"label": LABEL})
     outcome = run_.join()
@@ -386,10 +386,10 @@ def test_a_region_next_to_a_result_whose_window_is_gone(tmp_path: Path) -> None:
 def test_dry_runs_skip_regions_next_to_a_result_without_a_position(tmp_path: Path) -> None:
     run_ = vision_run(tmp_path, """
   - id: find
-    wait_image: {image: img/x.png, window: {title: Ghost}}
+    wait_image_in: {image: img/x.png, window: {title: Ghost}}
     as: label
   - id: near
-    wait_image: {image: img/x.png, region: {at: "${label}", offset: [0, 40]}}
+    wait_image_in: {image: img/x.png, region: {at: "${label}", offset: [0, 40]}}
   - id: press
     click: {at: "${label}"}
 """, [hit(0.99, BOX)], mode="dry", backend=backend())

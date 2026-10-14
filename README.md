@@ -16,7 +16,7 @@ steps:
   - id: open_menu
     click: {image: img/file_menu.png}
   - id: wait_dialog
-    wait_image: {image: img/save_dialog.png, timeout: 10s}
+    wait_image_in: {image: img/save_dialog.png, timeout: 10s}
   - id: write_name
     type: "${customer}"
   - id: save
@@ -129,7 +129,7 @@ Tracked as [GitHub milestones](https://github.com/esgabo/j5-macro/milestones):
 | M0 | Protocol types and the engine process | Done |
 | M1 | Interpreter, step registry, dry-run and the CLI | Done |
 | M2 | X11 backend with `direct` and `linear` input | Done |
-| M3 | Vision: `wait_image` and image-based clicks | Done |
+| M3 | Vision: `wait_image_in` and image-based clicks | Done |
 | M4 | Debugger: step mode, breakpoints, inspection, VS Code | Done |
 | M5 | Human-like mouse and keyboard | Done |
 | M6 | Windows backend, manual test plan | Done |

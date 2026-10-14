@@ -324,7 +324,7 @@ Work is tracked as GitHub milestones:
 | M0 | Protocol types, the engine process skeleton and the client library | Done |
 | M1 | Interpreter, step registry, dry runs and the CLI | Done |
 | M2 | X11 backend with `direct` and `linear` input | Done |
-| M3 | Vision: `wait_image`, image-based clicks, `image_visible` | Done |
+| M3 | Vision: `wait_image_in`, image-based clicks, `image_visible` | Done |
 | M4 | Debugger: step mode, breakpoints, inspection, the terminal debugger and the DAP adapter | Done |
 | M5 | Human-like mouse and keyboard, interference detection | Done |
 | M6 | Windows backend: input through SendInput, window-relative coordinates and capture, a manual test plan for both platforms | Done |

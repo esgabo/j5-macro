@@ -230,7 +230,8 @@ Each `input_planned` event carries the plan's own seed (see `j5 run --json`).
 
 ## Image search
 
-Steps can look for a picture on the screen: `wait_image`, `click`/`move`/`drag` with an
+Steps can look for a picture on the screen: `wait_image_in` and `wait_image_out`,
+`click`/`move`/`drag` with an
 `image` target, and the `{image_visible: ...}` condition of `if` and `while`. Image search
 needs the `vision` extra (`pip install j5-macro[vision]`).
 
@@ -253,9 +254,12 @@ needs the `vision` extra (`pip install j5-macro[vision]`).
   at 100 % is still found at 150 %. Pixel offsets from a match follow the same ratio,
   and offsets such as `1.5h` count in the match's own size. A step's `scale` resizes
   the template further. See [Display scale](scripts.md#display-scale).
-- **Waiting.** `wait_image` retries every 0.25 s until it finds the image or its `timeout`
-  (10 s by default) runs out; pausing the run pauses the wait. `click`, `move` and `drag`
-  search once, or wait up to the step's `timeout` when you set one. An action aims at the
+- **Waiting.** `wait_image_in` retries every 0.25 s until it finds the image or its `timeout`
+  (10 s by default) runs out, and `wait_image_out` until the image is gone (a spinner, a
+  "Loading..." label); pausing the run pauses the wait. A `window` that is not there yet
+  counts as "not found yet", so a wait right after starting a program waits for its
+  window too; `wait_window_in` and `wait_window_out` wait for a window alone. `click`,
+  `move` and `drag` search once, or wait up to the step's `timeout` when you set one. An action aims at the
   centre of the match (plus `offset`), and a `human` movement lands inside it.
 - **Captures on failure.** When a search fails, the screen of its last attempt is saved in
   the run's folder, with the best match outlined in red:
@@ -263,7 +267,7 @@ needs the `vision` extra (`pip install j5-macro[vision]`).
 ```console
 $ j5 run search.yaml
 run r-20261012-214849-bba4  Search  (mode normal, seed 1659557458, backend x11)
-  0.001s  ▶ find_button  wait_image  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
+  0.001s  ▶ find_button  wait_image_in  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
   1.275s  ✗ find_button  [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)
   1.275s    screenshot: captures/0001-find_button-4.png
 ✗ failed after 1.275s  (seed 1659557458): [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)

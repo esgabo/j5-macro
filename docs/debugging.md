@@ -135,10 +135,10 @@ says what you can do: `c` retries the step (a new attempt, with new random choic
 $ j5 run --break find_button flaky.yaml
 ...
 (j5) c
-  0.130s  ▶ find_button  wait_image  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
+  0.130s  ▶ find_button  wait_image_in  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
   0.130s  ✗ find_button  [capability_missing] the screen cannot be captured: ...
   0.130s  ⏸ paused (error)
--> find_button  wait_image  (flaky.yaml:4)
+-> find_button  wait_image_in  (flaky.yaml:4)
 step 'find_button' failed: c retries it, n skips it
 (j5) n
   0.131s  ↷ find_button  skipped (user)
@@ -353,7 +353,7 @@ When the run ends, the debug session ends with exit code 0 (completed), 1 (faile
 - **Dry runs.** `j5 run --dry-run` runs the whole logic (variables, loops, branches, logs,
   sleeps) without sending input. Input steps say what they would do
   (`[info] would click left at (120, 40)`, `would type 12 characters`) and image searches
-  run once and report their score, so you can check templates against the current screen.
+  and window waits run once and report what they found, so you can check templates against the current screen.
   It works without an input backend too.
 - **Logs and pauses in the script.** A `log:` step prints any expression
   (`log: "attempts=${attempts}"`), and a `pause:` step stops the run until you press Enter.

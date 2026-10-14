@@ -10,7 +10,7 @@ import pytest
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import ErrorInfo
 from j5_macro.script import LoadResult, Script, Step, StoreAs, load_file, load_script
-from j5_macro.steps.spec import ParamProblem, ParamSpec, StepSpec
+from j5_macro.steps.spec import RENAMED_STEP_TYPES, ParamProblem, ParamSpec, StepSpec
 
 SPECS = {
     spec.name: spec
@@ -493,6 +493,14 @@ def test_unknown_step_type() -> None:
     assert error.step_id == "x"
     assert error.line == 2
     assert error.details == {"type": "teleport"}
+
+
+@pytest.mark.parametrize(("old", "new"), sorted(RENAMED_STEP_TYPES.items()))
+def test_a_renamed_step_type_suggests_its_new_name(old: str, new: str) -> None:
+    error = only_error(f"steps:\n  - id: x\n    {old}: img/ok.png\n")
+    assert error.code == ErrorCode.UNKNOWN_STEP_TYPE
+    assert error.details == {"type": old, "suggestion": new}
+    assert f"did you mean {new!r}?" in error.message
 
 
 def test_two_type_keys() -> None:

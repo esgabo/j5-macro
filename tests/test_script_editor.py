@@ -14,6 +14,7 @@ from j5_macro.script.editor import EditError, Indent, apply_edits, detect_indent
 from j5_macro.script.loader import load_script
 from j5_macro.script.model import Script, Step
 from j5_macro.steps import default_registry
+from j5_macro.steps.spec import RENAMED_STEP_TYPES
 
 REGISTRY = default_registry()
 
@@ -56,7 +57,7 @@ steps:
   - id: open_menu
     click: {image: img/file_menu.png, threshold: 0.90}  # 0.90 stays 0.90
   - id: wait_dialog
-    wait_image: {image: 'img/save dialog.png', timeout: 10s}
+    wait_image_in: {image: 'img/save dialog.png', timeout: 10s}
     on_error: stop
 
   # Typing.
@@ -151,7 +152,7 @@ def test_untouched_lines_are_byte_identical_after_structural_edits() -> None:
     assert removed == [
         "    click: {image: img/file_menu.png, threshold: 0.90}  # 0.90 stays 0.90",
         "  - id: wait_dialog",
-        "    wait_image: {image: 'img/save dialog.png', timeout: 10s}",
+        "    wait_image_in: {image: 'img/save dialog.png', timeout: 10s}",
         "    on_error: stop",
     ]
     assert added == [
@@ -298,6 +299,7 @@ def test_insert_ids_skip_used_ones() -> None:
     ({"log": "x", "sleep": "1s"}, {}, "exactly one step type"),
     ({"id": "lonely"}, {}, "exactly one step type"),
     ({"frobnicate": {}}, {}, "unknown step type"),
+    ({next(iter(RENAMED_STEP_TYPES)): "a.png"}, {}, "did you mean 'wait_image_in'?"),
     ({"log": "x"}, {"after_step_id": "nope"}, "unknown step id"),
     ({"log": "x"}, {"parent_step_id": "nope", "block": "do"}, "unknown step id"),
     ({"log": "x"}, {"parent_step_id": "lp", "block": "then"}, "has no block 'then'"),

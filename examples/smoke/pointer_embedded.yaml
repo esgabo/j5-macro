@@ -23,7 +23,7 @@ steps:
   # The pattern is found on screen (image_search with a score near 1), and the result is
   # kept: pattern = {found, score, bbox, center, window, window_bbox}.
   - id: wait_pattern
-    wait_image: {image: "#pattern", window: {title: "${target}"}, timeout: 5s}
+    wait_image_in: {image: "#pattern", window: {title: "${target}"}, timeout: 5s}
     as: pattern
 
   # "pattern clicked at (x, y)" with x and y between 20 and 67: the human strategy

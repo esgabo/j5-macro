@@ -41,6 +41,7 @@ from j5_macro.steps.spec import (
     StepLookup,
     StepSpec,
     parse_duration,
+    unknown_step_type,
     validate_params,
 )
 
@@ -519,10 +520,9 @@ class _Loader:
         node.type = type_keys[0]
         spec = self.lookup(node.type)
         if spec is None:
-            node.problems.append(_Problem(
-                f"unknown step type {node.type!r}", code=ErrorCode.UNKNOWN_STEP_TYPE,
-                details={"type": node.type},
-            ))
+            message, details = unknown_step_type(node.type)
+            node.problems.append(_Problem(message, code=ErrorCode.UNKNOWN_STEP_TYPE,
+                                          details=details))
             return node
         raw_key = next(k for k in raw if str(k) == node.type)
         self.body(node, spec, raw[raw_key])

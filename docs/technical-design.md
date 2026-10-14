@@ -112,7 +112,7 @@ the script. Time spent paused is accumulated and subtracted from `duration_ms`.
 ### Pause at the next atomic action, stop immediately
 
 `pause` only sets a flag. The worker honours it at the next checkpoint or inside an
-interruptible wait (`sleep`, and the intervals between `wait_image` attempts). An input
+interruptible wait (`sleep`, and the intervals between the polls of the `wait_*` steps). An input
 action (a whole movement, a click, a `type` text, a key combination) is atomic for
 `pause`: the input masters wait through an `AbortSignal` whose `sleep` ignores pause
 requests. This guarantees that a pause never leaves the cursor half-way or a modifier
@@ -120,8 +120,10 @@ down.
 
 Waits are interruptible with remaining time: `RunControl.sleep(seconds)` returns the time
 left when a pause is requested, the machine pauses at the current step (reason `user`),
-and after the next command the wait continues with what was left. A `wait_image` timeout
-counts only unpaused time.
+and after the next command the wait continues with what was left. The timeout of a
+`wait_*` step counts only unpaused time: every wait polls through one loop
+(`BoundVision._poll`), which measures unpaused time with the clock and the machine's
+running total of paused seconds.
 
 `stop` records a reason and notifies the condition variable. It is raised as
 `RunStopped` on the worker at the next `check_stop`, inside any wait, while paused, or
@@ -154,10 +156,11 @@ emits neither `step_finished` nor `step_failed` for the interrupted one.
 In `dry` mode the run takes the same path through the interpreter, so variables, loops,
 branches, logs and sleeps behave as usual. Input executors check `ctx.dry_run` and return
 a description with `dry_run: true` instead of acting; as a safeguard the run's input
-refuses to create a session in a dry run. Image searches make exactly one attempt and
-report it, since without input the screen never changes and a wait would always fail.
-Searches that cannot be made (no vision, no window) become warnings, and image
-conditions are then false. A `while` loop is capped at 1000 iterations with a warning.
+refuses to create a session in a dry run. Image searches and window lookups make
+exactly one attempt and report it, since without input the screen never changes and a
+wait would always fail. They all go through one helper (`steps.images.dry_search`), so
+what a dry run does with a search lives in one place. Searches that cannot be made (no
+vision, no backend, no window) become warnings, and image conditions are then false. A `while` loop is capped at 1000 iterations with a warning.
 
 ## Expressions
 

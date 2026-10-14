@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from j5_macro.steps import basic, control, input_steps, programs
+from j5_macro.steps import basic, control, input_steps, programs, waits
 from j5_macro.steps.registry import ParamCheck, PluginReport, StepRegistry
 from j5_macro.steps.spec import StepType
 
@@ -13,7 +13,10 @@ BUILTINS: tuple[tuple[StepType, ParamCheck | None], ...] = (
     (input_steps.SCROLL, None),
     (input_steps.TYPE, input_steps.check_type),
     (input_steps.KEY, input_steps.check_key),
-    (input_steps.WAIT_IMAGE, input_steps.check_wait_image),
+    (waits.WAIT_IMAGE_IN, waits.check_image_wait),
+    (waits.WAIT_IMAGE_OUT, waits.check_image_wait),
+    (waits.WAIT_WINDOW_IN, waits.check_wait_window),
+    (waits.WAIT_WINDOW_OUT, waits.check_wait_window),
     (basic.SLEEP, None),
     (control.IF, None),
     (control.LOOP, control.check_loop),

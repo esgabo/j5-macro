@@ -53,10 +53,10 @@ def test_contract_example_validates():
     {"if": {"when": "x > 1", "then": [{"sleep": "1s"}], "else": []}},
     {"id": "a", "break": True, "timeout": "5s", "on_error": "retry",
      "input": {"mouse": {"strategy": "direct"}}, "key": "ctrl+s"},
-    {"wait_image": "img/a.png", "as": "label"},
+    {"wait_image_in": "img/a.png", "as": "label"},
     {"sleep": "1s", "as": {"name": "token", "secret": True}},
     {"click": {"at": "${label}", "offset": [0, 40]}},
-    {"wait_image": {"image": "a.png", "region": {"at": "${label}", "size": [100, 20]}}},
+    {"wait_image_in": {"image": "a.png", "region": {"at": "${label}", "size": [100, 20]}}},
     {"drag": {"from": {"at": "${label}"}, "to": {"x": 1, "y": 2}}},
 ])
 def test_valid_steps(step):

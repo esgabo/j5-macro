@@ -91,7 +91,10 @@ $ j5 run --json s.yaml < /dev/null | grep -E '"type":"(step_failed|run_finished)
 ```
 
 Error codes: `image_not_found` (`details.best_score`, `threshold`, `attempts`),
-`window_not_found` (`details.title`), `template_missing`, `expression_error`,
+`window_not_found` (`details.title`; `timeout` when the step waited for it),
+`still_visible` (a `wait_*_out` timed out: `details.image` or `title`, `timeout`),
+`unknown_step_type` (`details.suggestion` for a renamed step), `template_missing`,
+`expression_error`,
 `validation_failed`, `capability_missing` (no backend, no vision, `exec` not allowed,
 no tkinter), `exec_failed` (`details.reason`: `start`, `timeout`, `exit_code`),
 `input_denied` (Windows: an elevated target window).

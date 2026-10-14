@@ -153,14 +153,18 @@ def with_embedded(steps: str, monkeypatch: pytest.MonkeyPatch,
 
 class VisionRun:
     """A run with a fake toolkit (and a fake input session), on this thread with a
-    jumping clock, or on a worker thread with a scaled clock (``background``)."""
+    jumping clock, or on a worker thread with a scaled clock (``background``); or with
+    the given ``clock``."""
 
     def __init__(self, script: Script, toolkit: FakeToolkit, *, background: bool = False,
-                 scale: float = 1000.0, conditions: Any = None, **options: Any) -> None:
+                 scale: float = 1000.0, conditions: Any = None, clock: Any = None,
+                 **options: Any) -> None:
         self.toolkit = toolkit
         self.recorder = Recorder()
         self.factory = SessionFactory()
-        self.clock: Any = ScaledClock(scale) if background else JumpClock()
+        if clock is None:
+            clock = ScaledClock(scale) if background else JumpClock()
+        self.clock: Any = clock
         self.controller = create_run(script, REGISTRY, self.recorder, RunOptions(**options),
                                      clock=self.clock, session_factory=self.factory,
                                      vision_factory=toolkit, conditions=conditions)

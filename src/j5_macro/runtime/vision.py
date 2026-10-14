@@ -24,9 +24,12 @@ docs/contract.md, "Script format and step registry" (images, coordinates), "Even
   ratio (``Match.display_ratio``) for the offsets measured from them.
 - Every attempt emits ``image_search``. Captures go to ``<run_dir>/captures/`` following
   the run's ``captures`` policy, and events carry their path relative to ``run_dir``.
-- :meth:`BoundVision.wait` sleeps between attempts through the step's interruptible
-  wait: ``stop`` aborts it, ``pause`` suspends it and paused time does not count towards
-  the timeout.
+- The waits of :class:`BoundVision` (``wait``, ``wait_gone``, ``wait_window``,
+  ``wait_window_gone``) poll every 0.25 s and sleep between polls through the step's
+  interruptible wait: ``stop`` aborts it, ``pause`` suspends it and paused time does not
+  count towards the timeout. While an image wait polls, a missing ``window`` is "not
+  found yet"; it fails with ``window_not_found`` only when the window never appeared.
+  Window waits use the backend's ``list_windows`` (no vision needed) and emit no events.
 """
 
 from __future__ import annotations
@@ -35,9 +38,9 @@ import dataclasses
 import importlib
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeVar, cast
 
-from j5_macro.backends.base import Backend, Rect
+from j5_macro.backends.base import Backend, Rect, WindowInfo
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads.events import ImageSearchEvent
 from j5_macro.runtime.api import RunEventSink
@@ -62,6 +65,7 @@ TOOLKIT_MODULE = "j5_macro.vision.toolkit"
 """Provides ``create_toolkit``, the default :data:`ToolkitFactory`."""
 CAPTURES_DIR = "captures"
 CapturePolicy = Literal["on_failure", "all"]
+_T = TypeVar("_T")
 
 
 def default_toolkit_factory() -> ToolkitFactory:
@@ -195,22 +199,33 @@ class RunVision:
         self._embedded[name] = template
         return template
 
+    def windows_backend(self, what: str = "window-relative searches") -> Backend:
+        """The backend, when it can find windows; ``capability_missing`` otherwise."""
+        backend = self._backend
+        if backend is None:
+            why = f": {self._backend_reason}" if self._backend_reason else ""
+            raise StepError(ErrorCode.CAPABILITY_MISSING, f"{what} need a backend{why}")
+        if not backend.capabilities.windows:
+            raise StepError(ErrorCode.CAPABILITY_MISSING,
+                            f"the {backend.name} backend cannot find windows ({what})")
+        return backend
+
+    def find_window(self, title: Any) -> WindowInfo | None:
+        """The topmost visible window whose title contains ``title`` (its full title and
+        client area), or None."""
+        if not isinstance(title, str) or not title:
+            raise StepError(ErrorCode.VALIDATION_FAILED, "'title' must be a non-empty text",
+                            {"param": "title"})
+        backend = self.windows_backend("window waits")
+        return next((w for w in backend.list_windows() if title in w.title), None)
+
     def window_rect(self, window: Any) -> Rect:
         title = window.get("title") if isinstance(window, Mapping) else None
         if not isinstance(title, str) or not title:
             raise StepError(ErrorCode.VALIDATION_FAILED,
                             "'window' needs a non-empty 'title', e.g. {title: Notepad}",
                             {"param": "window"})
-        backend = self._backend
-        if backend is None:
-            why = f": {self._backend_reason}" if self._backend_reason else ""
-            raise StepError(ErrorCode.CAPABILITY_MISSING,
-                            f"window-relative searches need a backend{why}")
-        if not backend.capabilities.windows:
-            raise StepError(ErrorCode.CAPABILITY_MISSING,
-                            f"the {backend.name} backend cannot find windows "
-                            "(window-relative searches)")
-        rect = backend.find_window(title)
+        rect = self.windows_backend().find_window(title)
         if rect is None:
             raise StepError(ErrorCode.WINDOW_NOT_FOUND,
                             f"no visible window whose title contains {title!r}",
@@ -287,7 +302,7 @@ class BoundVision:
         """One attempt; not finding the image is not a failure (no capture under
         ``on_failure``)."""
         search = self._prepare(image, threshold, scale, region, window)
-        return self._attempt(search, 1, final_miss_fails=False)
+        return self._attempt(search, 1)
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
@@ -295,40 +310,138 @@ class BoundVision:
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
         ``timeout`` replaces it when set) seconds of unpaused time pass. Dry runs make
-        exactly one attempt and return its match, found or not."""
-        if self._step_timeout is not None:
-            timeout = self._step_timeout
-        search = self._prepare(image, threshold, scale, region, window)
+        exactly one attempt and return its match, found or not. While waiting (a timeout
+        above 0) a missing window is "not found yet"."""
+        timeout = self._timeout(timeout)
+        polls = _WindowPolls(tolerate=timeout > 0 and not self._run.dry_run)
+        search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
         if self._run.dry_run:
-            return self._attempt(search, 1, final_miss_fails=False)
+            return self._attempt(search, 1)
+
+        def attempt(number: int, final: _Final) -> Match | None:
+            match = polls.run(lambda: self._attempt(
+                search, number, failing=lambda m: not m.found and final()))
+            return match if match is not None and match.found else None
+
+        def timed_out(attempts: int) -> StepError:
+            missing = polls.never_seen(timeout)
+            if missing is not None:
+                return missing
+            match = polls.last
+            assert match is not None  # never_seen covers a wait without any search
+            return StepError(
+                ErrorCode.IMAGE_NOT_FOUND,
+                f"{image} not found after {attempts} attempt(s) in {timeout:g}s "
+                f"(best score {match.score:.3f}, threshold {threshold:g})",
+                {"best_score": round(match.score, 4), "threshold": threshold,
+                 "template": image, "attempts": attempts},
+                screenshot=search.failed_capture)
+
+        return self._poll(timeout, interval, attempt, timed_out)[0]
+
+    def wait_gone(self, image: str, *, timeout: float,
+                  threshold: float = DEFAULT_THRESHOLD, scale: float = DEFAULT_SCALE,
+                  region: list[int] | dict[str, Any] | None = None,
+                  window: dict[str, Any] | None = None,
+                  interval: float = DEFAULT_INTERVAL) -> float:
+        """Attempts every ``interval`` until the image is not found; returns the unpaused
+        seconds waited. A missing window is "not gone yet"."""
+        timeout = self._timeout(timeout)
+        polls = _WindowPolls(tolerate=timeout > 0)
+        search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
+
+        def attempt(number: int, final: _Final) -> Match | None:
+            match = polls.run(lambda: self._attempt(
+                search, number, failing=lambda m: m.found and final()))
+            return match if match is not None and not match.found else None
+
+        def timed_out(attempts: int) -> StepError:
+            missing = polls.never_seen(timeout)
+            if missing is not None:
+                return missing
+            match = polls.last
+            assert match is not None  # never_seen covers a wait without any search
+            return StepError(
+                ErrorCode.STILL_VISIBLE,
+                f"{image} still visible after {timeout:g}s (score {match.score:.3f})",
+                {"image": image, "score": round(match.score, 4), "timeout": timeout},
+                screenshot=search.failed_capture)
+
+        return self._poll(timeout, interval, attempt, timed_out)[1]
+
+    def find_window(self, title: str) -> WindowInfo | None:
+        return self._run.find_window(title)
+
+    def wait_window(self, title: str, *, timeout: float,
+                    interval: float = DEFAULT_INTERVAL) -> WindowInfo:
+        """Looks for the window every ``interval`` until it is there."""
+        timeout = self._timeout(timeout)
+
+        def attempt(number: int, final: _Final) -> WindowInfo | None:
+            return self._run.find_window(title)
+
+        def timed_out(attempts: int) -> StepError:
+            return StepError(ErrorCode.WINDOW_NOT_FOUND,
+                             f"no visible window whose title contains {title!r} "
+                             f"appeared in {timeout:g}s", {"title": title, "timeout": timeout})
+
+        return self._poll(timeout, interval, attempt, timed_out)[0]
+
+    def wait_window_gone(self, title: str, *, timeout: float,
+                         interval: float = DEFAULT_INTERVAL) -> float:
+        """Looks for the window every ``interval`` until none matches; returns the
+        unpaused seconds waited."""
+        timeout = self._timeout(timeout)
+        seen: list[WindowInfo] = []
+
+        def attempt(number: int, final: _Final) -> bool | None:
+            found = self._run.find_window(title)
+            if found is None:
+                return True
+            seen[:] = [found]
+            return None
+
+        def timed_out(attempts: int) -> StepError:
+            return StepError(ErrorCode.STILL_VISIBLE,
+                             f"window {seen[0].title!r} still visible after {timeout:g}s",
+                             {"title": title, "window": seen[0].title, "timeout": timeout})
+
+        return self._poll(timeout, interval, attempt, timed_out)[1]
+
+    # --- internals ------------------------------------------------------------------
+
+    def _timeout(self, timeout: float) -> float:
+        """The step's common ``timeout`` when set, else the wait's own."""
+        return timeout if self._step_timeout is None else self._step_timeout
+
+    def _poll(self, timeout: float, interval: float,
+              attempt: Callable[[int, _Final], _T | None],
+              timed_out: Callable[[int], StepError]) -> tuple[_T, float]:
+        """Calls ``attempt(number, final)`` at once and then every ``interval`` until it
+        returns a value, and returns it with the unpaused seconds waited. ``final()``
+        tells an attempt whether its time is up (decided once per attempt, so the
+        attempt that fails knows it and saves its capture); after such an attempt the
+        wait raises ``timed_out(attempts)``."""
         clock = self._run.clock
         started, paused_before = clock.now(), self._paused()
 
         def active() -> float:
             return clock.now() - started - (self._paused() - paused_before)
 
-        attempt = 0
+        number = 0
         while True:
             self._check_stop()
-            attempt += 1
-            match = self._attempt(search, attempt, final_miss_fails=True,
-                                  out_of_time=lambda: active() >= timeout)
-            if match.found:
-                return match
-            if search.failed:
-                raise StepError(
-                    ErrorCode.IMAGE_NOT_FOUND,
-                    f"{image} not found after {attempt} attempt(s) in {timeout:g}s "
-                    f"(best score {match.score:.3f}, threshold {threshold:g})",
-                    {"best_score": round(match.score, 4), "threshold": threshold,
-                     "template": image, "attempts": attempt},
-                    screenshot=search.failed_capture)
+            number += 1
+            final = _Final(lambda: active() >= timeout)
+            value = attempt(number, final)
+            if value is not None:
+                return value, active()
+            if final():
+                raise timed_out(number)
             self._wait(max(0.0, min(interval, timeout - active())))
 
-    # --- internals ------------------------------------------------------------------
-
     def _prepare(self, image: str, threshold: float, scale: float, region: Any,
-                 window: Any) -> _Search:
+                 window: Any, missing_window_ok: bool = False) -> _Search:
         if isinstance(threshold, bool) or not isinstance(threshold, int | float) \
                 or not 0 <= threshold <= 1:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'threshold' must be between 0 and 1",
@@ -337,14 +450,20 @@ class BoundVision:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'scale' must be a positive number",
                             {"param": "scale"})
         template = self._run.load_template(image)
-        # Fail early on a bad region or window.
-        self._run.search_area(region, self._run.window_frame(window))
+        # Fail early on a bad region or window (unless a wait polls for the window).
+        try:
+            self._run.search_area(region, self._run.window_frame(window))
+        except StepError as exc:
+            if not (missing_window_ok and exc.info.code == ErrorCode.WINDOW_NOT_FOUND):
+                raise
         return _Search(image=image, template=template, threshold=float(threshold),
                        scale=float(scale), region=region, window=window,
                        capture_scale=self._run.capture_scale(image))
 
-    def _attempt(self, search: _Search, attempt: int, *, final_miss_fails: bool,
-                 out_of_time: Callable[[], bool] | None = None) -> Match:
+    def _attempt(self, search: _Search, attempt: int, *,
+                 failing: Callable[[Match], bool] | None = None) -> Match:
+        """One search. ``failing(match)`` tells whether this attempt fails its wait, so
+        its capture is saved under the ``on_failure`` policy."""
         run = self._run
         toolkit = run.toolkit()
         clock = run.clock
@@ -367,14 +486,12 @@ class BoundVision:
         if frame is not None:
             match = dataclasses.replace(match, frame=frame)
         elapsed_ms = max(0, round((clock.now() - began) * 1000))
-        failing = (final_miss_fails and not match.found
-                   and (out_of_time is None or out_of_time()))
+        fails = failing is not None and failing(match)
         screenshot: str | None = None
-        if run.captures == "all" or failing:
+        if run.captures == "all" or fails:
             screenshot = run.save(capture, self._step_id, attempt, match.bbox, self._log)
-        if failing:
+        if fails:
             search.failed_capture = screenshot
-            search.failed = True
         if area is None:
             area = capture.rect
         run.emit_search(ImageSearchEvent(
@@ -389,10 +506,61 @@ class BoundVision:
         return match
 
 
-class _Search:
-    """One find or wait: its resolved inputs and how its last attempt ended."""
+class _Final:
+    """Whether a poll is its wait's last one (its time is up), decided once per poll."""
 
-    __slots__ = ("capture_scale", "failed", "failed_capture", "image", "region", "scale",
+    __slots__ = ("_check", "_value")
+
+    def __init__(self, check: Callable[[], bool]) -> None:
+        self._check = check
+        self._value: bool | None = None
+
+    def __call__(self) -> bool:
+        if self._value is None:
+            self._value = self._check()
+        return self._value
+
+
+class _WindowPolls:
+    """The searches of an image wait whose window may be missing on some polls."""
+
+    __slots__ = ("last", "missing", "tolerate")
+
+    def __init__(self, *, tolerate: bool) -> None:
+        self.tolerate = tolerate
+        """Whether a missing window is "not found yet" (a wait with a timeout)."""
+        self.last: Match | None = None
+        """The match of the last poll that searched."""
+        self.missing: StepError | None = None
+        """The last ``window_not_found`` of a poll."""
+
+    def run(self, search: Callable[[], Match]) -> Match | None:
+        """The match of one poll, or None when its window is missing."""
+        try:
+            match = search()
+        except StepError as exc:
+            if not self.tolerate or exc.info.code != ErrorCode.WINDOW_NOT_FOUND:
+                raise
+            self.missing = exc
+            return None
+        self.last = match
+        return match
+
+    def never_seen(self, timeout: float) -> StepError | None:
+        """``window_not_found`` with ``details.timeout`` when no poll found the window,
+        else None."""
+        if self.last is not None or self.missing is None:
+            return None
+        info = self.missing.info
+        return StepError(ErrorCode.WINDOW_NOT_FOUND,
+                         f"{info.message} (waited {timeout:g}s)",
+                         {**(info.details or {}), "timeout": timeout})
+
+
+class _Search:
+    """One find or wait: its resolved inputs and the capture of its failing attempt."""
+
+    __slots__ = ("capture_scale", "failed_capture", "image", "region", "scale",
                  "template", "threshold", "window")
 
     def __init__(self, *, image: str, template: Template, threshold: float, scale: float,
@@ -404,5 +572,4 @@ class _Search:
         self.scale = scale
         self.region = region
         self.window = window
-        self.failed = False
         self.failed_capture: str | None = None

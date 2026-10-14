@@ -274,7 +274,7 @@ j5 pack [-h] [-o FILE] script
 Embeds every image file the script references into its `images` section (see [Embedded
 images](scripts.md#embedded-images)), so it can be shared as a single file. Each image
 parameter written as a path (`img/save button.png`, in `click`, `move`, `drag`,
-`wait_image` or `image_visible`) becomes a reference to the embedded copy
+`wait_image_in` or `image_visible`) becomes a reference to the embedded copy
 (`"#save_button"`):
 
 - names come from the file stems, made valid (`save button` gives `save_button`) and
@@ -476,7 +476,7 @@ saved run r-20261012-214849-bba4
   captures  1 file in /home/me/.local/state/j5-macro/runs/r-20261012-214849-bba4
     captures/0001-find_button-4.png
 run r-20261012-214849-bba4  Search  (mode normal, seed 1659557458, backend x11)
-  0.001s  ▶ find_button  wait_image  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
+  0.001s  ▶ find_button  wait_image_in  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
   1.275s  ✗ find_button  [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)
   1.275s    screenshot: captures/0001-find_button-4.png
 ✗ failed after 1.275s  (seed 1659557458): [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)

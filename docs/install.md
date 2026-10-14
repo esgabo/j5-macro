@@ -17,7 +17,7 @@ Extras:
 | Extra | Installs | For |
 | --- | --- | --- |
 | `x11` | `python-xlib`, `mss` | Mouse and keyboard input on X11 |
-| `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image`, image targets, `image_visible`, and the authoring tools (`j5 capture`, `pick`, `find`, `screenshot`) |
+| `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image_in`, image targets, `image_visible`, and the authoring tools (`j5 capture`, `pick`, `find`, `screenshot`) |
 | `windows` | `mss` | Screen capture on Windows (the input backend itself needs nothing beyond Python) |
 | `dev` | `pytest`, `ruff`, `mypy`, ... | Working on j5 itself ([development.md](development.md)) |
 

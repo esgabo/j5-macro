@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from j5_macro.backends.base import Rect, WindowInfo
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.steps import StepError, validate_params
 from j5_macro.steps.builtins import default_registry
@@ -20,7 +21,11 @@ EXAMPLES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "scroll": ({}, {"dy": 1.5}),
     "type": ({"text": "hello"}, {}),
     "key": ({"press": "ctrl+s"}, {"press": "ctrl+s", "hold": "forever"}),
-    "wait_image": ({"image": "img/a.png"}, {"image": "img/a.png", "timeout": "soon"}),
+    "wait_image_in": ({"image": "img/a.png"}, {"image": "img/a.png", "timeout": "soon"}),
+    "wait_image_out": ({"image": "#spinner", "timeout": "30s"}, {"image": "img/a.png",
+                                                               "threshold": "high"}),
+    "wait_window_in": ({"title": "Mousepad"}, {"title": "Mousepad", "active": True}),
+    "wait_window_out": ({"title": "Save as", "timeout": "5s"}, {}),
     "sleep": ({"duration": "2s±20%"}, {"duration": "2"}),
     "if": ({"when": "x > 1"}, {"when": {"a": 1, "b": 2}}),
     "loop": ({"times": 3}, {"times": 3, "until": "x"}),
@@ -58,7 +63,7 @@ def test_defaults():
                                                    "scale": 1.0}
     assert defaults("move", {"x": 1, "y": 2}) == {"x": 1, "y": 2, "threshold": 0.9,
                                                   "scale": 1.0}
-    assert defaults("wait_image", {"image": "a.png"}) == {"image": "a.png", "timeout": "10s",
+    assert defaults("wait_image_in", {"image": "a.png"}) == {"image": "a.png", "timeout": "10s",
                                                           "threshold": 0.9, "scale": 1.0}
     assert defaults("scroll", {}) == {"dx": 0, "dy": 0}
     assert defaults("log", {"message": "m"}) == {"message": "m", "level": "info"}
@@ -70,7 +75,9 @@ def test_defaults():
 def test_shorthands_and_blocks():
     shorthand = {n: REGISTRY.spec(n).shorthand for n in REGISTRY.names()}  # type: ignore[union-attr]
     assert shorthand == {"click": None, "move": None, "drag": None, "scroll": None,
-                         "type": "text", "key": "press", "wait_image": "image",
+                         "type": "text", "key": "press", "wait_image_in": "image",
+                         "wait_image_out": "image", "wait_window_in": "title",
+                         "wait_window_out": "title",
                          "sleep": "duration", "if": None, "loop": None, "set": None,
                          "log": "message", "pause": "message", "exec": "command"}
     if_spec, loop_spec = REGISTRY.spec("if"), REGISTRY.spec("loop")
@@ -103,7 +110,7 @@ def _problems(name, params):
     ("move", {"y": 3}, "x"),
     ("drag", {"from": {"x": 1}, "to": {"x": 1, "y": 1}}, "from.y"),
     ("drag", {"from": {"x": 1, "y": 1}, "to": {}}, "to"),
-    ("wait_image", {"image": "a.png", "region": [0, 0, 10]}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": [0, 0, 10]}, "region"),
     ("click", {"at": "${a}", "image": "a.png"}, "image"),
     ("click", {"at": "${a}", "x": 1, "y": 2}, "at"),
     ("click", {"at": "${a}", "window": {"title": "Notes"}}, "window"),
@@ -119,11 +126,11 @@ def _problems(name, params):
      "from.window"),
     ("drag", {"from": {"at": "${a}", "offset": [1]}, "to": {"x": 1, "y": 1}},
      "from.offset"),
-    ("wait_image", {"image": "a.png", "region": {"offset": [0, 40]}}, "region"),
-    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "near": 1}}, "region"),
-    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": [1]}}, "region"),
-    ("wait_image", {"image": "a.png", "region": {"at": {"found": True}}}, "region"),
-    ("wait_image", {"image": "a.png", "region": "left"}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": {"offset": [0, 40]}}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${a}", "near": 1}}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${a}", "size": [1]}}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": {"at": {"found": True}}}, "region"),
+    ("wait_image_in", {"image": "a.png", "region": "left"}, "region"),
     # Offsets in units of the target's size need a target with a size.
     ("click", {"x": 1, "y": 2, "offset": ["1w", 0]}, "offset"),
     ("move", {"x": 1, "y": 2, "offset": [0, "-0.5h"]}, "offset"),
@@ -134,11 +141,11 @@ def _problems(name, params):
     ("click", {"image": "a.png", "offset": ["w", 0]}, "offset"),
     ("click", {"at": "${a}", "offset": [True, 0]}, "offset"),
     ("click", {"image": "a.png", "offset": "1w"}, "offset"),
-    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": ["0w", 10]}},
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${a}", "size": ["0w", 10]}},
      "region"),
-    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": [-5, 10]}},
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${a}", "size": [-5, 10]}},
      "region"),
-    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "offset": ["1q", 0]}},
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${a}", "offset": ["1q", 0]}},
      "region"),
     ("key", {"press": "ctrl+"}, "press"),
     ("type", {"text": "a\x07b"}, "text"),
@@ -168,17 +175,17 @@ def test_cross_field_problems(name, params, param):
     ("move", {"at": "${label}", "offset": [3, 4]}),
     ("drag", {"from": {"at": "${label}", "offset": [0, 5]},
               "to": {"image": "a.png", "offset": [1, 1]}}),
-    ("wait_image", {"image": "a.png", "region": {"at": "${label}"}}),
-    ("wait_image", {"image": "a.png", "region": {"at": "${label}", "offset": [0, 40],
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${label}"}}),
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${label}", "offset": [0, 40],
                                                  "size": [200, 30]}}),
-    ("wait_image", {"image": "a.png", "region": "${r}"}),
+    ("wait_image_in", {"image": "a.png", "region": "${r}"}),
     ("click", {"image": "a.png", "offset": ["0.5w", "-2h"]}),
     ("click", {"at": "${label}", "offset": ["1.5h", ".25w"]}),
     ("click", {"at": "${label}", "offset": ["+1w", 0.5]}),
     ("click", {"x": 1, "y": 2, "offset": ["${dx}", 3]}),  # checked when interpolated
     ("drag", {"from": {"image": "a.png", "offset": ["-1w", 0]},
               "to": {"at": "${label}", "offset": [0, "1h"]}}),
-    ("wait_image", {"image": "a.png", "region": {"at": "${label}", "offset": [0, "1h"],
+    ("wait_image_in", {"image": "a.png", "region": {"at": "${label}", "offset": [0, "1h"],
                                                  "size": ["3w", "1h"]}}),
     ("click", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1.0}),
     ("move", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1}),
@@ -200,6 +207,7 @@ class FakeContext:
     def __init__(self, *, dry_run: bool = False, seed: int = 1) -> None:
         self.step_id = "s1"
         self.dry_run = dry_run
+        self.timeout: float | None = None
         self.rng = random.Random(seed)
         self.variables: dict[str, Any] = {"a": 2}
         self.calls: list[tuple[str, Any]] = []
@@ -313,7 +321,8 @@ def test_input_placeholders_in_dry_run(name, params, text):
 @pytest.mark.parametrize(("name", "params"), [
     ("click", {"image": "img/ok.png", "button": "left", "clicks": 1}),
     ("drag", {"from": {"image": "a.png"}, "to": {"x": 1, "y": 1}}),
-    ("wait_image", {"image": "img/ok.png", "timeout": "10s"}),
+    ("wait_image_in", {"image": "img/ok.png", "timeout": "10s"}),
+    ("wait_image_out", {"image": "img/ok.png", "timeout": "10s"}),
 ])
 def test_image_targets_warn_when_vision_is_missing_in_dry_run(name, params):
     ctx = FakeContext(dry_run=True)
@@ -329,7 +338,7 @@ def test_image_targets_warn_when_vision_is_missing_in_dry_run(name, params):
     ("click", {"x": 1, "y": 2}, "input backend"),
     ("type", {"text": "x"}, "input backend"),
     ("click", {"image": "a.png"}, "input backend"),
-    ("wait_image", {"image": "a.png"}, "vision is not available"),
+    ("wait_image_in", {"image": "a.png"}, "vision is not available"),
 ])
 def test_input_steps_fail_without_input_outside_dry_run(name, params, milestone):
     ctx = FakeContext()
@@ -354,7 +363,20 @@ class RecordingVision:
         return Match(found=False, score=0.0, bbox=None)
 
     def wait(self, image: str, *, timeout: float, **options: Any) -> Match:
-        return self.find(image, timeout=timeout, **options)
+        self.find(image, timeout=timeout, **options)
+        return Match(found=True, score=1.0, bbox=Rect(0, 0, 1, 1))
+
+    def wait_gone(self, image: str, *, timeout: float, **options: Any) -> float:
+        self.find(image, timeout=timeout, **options)
+        return 0.0
+
+    def wait_window(self, title: str, *, timeout: float) -> WindowInfo:
+        self.searches.append({"title": title, "timeout": timeout})
+        return WindowInfo(title, Rect(0, 0, 1, 1))
+
+    def wait_window_gone(self, title: str, *, timeout: float) -> float:
+        self.searches.append({"title": title, "timeout": timeout})
+        return 0.0
 
 
 class VisionContext(FakeContext):
@@ -394,7 +416,7 @@ def _options(search: dict[str, Any]) -> dict[str, Any]:
 
 
 def test_image_steps_are_the_expected_ones():
-    assert IMAGE_STEPS == ["click", "move", "wait_image"]
+    assert IMAGE_STEPS == ["click", "move", "wait_image_in", "wait_image_out"]
 
 
 @pytest.mark.parametrize("name", IMAGE_STEPS)
@@ -407,7 +429,7 @@ def test_image_param_defaults_are_declared_and_used(name):
     # uses the declared values.
     for params in ({"image": "a.png"}, _defaulted(name, {"image": "a.png"})):
         assert [_options(s) for s in _searches(name, params)] == [declared]
-        if name == "wait_image":  # outside dry runs too
+        if name.startswith("wait_"):  # outside dry runs too
             searches = _searches(name, params, dry_run=False)
             assert [_options(s) for s in searches] == [declared]
 
@@ -420,14 +442,19 @@ def test_nested_and_condition_image_targets_use_the_same_defaults():
     assert [_options(s) for s in ctx.recorder.searches] == [IMAGE_DEFAULTS]
 
 
-def test_wait_image_timeout_default_is_the_one_used():
-    spec = REGISTRY.spec("wait_image")
+@pytest.mark.parametrize(("name", "params"), [
+    ("wait_image_in", {"image": "a.png"}),
+    ("wait_image_out", {"image": "a.png"}),
+    ("wait_window_in", {"title": "Notes"}),
+    ("wait_window_out", {"title": "Notes"}),
+])
+def test_wait_timeout_default_is_the_one_used(name, params):
+    spec = REGISTRY.spec(name)
     assert spec is not None
     seconds = parse_duration(spec.param("timeout").default).seconds  # type: ignore[union-attr]
-    for params in ({"image": "a.png"}, _defaulted("wait_image", {"image": "a.png"})):
-        for dry_run in (True, False):
-            searches = _searches("wait_image", params, dry_run=dry_run)
-            assert [s["timeout"] for s in searches] == [seconds]
+    for written in (params, _defaulted(name, params)):
+        searches = _searches(name, written, dry_run=False)
+        assert [s["timeout"] for s in searches] == [seconds]
 
 
 @pytest.mark.parametrize(("name", "params"), [
@@ -452,7 +479,10 @@ def test_filling_in_defaults_does_not_change_what_a_step_does(name, params):
     ("drag", "button", "left"),
     ("scroll", "dx", 0),
     ("scroll", "dy", 0),
-    ("wait_image", "timeout", "10s"),
+    ("wait_image_in", "timeout", "10s"),
+    ("wait_image_out", "timeout", "10s"),
+    ("wait_window_in", "timeout", "10s"),
+    ("wait_window_out", "timeout", "10s"),
     ("log", "level", "info"),
     ("loop", "as", "item"),
 ])
