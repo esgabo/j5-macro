@@ -19,6 +19,30 @@ from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit
 from j5_macro.gui.models.debugger import PauseInfo
 from j5_macro.gui.views.step_tree import GUTTER
 
+HANG_DUMP = """\
+import faulthandler, os
+_dump = open(os.environ["J5_TEST_HANG_DUMP"], "w")
+faulthandler.dump_traceback_later(float(os.environ["J5_TEST_HANG_AFTER"]), file=_dump)
+"""
+
+
+@pytest.fixture
+def engine_env(engine_env: dict[str, str], tmp_path: Path) -> dict[str, str]:
+    """The engine of these tests dumps its threads' stacks if it is still alive after
+    40 s, so a run that hangs on one platform shows where."""
+    site = tmp_path / "hang_site"
+    site.mkdir()
+    (site / "sitecustomize.py").write_text(HANG_DUMP, encoding="utf-8")
+    path = engine_env.get("PYTHONPATH")
+    return {**engine_env, "PYTHONPATH": os.pathsep.join(filter(None, [str(site), path])),
+            "J5_TEST_HANG_DUMP": str(tmp_path / "engine_stacks.txt"),
+            "J5_TEST_HANG_AFTER": "40"}
+
+
+def engine_stacks(engine_env: dict[str, str]) -> str:
+    path = Path(engine_env["J5_TEST_HANG_DUMP"])
+    return path.read_text(encoding="utf-8") if path.exists() else "(no stack dump)"
+
 SECRET = "hunter2-very-secret"
 
 PARAMS = """\
@@ -207,7 +231,8 @@ def test_confirmation_before_real_input(qtbot: Any, window: Any, scripts: Path,
 
 
 def test_strict_dry_run_fails_where_the_real_run_would(qtbot: Any, window: Any,
-                                                       scripts: Path) -> None:
+                                                       scripts: Path,
+                                                       engine_env: dict[str, str]) -> None:
     from PySide6.QtGui import QColor, QImage
 
     image = QImage(8, 8, QImage.Format.Format_RGB32)
@@ -220,7 +245,8 @@ def test_strict_dry_run_fails_where_the_real_run_would(qtbot: Any, window: Any,
     with qtbot.waitSignal(window.ctx.run.run_finished, timeout=4 * WAIT,
                           raising=False) as finished:
         panel.start("dry")
-    assert finished.signal_triggered, "\n".join(panel.log_lines())
+    assert finished.signal_triggered, (
+        "\n".join(panel.log_lines()) + "\n--- engine stacks ---\n" + engine_stacks(engine_env))
     # Not found, or the screen cannot be searched here: a plain dry run completes.
     assert finished.args[0]["status"] == "completed"
     warnings = finished.args[0]["warnings"]
