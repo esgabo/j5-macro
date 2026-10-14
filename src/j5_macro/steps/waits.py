@@ -113,17 +113,18 @@ def _dry_window(ctx: StepContext, params: Mapping[str, Any], *,
     """One look for the window. ``window`` is the matching window's full title or,
     when none matched or the lookup could not be made, the ``title`` asked for, so later
     steps that use it (``window: {title: "${editor.window}"}``) still check. A strict
-    dry run fails when the window is not there (``present``) or still there."""
+    dry run fails when the window is not there (``present``) or still there, and warns
+    once it is relaxed."""
     title = params["title"]
 
-    def unmet(looked: list[WindowInfo | None]) -> StepError | None:
+    def unmet(looked: list[WindowInfo | None], when: str) -> StepError | None:
         window = looked[0]
         if (window is not None) == present:
             return None
         if window is None:
-            return window_missing(title, " in a strict dry run")
+            return window_missing(title, when)
         return StepError(ErrorCode.STILL_VISIBLE,
-                         f"window {window.title!r} still visible in a strict dry run",
+                         f"window {window.title!r} still visible{when}",
                          {"title": title, "window": window.title})
 
     looked = dry_search(ctx, f"window {title!r}",

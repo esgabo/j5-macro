@@ -10,8 +10,9 @@
 #
 #   j5 run --dry-run --strict --allow-exec open_editor.yaml
 #
-# Since nothing starts the editor in a dry run, the strict one only passes with a
-# Mousepad window already open (else wait_window fails with window_not_found).
+# The first step starts the editor, so the strict dry run cannot expect its window:
+# without a Mousepad window open, wait_window and wait_editor are warnings ("may depend
+# on a program started earlier"), not failures, and the run passes.
 #
 # The editor is Mousepad (Xfce's); for another one change the command of `open_editor`
 # and recapture #menu_bar from its window.

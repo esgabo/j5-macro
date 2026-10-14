@@ -37,6 +37,11 @@ ParamType = Literal[
 predefined condition (``{image_visible: img/x.png}``)."""
 
 StepKind = Literal["action", "control"]
+StepEffect = Literal["input", "program"]
+"""What a step does to the desktop beyond looking at it: ``input`` sends mouse or
+keyboard input, ``program`` starts a program. A strict dry run stops requiring checks of
+the screen to be satisfied once such a step has run (docs/contract.md, "Strict dry
+runs")."""
 LogLevel = Literal["debug", "info", "warning", "error"]
 
 _INTERPOLATION = "${"
@@ -77,6 +82,9 @@ class StepSpec:
     required_blocks: tuple[str, ...] = ()
     result: tuple[ResultField, ...] = ()
     """The fields of the step's result; empty when the step type does not declare them."""
+    effect: StepEffect | None = None
+    """Set for step types that change what is on screen (send input, start a program);
+    None for those that only look at it or do not touch the desktop."""
 
     def param(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -265,6 +273,15 @@ class StepContext(Protocol):
     def strict(self) -> bool:
         """True in a strict dry run (``run``'s ``strict``): where a dry run would only
         warn that the real run fails, the step fails instead."""
+        ...
+
+    @property
+    def relaxed_by(self) -> str | None:
+        """In a strict dry run, once a step that sends input or starts a program has
+        run: what it was, such as ``input sent earlier (step 'save')``. Checks of the
+        screen (an image or a window that is not there, or still there) are then only
+        warnings, since they may depend on it; searches that cannot be made still fail.
+        None before such a step and outside strict dry runs."""
         ...
 
     @property

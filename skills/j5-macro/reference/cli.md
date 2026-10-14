@@ -46,7 +46,7 @@ j5 run [--dry-run [--strict] | --step] [--break STEP_ID] [--json] [--fast] [--se
 | Option | Use |
 | --- | --- |
 | `--dry-run` | No input; each image search once; `exec` starts nothing. Always first, with `--strict` |
-| `--strict` | With `--dry-run`: an image not found, a missing window, no vision or `exec` without `--allow-exec` fails the run (exit 1) instead of a warning. Use it in every check |
+| `--strict` | With `--dry-run`: an image not found or a missing window before the first input or `exec` step, and anywhere no vision or `exec` without `--allow-exec`, fails the run (exit 1). After the first input or `exec` step, unmet checks are warnings that say why (they may depend on input a dry run never sends). Use it in every check |
 | `--json` | One event per line on stdout |
 | `--fast` | Instant mouse and keyboard (no human-like movement) |
 | `--seed N` | Repeat the same human-like input |

@@ -226,6 +226,7 @@ def _wait_for(ctx: StepContext, command: processes.Command, *, shell: bool, cwd:
 
 EXEC = StepType(StepSpec(
     name="exec",
+    effect="program",
     doc="Run a program: start it and go on, or wait for it and get its output. Needs the "
         "run's allow_exec (j5 run --allow-exec).",
     shorthand="command",

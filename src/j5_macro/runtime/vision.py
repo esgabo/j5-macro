@@ -48,7 +48,7 @@ from j5_macro.runtime.clock import Clock
 from j5_macro.runtime.display import DisplayScale
 from j5_macro.script.images import reference_name
 from j5_macro.script.model import EmbeddedImage
-from j5_macro.steps.images import strict_not_found
+from j5_macro.steps.images import relaxed_warning, strict_not_found
 from j5_macro.steps.positions import anchored_region
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
@@ -91,13 +91,11 @@ class RunVision:
                  backend_reason: str | None, dry_run: bool, captures: CapturePolicy,
                  run_dir: Path | None, script_path: str | None, emit: RunEventSink,
                  clock: Clock, images: Mapping[str, EmbeddedImage] | None = None,
-                 display: DisplayScale | None = None, strict: bool = False) -> None:
+                 display: DisplayScale | None = None) -> None:
         self._factory = factory
         self._backend = backend
         self._backend_reason = backend_reason
         self.dry_run = dry_run
-        self.strict = strict
-        """A strict dry run: the single search of a wait fails when it misses."""
         self.captures = captures
         self.run_dir = run_dir
         self._script_dir = Path(script_path).parent if script_path else None
@@ -290,8 +288,14 @@ class BoundVision:
 
     def __init__(self, run: RunVision, *, step_id: str, step_timeout: float | None,
                  wait: Callable[[float], None], check_stop: Callable[[], None],
-                 log: Callable[[LogLevel, str], None], paused: Callable[[], float]) -> None:
+                 log: Callable[[LogLevel, str], None], paused: Callable[[], float],
+                 strict: bool = False, relaxed_by: str | None = None) -> None:
         self._run = run
+        self._strict = strict
+        """A strict dry run: the single search of a wait fails when it misses, unless
+        ``relaxed_by`` (see :attr:`~j5_macro.steps.spec.StepContext.relaxed_by`) says
+        that it may depend on an earlier step; then it is a warning."""
+        self._relaxed_by = relaxed_by
         self._step_id = step_id
         self._step_timeout = step_timeout
         self._wait = wait
@@ -315,17 +319,21 @@ class BoundVision:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
         ``timeout`` replaces it when set) seconds of unpaused time pass. Dry runs make
         exactly one attempt and return its match, found or not; strict dry runs fail
-        with ``image_not_found`` when it misses. While waiting (a timeout above 0) a
-        missing window is "not found yet"."""
+        with ``image_not_found`` when it misses (a warning once relaxed, see
+        :attr:`~j5_macro.steps.spec.StepContext.relaxed_by`). While waiting (a timeout
+        above 0) a missing window is "not found yet"."""
         timeout = self._timeout(timeout)
         polls = _WindowPolls(tolerate=timeout > 0 and not self._run.dry_run)
         search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
         if self._run.dry_run:
-            strict = self._run.strict
+            strict = self._strict and self._relaxed_by is None
             match = self._attempt(search, 1, failing=(lambda m: not m.found) if strict
                                   else None)
             if strict and not match.found:
                 raise strict_not_found(image, match, threshold)
+            if self._strict and self._relaxed_by is not None and not match.found:
+                self._log("warning", relaxed_warning(
+                    strict_not_found(image, match, threshold, when=""), self._relaxed_by))
             return match
 
         def attempt(number: int, final: _Final) -> Match | None:

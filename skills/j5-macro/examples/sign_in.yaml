@@ -7,6 +7,12 @@
 # form" --embed sign_in.yaml --name email_label -f, and so on) and check each one with
 # j5 find '#email_label' --script sign_in.yaml --window "j5 practice form".
 #
+# Check it first with the form open (no input is sent; the form must show its e-mail
+# label, while #saved, which only appears after the submit, is just a warning):
+#
+#   FORM_PASSWORD=... j5 run --dry-run --strict sign_in.yaml \
+#       --param email=ana@example.com --param-env password=FORM_PASSWORD < /dev/null
+#
 # Run it with the password from the environment, never on the command line:
 #
 #   FORM_PASSWORD=... j5 run sign_in.yaml --param email=ana@example.com \

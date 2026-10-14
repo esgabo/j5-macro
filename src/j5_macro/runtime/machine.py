@@ -71,6 +71,10 @@ class Machine:
         self._dry_run = options.mode == "dry"
         self._allow_exec = options.allow_exec
         self._strict = self._dry_run and options.strict
+        self._relaxed_by: str | None = None
+        """In a strict dry run, once a step that sends input or starts a program has
+        run: what it was (``StepContext.relaxed_by``). It stays set for the rest of the
+        run, loops included."""
         self._script_dir = Path(script.source_path).parent if script.source_path else None
         self._conditions = conditions
         self._add_secrets = options.add_secrets
@@ -112,7 +116,8 @@ class Machine:
     def step_vision(self, context: RunContext) -> StepVision:
         return BoundVision(self._vision, step_id=context.step_id, step_timeout=context.timeout,
                            wait=context.wait, check_stop=context.check_stop, log=context.log,
-                           paused=lambda: self._paused)
+                           paused=lambda: self._paused, strict=context.strict,
+                           relaxed_by=context.relaxed_by)
 
     def display_ratio(self, point: tuple[int, int]) -> float:
         return self._vision.display.ratio_at(point)
@@ -269,6 +274,7 @@ class Machine:
             params = self._resolve_and_start(step, its, step_type.spec)
             ctx = self._context(step, its, number, depth)
             result = step_type.executor(ctx, params)
+            self._relax(step, step_type.spec)
             self._step_finished(step, its, self._elapsed_ms(started, paused), result)
             return ctx
 
@@ -276,6 +282,23 @@ class Machine:
         self._stack[-1].index += 1
         if ctx is not None and ctx.pause_requested:
             self._pause("breakpoint", depth)
+
+    def _relax(self, step: Step, spec: StepSpec) -> None:
+        """In a strict dry run, after the first step that would send input or start a
+        program: later checks of the screen may depend on what it would have done, so
+        from now on they only warn (docs/contract.md, "Strict dry runs")."""
+        if not self._strict or self._relaxed_by is not None or spec.effect is None:
+            return
+        if spec.effect == "input":
+            self._relaxed_by = f"input sent earlier (step '{step.id}')"
+            what = "the input this step would send"
+        else:
+            self._relaxed_by = f"a program started earlier (step '{step.id}')"
+            what = "the program this step would start"
+        self._events.log("info", f"strict checks relaxed after step '{step.id}': later "
+                         f"checks of the screen may depend on {what}, so an image or "
+                         "window that is not there (or still there) is a warning from "
+                         "here on, not a failure", step.id)
 
     def _step_finished(self, step: Step, its: Iterations, duration_ms: int,
                        result: dict[str, Any] | None) -> None:
@@ -308,7 +331,8 @@ class Machine:
         return RunContext(self, step_id=step.id, iterations=its, attempt=attempt, depth=depth,
                           dry_run=self._dry_run, seed=self._seed, input_overrides=step.input,
                           timeout=step.timeout, script_dir=self._script_dir,
-                          allow_exec=self._allow_exec, strict=self._strict)
+                          allow_exec=self._allow_exec, strict=self._strict,
+                          relaxed_by=self._relaxed_by)
 
     def _elapsed_ms(self, started: float, paused_before: float) -> int:
         active = self._clock.now() - started - (self._paused - paused_before)

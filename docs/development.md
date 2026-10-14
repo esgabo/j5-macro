@@ -137,7 +137,11 @@ examples (`sleep`, `set`, `log`, `pause`).
    `ctx.vision`, `ctx.dry_run`, `ctx.check_stop()` (for long work that polls, such as
    `exec` waiting for a program), `ctx.timeout` (the common field), `ctx.script_dir`,
    `ctx.allow_exec` and `ctx.strict` (a strict dry run: raise where a dry run would only
-   warn that the real run fails). Raise `StepError(code, message)` to fail.
+   warn that the real run fails; for a check of the screen, only while `ctx.relaxed_by` is
+   None, and warn with it once set). Raise `StepError(code, message)` to fail.
+   A step that sends input or starts a program sets the spec's `effect` (`"input"` or
+   `"program"`): strict dry runs treat it as an action, after which checks of the
+   screen only warn.
 4. **Cross-parameter checks** (optional): a function returning `ParamProblem`s, such as
    "exactly one of `value` and `expr`".
 5. **Register** the `StepType(spec, executor)` with its check in `BUILTINS`
@@ -167,7 +171,10 @@ built-in's (steps 2 to 4 above). In addition, a plugin step must:
 - use only the parameter types of `ParamType` (`j5_macro.steps.spec`), with a
   `shorthand` that names one of its parameters,
 - respect dry runs: an executor that sends input checks `ctx.dry_run` and, when it is set,
-  returns a description instead (see `j5_macro.steps.input_steps`).
+  returns a description instead (see `j5_macro.steps.input_steps`),
+- declare `effect="input"` in its `StepSpec` if it sends mouse or keyboard input, or
+  `effect="program"` if it starts a program, so that strict dry runs stop requiring later
+  checks of the screen after it (any other value is refused).
 
 A plugin that cannot be imported, is not callable, raises while registering, or breaks
 these rules is skipped as a whole (none of its steps stay registered), and the engine

@@ -280,7 +280,9 @@ the `image_search` events (`j5 run --json`).
 
 In a dry run (`--dry-run`) each search runs once and the run moves on, found or not, and
 nothing is clicked. With `--dry-run --strict` a search that does not find its image fails
-the step, as the real run would, and its capture is saved.
+the step, as the real run would, and its capture is saved; once a step that sends input
+or starts a program has run, it is a warning instead, since the image may only appear in
+response to that input.
 
 ## Safety
 
@@ -419,4 +421,4 @@ A **dry run** (`j5 run --dry-run`) sends no input at all: input steps describe w
 would do (`would click left at (120, 40)`), image searches run once, and variables, loops,
 branches, logs and sleeps run as usual. Its summary line counts the warnings (`✓ dry run
 completed in 0.412s with 3 warnings`); `--strict` turns the ones that mean the real run
-would fail into step failures.
+would fail into step failures, checking the screen as it is before the first input.

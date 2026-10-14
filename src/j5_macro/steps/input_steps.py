@@ -107,15 +107,15 @@ def input_step(describe: Describe, perform: Perform) -> Executor:
 
 def _dry_window(ctx: StepContext, target: Mapping[str, Any]) -> None:
     """The window of an ``x``/``y`` target, looked up once in a dry run: a warning when
-    it is missing, ``window_not_found`` in a strict dry run (see
+    it is missing, ``window_not_found`` in a strict dry run until it is relaxed (see
     :func:`~j5_macro.steps.images.dry_search`)."""
     title = window_title(target)
     if title is None:
         return
     looked = dry_search(ctx, f"window {title!r}", lambda: [ctx.vision.find_window(title)],
-                        lambda found: None if found[0] is not None
-                        else window_missing(title, " in a strict dry run"))
-    if looked is not None and looked[0] is None:
+                        lambda found, when: None if found[0] is not None
+                        else window_missing(title, when))
+    if looked is not None and looked[0] is None and not ctx.strict:
         ctx.log("warning", f"dry-run: no visible window whose title contains {title!r}")
 
 
@@ -521,6 +521,7 @@ DRY_RESULT = (
 
 CLICK = StepType(StepSpec(
     name="click",
+    effect="input",
     doc="Click on an image, a kept image result or at x/y.",
     params=(
         _image(), X, Y, AT, WINDOW, BUTTON,
@@ -538,6 +539,7 @@ CLICK = StepType(StepSpec(
 
 MOVE = StepType(StepSpec(
     name="move",
+    effect="input",
     doc="Move the mouse to an image, a kept image result or x/y.",
     params=(_image(), X, Y, AT, WINDOW, OFFSET, THRESHOLD, SCALE, REGION),
     result=(
@@ -549,6 +551,7 @@ MOVE = StepType(StepSpec(
 
 DRAG = StepType(StepSpec(
     name="drag",
+    effect="input",
     doc="Press a button at one point, move to another and release.",
     params=(
         ParamSpec(name="from", type="object", required=True,
@@ -574,6 +577,7 @@ DRAG = StepType(StepSpec(
 
 SCROLL = StepType(StepSpec(
     name="scroll",
+    effect="input",
     doc="Scroll the mouse wheel.",
     params=(
         ParamSpec(name="dx", type="integer", default=0,
@@ -591,6 +595,7 @@ SCROLL = StepType(StepSpec(
 
 TYPE = StepType(StepSpec(
     name="type",
+    effect="input",
     doc="Type text, independent of the keyboard layout.",
     shorthand="text",
     params=(
@@ -609,6 +614,7 @@ TYPE = StepType(StepSpec(
 
 KEY = StepType(StepSpec(
     name="key",
+    effect="input",
     doc="Press a key or a combination such as ctrl+s.",
     shorthand="press",
     params=(
