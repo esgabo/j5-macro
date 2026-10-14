@@ -21,6 +21,7 @@ from j5_macro.steps.spec import (
     ParamSpec,
     ParamType,
     ResultField,
+    StepEffect,
     StepSpec,
     StepType,
 )
@@ -184,6 +185,7 @@ def _describe(exc: BaseException) -> str:
 
 
 _PARAM_TYPES = frozenset(get_args(ParamType))
+_EFFECTS = frozenset(get_args(StepEffect))
 
 
 def _check_plugin_type(step_type: StepType) -> None:
@@ -208,4 +210,6 @@ def _check_plugin_type(step_type: StepType) -> None:
     if spec.shorthand is not None and spec.param(spec.shorthand) is None:
         raise ValueError(f"step type {name!r}: shorthand {spec.shorthand!r} is not a "
                          "parameter")
+    if spec.effect is not None and spec.effect not in _EFFECTS:
+        raise ValueError(f"step type {name!r}: invalid effect {spec.effect!r}")
     json.dumps(_info(spec).to_json())  # the spec must describe itself on the wire

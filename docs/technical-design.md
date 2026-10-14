@@ -168,6 +168,14 @@ would fail are raised instead: `steps.images.dry_run_skips` lets nothing through
 check is not satisfied (`image_not_found`, `still_visible`, `window_not_found`; an image
 search that fails saves its capture as a real run's last attempt does, through
 `StepVision.find`'s `failing`). `exec` raises `capability_missing` without `allow_exec`.
+A dry run sends no input, so checks of the screen are strict only until the first action:
+when a step whose `StepSpec.effect` is set (`input` for the input steps and plugins that
+declare it, `program` for `exec`) finishes, the machine sets `ctx.relaxed_by` for every
+later step (a description such as `input sent earlier (step 'save')`) and logs it once.
+From then on `dry_search` logs an unmet check as a warning that names that step, and
+`dry_run_skips` lets a missing window or a region without a position through; a search
+that cannot be made (`capability_missing`), `exec` without `allow_exec` and unknown
+conditions stay failures.
 The engine counts each run's warning `log` events for `run_finished.warnings`.
 
 ## Expressions

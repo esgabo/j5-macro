@@ -546,7 +546,9 @@ quoted argument as a window title, hence the `""`).
   started without `wait` is never killed by j5.
 - A dry run starts nothing: the step says what it would run, where, and whether it would
   wait, and warns when the run does not have `--allow-exec` (`--strict` makes that a
-  failure, as in the real run). Its result stands in for the program's: `exit_code: 0`
+  failure, as in the real run). In a strict dry run the screen can change once `exec`
+  would have started its program, so later checks of the screen only warn (see
+  [cli.md](cli.md#checking-a-script-with-a-dry-run)). Its result stands in for the program's: `exit_code: 0`
   and an empty `stdout` and `stderr` with `wait`, `pid: null` without, so steps that
   use `${out.stdout}` still check.
 - Secrets in `command`, `env` or the output show as `***` in the output and the run
@@ -1031,7 +1033,10 @@ screen or the system: a `${...}` that refers to an unknown variable (`expression
 a value of the wrong type after interpolation, an unknown key name, an invalid input
 profile, a missing image file (`template_missing`), a window that is not there
 (`window_not_found`). A dry run (`j5 run --dry-run`) finds most of them without sending
-any input. On its own it only warns about images that are not found, missing windows
-and searches it cannot make, and completes; `j5 run --dry-run --strict` fails on them,
+any input. On its own it reports images that are not found and missing windows, warns
+about searches it cannot make, and completes; `j5 run --dry-run --strict` fails on them,
 so its exit code says whether the script is ready to run (see
-[cli.md](cli.md#checking-a-script-with-a-dry-run)).
+[cli.md](cli.md#checking-a-script-with-a-dry-run)). Since it sends no input, a strict dry
+run only requires images and windows to be there until the first step that sends input
+or starts a program: after it, what the script waits for may be the effect of that input
+(a confirmation after a click), so those checks only warn, and say why.

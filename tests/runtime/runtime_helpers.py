@@ -65,6 +65,12 @@ TEST_STEPS = (
     StepType(StepSpec(name="boom", doc="Raises a non-StepError exception."), _boom),
     StepType(StepSpec(name="flaky", doc="Fails a few times.", shorthand="succeed_at", params=(
         ParamSpec(name="succeed_at", type="integer", default=2),)), _flaky),
+    StepType(StepSpec(name="poke", doc="Declares that it sends input, as a plugin may; "
+                      "does nothing.", effect="input"), lambda ctx, params: {}),
+    StepType(StepSpec(name="seek", doc="Waits for an image through ctx.vision, as a plugin "
+                      "may.", shorthand="image", params=(
+        ParamSpec(name="image", type="string", required=True),)),
+        lambda ctx, params: {"found": ctx.vision.wait(params["image"], timeout=0.0).found}),
 )
 
 

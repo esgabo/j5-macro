@@ -258,6 +258,7 @@ def skipped_messages(report) -> dict[str, str]:
     (registers(step("odd", params=(ParamSpec(name="p", type="color"),))),  # type: ignore[arg-type]
      "invalid parameter"),
     (registers(step("short", shorthand="nope")), "shorthand 'nope' is not a parameter"),
+    (registers(step("act", effect="mouse")), "invalid effect 'mouse'"),  # type: ignore[arg-type]
     (registers("not a step type"), "TypeError: expected a StepType, got str"),  # type: ignore[arg-type]
 ])
 def test_a_bad_plugin_is_skipped_whole_and_others_still_load(monkeypatch, target, message):

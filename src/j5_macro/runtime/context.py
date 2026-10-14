@@ -44,13 +44,15 @@ class RunContext:
                  attempt: int, depth: int, dry_run: bool, seed: int,
                  input_overrides: Mapping[str, Any] | None = None,
                  timeout: float | None = None, script_dir: Path | None = None,
-                 allow_exec: bool = False, strict: bool = False) -> None:
+                 allow_exec: bool = False, strict: bool = False,
+                 relaxed_by: str | None = None) -> None:
         self._host = host
         self.timeout = timeout
         """The step's common ``timeout`` field in seconds (None when not set)."""
         self._script_dir = script_dir
         self._allow_exec = allow_exec
         self._strict = strict
+        self._relaxed_by = relaxed_by
         self._input_overrides = input_overrides
         self._step_id = step_id
         self._iterations = iterations
@@ -81,6 +83,10 @@ class RunContext:
     @property
     def strict(self) -> bool:
         return self._strict
+
+    @property
+    def relaxed_by(self) -> str | None:
+        return self._relaxed_by
 
     @property
     def rng(self) -> random.Random:

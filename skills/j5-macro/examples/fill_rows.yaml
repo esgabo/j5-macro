@@ -6,6 +6,10 @@
 # recapture them (j5 capture --bbox ... --embed fill_rows.yaml --name ... -f) and check
 # them with j5 find before running.
 #
+# With the form open, the strict dry run passes: both labels must be on screen before
+# the first click; the confirmation (#saved) only appears after a submit, which a dry
+# run never sends, so it is a warning there ("not a failure in a strict dry run ...").
+#
 #   j5 run --dry-run --strict fill_rows.yaml   # describes every click and key, sends nothing
 #   j5 run fill_rows.yaml --json < /dev/null
 version: 1

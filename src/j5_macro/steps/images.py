@@ -8,7 +8,10 @@ An image target is a mapping with ``image`` and optional ``threshold``, ``scale`
 
 Dry runs never wait: every search a dry run makes instead of a wait, an image target or
 a window lookup goes through :func:`dry_search`, the one place that decides what a
-search that cannot be made means in a dry run.
+search that cannot be made, or an unmet check, means in a dry run. In a strict dry run
+checks of the screen must be satisfied until a step that sends input or starts a program
+has run (``ctx.relaxed_by``); after it they are warnings, since they may depend on it
+(docs/contract.md, "Strict dry runs").
 """
 
 from __future__ import annotations
@@ -24,17 +27,39 @@ from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
 """Search failures a dry run reports as a warning instead of failing the step (also
 :class:`~j5_macro.steps.positions.NoPosition`: a region placed at a kept result that a dry
-run could not find). A strict dry run fails the step with them."""
+run could not find). A strict dry run fails the step with them, except for those that
+depend on the screen once it is relaxed (:data:`SCREEN_DEPENDENT`)."""
+SCREEN_DEPENDENT = (ErrorCode.WINDOW_NOT_FOUND.value,)
+"""Search failures that depend on what is on screen (a missing window, which an earlier
+click or program may open; also :class:`~j5_macro.steps.positions.NoPosition`), unlike
+``capability_missing``, which no earlier step can change."""
+STRICT = " in a strict dry run"
+"""Appended to the message of an unmet check that fails a strict dry run."""
 
 _T = TypeVar("_T")
 
 
 def dry_run_skips(ctx: StepContext, exc: StepError) -> bool:
-    """Whether a dry run reports ``exc`` as a warning and goes on: never outside dry runs
-    or in strict ones."""
-    if not ctx.dry_run or ctx.strict:
+    """Whether a dry run reports ``exc`` as a warning and goes on: never outside dry runs;
+    in strict ones only for a failure that depends on the screen once relaxed."""
+    if not ctx.dry_run:
         return False
+    if ctx.strict:
+        return ctx.relaxed_by is not None and (exc.info.code in SCREEN_DEPENDENT
+                                               or isinstance(exc, NoPosition))
     return exc.info.code in DRY_RUN_SKIPPABLE or isinstance(exc, NoPosition)
+
+
+def strict_checks(ctx: StepContext) -> bool:
+    """Whether checks of the screen must be satisfied: in a strict dry run, until a step
+    that sends input or starts a program has run."""
+    return ctx.strict and ctx.relaxed_by is None
+
+
+def relaxed_warning(error: StepError, relaxed_by: str) -> str:
+    """The warning of an unmet check in a strict dry run that is no longer strict."""
+    return (f"dry-run: {error.info.message}; not a failure in a strict dry run because "
+            f"it may depend on {relaxed_by}")
 
 
 def search_options(target: Mapping[str, Any]) -> dict[str, Any]:
@@ -80,24 +105,36 @@ def locate_target(ctx: StepContext, target: Mapping[str, Any]) -> Match:
 
 
 def dry_search(ctx: StepContext, subject: str, search: Callable[[], _T],
-               unmet: Callable[[_T], StepError | None] | None = None) -> _T | None:
+               unmet: Callable[[_T, str], StepError | None] | None = None) -> _T | None:
     """The single search a dry run makes instead of waiting (``search`` is one image
     search or one window lookup): its outcome, or None (after a warning naming
     ``subject``) when it cannot be made (no vision, no backend, no window), so the dry
     run goes on. In a strict dry run a search that cannot be made fails the step, and so
-    does an outcome for which ``unmet`` returns the error the real run would end with
-    (an image or a window that is not there, or still there)."""
+    does an outcome for which ``unmet(outcome, when)`` returns the error the real run
+    would end with (an image or a window that is not there, or still there; ``when`` is
+    :data:`STRICT` to append to its message). Once the strict dry run is relaxed
+    (``ctx.relaxed_by``), a missing window and an unmet outcome are warnings that say
+    why instead."""
     try:
         outcome = search()
     except StepError as exc:
         if not dry_run_skips(ctx, exc):
             raise
-        ctx.log("warning", f"dry-run: {subject} not searched: {exc.info.message}")
+        message = f"dry-run: {subject} not searched: {exc.info.message}"
+        if ctx.strict and ctx.relaxed_by is not None:
+            message += (f"; not a failure in a strict dry run because it may depend on "
+                        f"{ctx.relaxed_by}")
+        ctx.log("warning", message)
         return None
     if ctx.strict and unmet is not None:
-        error = unmet(outcome)
-        if error is not None:
-            raise error
+        if ctx.relaxed_by is None:
+            error = unmet(outcome, STRICT)
+            if error is not None:
+                raise error
+        else:
+            error = unmet(outcome, "")
+            if error is not None:
+                ctx.log("warning", relaxed_warning(error, ctx.relaxed_by))
     return outcome
 
 
@@ -108,22 +145,23 @@ def window_missing(title: str, when: str = "") -> StepError:
                      {"title": title})
 
 
-def strict_not_found(image: str, match: Match, threshold: float) -> StepError:
+def strict_not_found(image: str, match: Match, threshold: float,
+                     when: str = STRICT) -> StepError:
     """``image_not_found`` for the single search of a strict dry run."""
     return StepError(
         ErrorCode.IMAGE_NOT_FOUND,
-        f"{image} not found in a strict dry run (one attempt; best score "
+        f"{image} not found{when} (one attempt; best score "
         f"{match.score:.3f}, threshold {threshold:g})",
         {"best_score": round(float(match.score), 4), "threshold": threshold,
          "template": image, "attempts": 1},
         screenshot=match.capture)
 
 
-def strict_still_visible(image: str, match: Match) -> StepError:
+def strict_still_visible(image: str, match: Match, when: str = STRICT) -> StepError:
     """``still_visible`` for the single search of a strict dry run."""
     return StepError(
         ErrorCode.STILL_VISIBLE,
-        f"{image} still visible in a strict dry run (one attempt; score "
+        f"{image} still visible{when} (one attempt; score "
         f"{match.score:.3f})",
         {"image": image, "score": round(float(match.score), 4)},
         screenshot=match.capture)
@@ -133,16 +171,16 @@ def dry_locate(ctx: StepContext, target: Mapping[str, Any], *,
                present: bool = True) -> Match | None:
     """The single search of an image target or an image wait in a dry run (see
     :func:`dry_search`). A strict dry run fails when the image is not found, or with
-    ``present=False`` (``wait_image_out``) when it is found."""
+    ``present=False`` (``wait_image_out``) when it is found; once relaxed, it warns."""
     image, options = target["image"], search_options(target)
 
-    def unmet(match: Match) -> StepError | None:
+    def unmet(match: Match, when: str) -> StepError | None:
         if match.found == present:
             return None
-        return (strict_not_found(image, match, options["threshold"]) if present
-                else strict_still_visible(image, match))
+        return (strict_not_found(image, match, options["threshold"], when) if present
+                else strict_still_visible(image, match, when))
 
-    failing = (lambda m: m.found != present) if ctx.strict else None
+    failing = (lambda m: m.found != present) if strict_checks(ctx) else None
     return dry_search(ctx, f"image {image}",
                       lambda: ctx.vision.find(image, failing=failing, **options), unmet)
 

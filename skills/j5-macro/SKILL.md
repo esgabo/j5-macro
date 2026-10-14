@@ -33,9 +33,9 @@ command, file edit or API call can do: GUI automation is the slow, fragile last 
    already asked you to run it. Whatever has the focus receives the keys.
 2. **Dry run first, strictly.** `j5 run --dry-run --strict` sends no input, searches
    each image once and checks params, expressions and windows; with `--strict` an image
-   that is not found or a missing window fails the run (exit 1). A plain `--dry-run`
-   exits 0 even then, so never take its exit code as "ready". Fix everything it reports
-   before a real run.
+   that is not found or a missing window before the first input fails the run (exit 1).
+   A plain `--dry-run` exits 0 even then, so never take its exit code as "ready". Fix
+   everything it reports before a real run.
 3. **Never put secrets in the script or the command line.** Declare a param with
    `secret: true` and pass it with `--param-env NAME=VAR` or `--param-file`. Results of
    steps that carry secrets get `as: {name: ..., secret: true}`. Secrets show as `***`
@@ -93,7 +93,16 @@ $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
 5. **Write the steps** (see below and `reference/script-format.md`), then
    `j5 validate SCRIPT` (or `--json`: errors with `code`, `message`, `line`, `step_id`).
 6. **Dry run.** `j5 run --dry-run --strict SCRIPT < /dev/null` with the same params.
-   Exit 0 means every image was found and every window was there; on exit 1 read the
+   What exit 0 guarantees: the screen is ready for the script to *start* (every image
+   and window checked before the first input step or `exec` was there) and the
+   environment can run it (vision installed, a display, `exec` allowed, templates and
+   conditions valid). It cannot check what only appears in response to the script's own
+   input (a confirmation after a submit, a window that `exec` opens): from the first
+   `click`, `move`, `drag`, `scroll`, `type`, `key` or `exec` on, a check that is not met
+   is a warning, not a failure (the run logs `strict checks relaxed after step '...'`,
+   and each such warning says `not a failure in a strict dry run because it may depend
+   on input sent earlier`). Read those warnings: a target that should already be on
+   screen there (a second field of the same form) is a real problem. On exit 1 read the
    `step_failed` event (`image_not_found` with the best score, `window_not_found`...).
    Also read each image search (score close to the threshold?) and the warnings the
    summary line counts (`with 2 warnings`; `run_finished.warnings` in `--json`). A strict

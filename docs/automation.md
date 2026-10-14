@@ -83,10 +83,12 @@ the events later, with screen captures of failed image searches in the run's fol
 - `--seed N` makes the human-like randomness repeatable: the same seed, script and screen
   give the same input.
 - `--dry-run` checks a script, its params and its image searches without sending input;
-  it needs no backend. Add `--strict` in CI and agent loops: then an image that is not
-  found, a missing window, a search that cannot be made or an `exec` step without
-  `--allow-exec` fails the run (exit code 1) instead of being a warning. Without it, the
-  summary line and `run_finished.warnings` count the warnings.
+  it needs no backend. Add `--strict` in CI and agent loops: then a search that cannot be
+  made or an `exec` step without `--allow-exec` fails the run (exit code 1), and so does
+  an image that is not found or a missing window before the script's first input or
+  `exec` step. After that step such checks are warnings, since what the script waits for
+  may only appear in response to its input, which a dry run never sends. The summary line
+  and `run_finished.warnings` count the warnings.
 - `j5 validate script.yaml` (exit code 1 when invalid) and `j5 validate --json` check a
   script before running it.
 
@@ -116,7 +118,9 @@ An agent can drive j5 like any shell user:
 2. Run it with `--json`, params from `--params-file` or `--param-env`, and standard input
    closed (`< /dev/null`).
 3. Check it first with `j5 run --dry-run --strict`: a plain dry run exits with 0 even
-   when its images are not found, while a strict one fails where the real run would.
+   when its images are not found, while a strict one fails where the real run would on
+   the screen as it is before any input (and on a missing vision extra or `exec` without
+   `--allow-exec` anywhere); checks after the first input only warn, with the reason.
 4. Read the exit code and, on failure, the `step_failed` and `run_finished` events: they
    name the step, the line and the error code (`image_not_found` with the best score,
    `window_not_found`, `expression_error`...). `run_finished.warnings` counts the

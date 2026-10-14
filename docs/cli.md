@@ -73,7 +73,7 @@ Loads the script, runs it and shows its progress. The output is explained in
 | `--step` | Debug: start paused before the first step and give the debugger prompt at every pause (see [debugging.md](debugging.md)) |
 | `--break STEP_ID` | Pause before the step with this id and give the debugger prompt, with or without `--step`. Repeatable. An id the script does not have fails before the run starts (exit 2) |
 | `--dry-run` | Send no input: input steps describe what they would do, image searches run once. Cannot be combined with `--step` (use `--break` to pause a dry run). The summary line counts the run's warnings: `✓ dry run completed in 0.412s with 3 warnings` |
-| `--strict` | With `--dry-run`: fail the step, and so the run (exit 1), where a dry run would only warn that the real run fails: an image that is not found (or still there, for `wait_image_out`), a missing window (or one still open, for `wait_window_out`), vision not available, an `exec` step without `--allow-exec`. See [Checking a script with a dry run](#checking-a-script-with-a-dry-run). Without `--dry-run`: usage error (exit 2) |
+| `--strict` | With `--dry-run`: fail the step, and so the run (exit 1), where the real run would fail: until the first step that sends input or starts a program, an image that is not found (or still there, for `wait_image_out`) and a missing window (or one still open, for `wait_window_out`); throughout the run, vision not available and an `exec` step without `--allow-exec`. Checks of the screen after the first such step are warnings, since they may depend on input the dry run did not send. See [Checking a script with a dry run](#checking-a-script-with-a-dry-run). Without `--dry-run`: usage error (exit 2) |
 | `--seed SEED` | Integer seed of the run, to repeat the same human-like input. Without it the engine picks one and shows it |
 | `--fast` | Use the `direct` strategy for mouse and keyboard: no human-like movement or typing |
 | `--allow-exec` | Let the script's [`exec`](scripts.md#exec) steps run programs. Without it they fail with `capability_missing` |
@@ -131,8 +131,9 @@ j5: warning: secret param 'password' was given with --param, so it is visible in
 
 A dry run sends no input and tries each image search once, so it checks a script
 against the screen as it is now. By itself it completes even when targets are missing:
-each one is only a warning, counted in the summary line and in `run_finished.warnings`.
-Add `--strict` to make those failures, so the exit code answers "is it ready to run?":
+it reports what it did not find, and warns about searches it could not make (counted in
+the summary line and in `run_finished.warnings`). Add `--strict` to make those failures,
+so the exit code answers "is it ready to run?":
 
 ```console
 $ j5 run --dry-run --strict save_report.yaml
@@ -142,15 +143,41 @@ $ j5 run --dry-run --strict save_report.yaml
 ✗ dry run failed after 0.231s  (seed 1234): [image_not_found] img/save.png not found in a strict dry run (one attempt; best score 0.412, threshold 0.9)
 ```
 
-The exit code is 1. In a strict dry run, steps fail where the real run would: an image
-search that does not find its template (`image_not_found`, with its capture saved in the
-run's directory), a wait whose single check is not satisfied (`wait_image_out` or
-`wait_window_out` whose target is there: `still_visible`; `wait_window_in` without its
-window: `window_not_found`), a search that cannot be made (`capability_missing` without the
-`vision` extra or a screen to capture, `window_not_found`), and an `exec` step without
-`--allow-exec` (`capability_missing`). The step's `on_error` applies as usual. An
-`image_visible` condition is still just false when the image is not there. Agents and CI
-jobs should use `--dry-run --strict`.
+The exit code is 1. In a strict dry run, steps fail where the real run would, as far as a
+run that sends no input can tell:
+
+- **Before the first action**, the screen must be ready: an image search that does not
+  find its template fails (`image_not_found`, with its capture saved in the run's
+  directory), and so does a wait whose single check is not satisfied (`wait_image_out` or
+  `wait_window_out` whose target is there: `still_visible`; `wait_window_in` without its
+  window: `window_not_found`) and a missing window (`window_not_found`).
+- **After it**, those checks are warnings. An action is a step that sends input (`click`,
+  `move`, `drag`, `scroll`, `type`, `key`) or starts a program (`exec`). What a script
+  waits for after its first click (a confirmation, a dialog, the window `exec` opens)
+  only appears because of that input, which a dry run never sends, so the dry run cannot
+  fail there. The step logs where strict checks stopped applying, and each unmet check
+  says why it is not a failure:
+
+  ```text
+    0.110s    ▶ click_name  click  {"at": {"dry_run": true, "found": true, "score": 1.0, "bbox": [14, 10, 48, 22...
+    0.110s      [info] would click left at the stored result at (38, 21) in window 'j5 practice form' offset ['3.5w', 0]
+    0.110s      [info] strict checks relaxed after step 'click_name': later checks of the screen may depend on the input this step would send, so an image or window that is not there (or still there) is a warning from here on, not a failure
+    ...
+    0.143s      [warning] dry-run: #saved not found (one attempt; best score 0.578, threshold 0.9); not a failure in a strict dry run because it may depend on input sent earlier (step 'click_name')
+  ...
+  ✓ dry run completed in 0.209s with 3 warnings  (seed 462642193)
+  ```
+
+  This lasts until the end of the run, loops included.
+- **Throughout the run**, what does not depend on the screen fails: a search that cannot
+  be made (`capability_missing` without the `vision` extra, a screen to capture or a
+  backend that finds windows), an `exec` step without `--allow-exec`
+  (`capability_missing`), an unknown condition, a missing template file.
+
+So a strict dry run guarantees that the screen is ready for the script to start and that
+the environment can run it; the rest of the screen is only checked by the real run. The
+step's `on_error` applies as usual. An `image_visible` condition is still just false when
+the image is not there. Agents and CI jobs should use `--dry-run --strict`.
 
 ### Pauses and Ctrl+C
 
