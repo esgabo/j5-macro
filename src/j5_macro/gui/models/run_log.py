@@ -12,8 +12,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from j5_macro.gui.models.debugger import PauseInfo
 from j5_macro.protocol import Event
 
+LEVELS = ("debug", "info", "warning", "error")
+"""Line levels, least important first (the log filter shows a level and those after)."""
 IDLE = "idle"
 FINISHED = "finished"
 """States of :attr:`RunLog.state` besides the engine's ``running``, ``paused`` and
@@ -46,6 +49,16 @@ class RunLog:
     finished: Mapping[str, Any] | None = None
     """The whole ``run_finished`` payload."""
     lines: list[LogLine] = field(default_factory=list)
+    pause: PauseInfo | None = None
+    """Why and where the run is paused; None while it is not."""
+    counts: dict[str, int] = field(default_factory=lambda: dict.fromkeys(LEVELS, 0))
+    """Lines per level so far."""
+    warnings: int = 0
+    """``log`` events of level ``warning`` (what ``run_finished.warnings`` counts)."""
+    mode: str | None = None
+    seed: int | None = None
+    _failure: Mapping[str, Any] | None = None
+    _interference: Mapping[str, Any] | None = None
 
     @property
     def active(self) -> bool:
@@ -57,23 +70,92 @@ class RunLog:
         if event.type == "run_started":
             self.run_id = event.run_id
             self.state = "running"
+            mode, seed = payload.get("mode"), payload.get("seed")
+            self.mode = str(mode) if isinstance(mode, str) else None
+            self.seed = seed if isinstance(seed, int) else None
         elif event.type == "state_changed":
             self.state = str(payload.get("state", self.state))
             reason = payload.get("reason")
             self.pause_reason = str(reason) if self.state == "paused" and reason else None
-        elif event.type == "step_started":
+            self.pause = self._pause_info() if self.state == "paused" else None
+            if self.state != "paused":
+                self._failure = self._interference = None
+        elif event.type in ("step_started", "breakpoint_hit"):
             self.current_step_id = _step_id(payload)
+        elif event.type == "step_failed":
+            self._failure = dict(payload)
+        elif event.type == "user_interference":
+            self._interference = dict(payload)
         elif event.type == "run_finished":
             self.state = FINISHED
             self.current_step_id = None
             self.pause_reason = None
+            self.pause = None
             status = payload.get("status")
             self.status = str(status) if status is not None else None
             self.finished = dict(payload)
+            warnings = payload.get("warnings")
+            if isinstance(warnings, int):
+                self.warnings = warnings
+        if event.type == "log" and payload.get("level") == "warning":
+            self.warnings += 1
         line = LogLine(seq=event.seq, type=event.type, text=format_event(event),
                        level=event_level(event), step_id=_step_id(payload), event=event)
         self.lines.append(line)
+        self.counts[line.level] = self.counts.get(line.level, 0) + 1
         return line
+
+    def _pause_info(self) -> PauseInfo:
+        reason = self.pause_reason
+        error: Mapping[str, Any] | None = None
+        screenshot: str | None = None
+        step_id = self.current_step_id
+        if reason == "error" and self._failure is not None:
+            raw = self._failure.get("error")
+            error = raw if isinstance(raw, Mapping) else {"message": str(raw)}
+            shot = self._failure.get("screenshot")
+            screenshot = shot if isinstance(shot, str) else None
+            step_id = _step_id(self._failure) or step_id
+        interference = self._interference if reason == "interference" else None
+        return PauseInfo(reason=reason, step_id=step_id, error=error,
+                         screenshot=screenshot, interference=interference)
+
+    def summary(self) -> str:
+        """One line about the run: its state, or how it ended (duration, warnings)."""
+        return run_summary(self)
+
+
+def level_visible(level: str, minimum: str) -> bool:
+    """Whether a line of ``level`` shows with the filter at ``minimum``."""
+    order = {name: index for index, name in enumerate(LEVELS)}
+    return order.get(level, 1) >= order.get(minimum, 0)
+
+
+def run_summary(log: RunLog) -> str:
+    if log.run_id is None:
+        return ""
+    parts: list[str] = []
+    if log.state == FINISHED and log.finished is not None:
+        status = str(log.finished.get("status", ""))
+        duration = log.finished.get("duration_ms")
+        text = status.capitalize()
+        reason = log.finished.get("reason")
+        if reason:
+            text += f" ({reason})"
+        if isinstance(duration, int):
+            text += f" in {duration / 1000:.1f} s"
+        parts.append(text)
+    else:
+        parts.append(log.state.capitalize())
+    if log.mode:
+        parts.append(f"{log.mode} mode")
+    parts.append(f"{log.warnings} warning{'s' if log.warnings != 1 else ''}")
+    errors = log.counts.get("error", 0)
+    if errors:
+        parts.append(f"{errors} error line{'s' if errors != 1 else ''}")
+    if log.seed is not None:
+        parts.append(f"seed {log.seed}")
+    return " · ".join(parts)
 
 
 def event_level(event: Event) -> str:
@@ -144,6 +226,49 @@ def _image_search(p: Mapping[str, Any]) -> str:
             f"{p.get('threshold')}, attempt {p.get('attempt')})")
 
 
+def _input_planned(p: Mapping[str, Any]) -> str:
+    device = p.get("device")
+    text = f"{device} plan ({p.get('strategy')})"
+    if device == "keyboard":
+        chars, wpm = p.get("chars"), p.get("wpm")
+        if chars is not None:
+            text += f": {chars} char{'s' if chars != 1 else ''}"
+        if isinstance(wpm, int | float):
+            text += f" at {wpm:.0f} wpm"
+        return text
+    start, end = _point(p.get("from")), _point(p.get("to"))
+    if start and end:
+        text += f": {start} → {end}"
+    elif end:
+        text += f": to {end}"
+    duration = p.get("duration_ms")
+    if isinstance(duration, int):
+        text += f" in {duration} ms"
+    return text
+
+
+def _input_executed(p: Mapping[str, Any]) -> str:
+    text = f"{p.get('device')} input done in {p.get('actual_duration_ms')} ms"
+    return text + " (aborted)" if p.get("aborted") else text
+
+
+def _user_interference(p: Mapping[str, Any]) -> str:
+    return (f"the mouse was moved: expected at {_point(p.get('expected'))}, was at "
+            f"{_point(p.get('actual'))} ({p.get('action')})")
+
+
+def _keys_released(p: Mapping[str, Any]) -> str:
+    keys = p.get("keys")
+    names = ", ".join(str(k) for k in keys) if isinstance(keys, list) else ""
+    return f"released {names} ({p.get('reason')})"
+
+
+def _point(value: object) -> str:
+    if isinstance(value, list | tuple) and len(value) == 2:
+        return f"({value[0]}, {value[1]})"
+    return ""
+
+
 def _breakpoint_hit(p: Mapping[str, Any]) -> str:
     return f"breakpoint at {p.get('step_id')}"
 
@@ -190,6 +315,10 @@ _FORMATTERS: dict[str, Callable[[Mapping[str, Any]], str]] = {
     "step_skipped": _step_skipped,
     "log": _log,
     "image_search": _image_search,
+    "input_planned": _input_planned,
+    "input_executed": _input_executed,
+    "user_interference": _user_interference,
+    "keys_released": _keys_released,
     "breakpoint_hit": _breakpoint_hit,
     "branch_taken": _branch_taken,
     "loop_iteration": _loop_iteration,

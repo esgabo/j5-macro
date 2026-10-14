@@ -88,6 +88,9 @@ class MainWindow(QMainWindow):
         self.script_list.message.connect(self.show_message)
         ctx.run.error.connect(self.show_message)
         ctx.run.active_changed.connect(self._run_active)
+        ctx.run.state_changed.connect(
+            lambda state: self.editor.tree.set_paused(state == "paused"))
+        ctx.run.paused.connect(self._run_paused)
         if ctx.bridge.info is not None:  # panels may be built after the engine started
             self._engine_started(ctx.bridge.info)
         self._document_changed(ctx.document.state)
@@ -129,13 +132,26 @@ class MainWindow(QMainWindow):
         self._action(file_menu, "&Quit", self.close, QKeySequence.StandardKey.Quit)
 
         run_menu = self.menuBar().addMenu("&Run")
-        self.run_action = self._action(run_menu, "&Run", lambda: self.run_panel.start("normal"),
-                                       QKeySequence("F5"))
-        self.dry_run_action = self._action(run_menu, "&Dry run",
-                                           lambda: self.run_panel.start("dry"),
-                                           QKeySequence("Ctrl+F5"))
-        self.stop_action = self._action(run_menu, "&Stop", self.ctx.run.stop,
-                                        QKeySequence("Shift+F5"))
+        actions = self.run_panel.run_actions  # with their shortcuts (F5, F10, F11...)
+        for name in ("run", "dry_run", "debug", "debug_dry", "options", None, "continue",
+                     "pause", "step_over", "step_into", "step_out", "stop"):
+            if name is None:
+                run_menu.addSeparator()
+            else:
+                run_menu.addAction(actions[name])
+        self.run_action = actions["run"]
+        self.dry_run_action = actions["dry_run"]
+        self.stop_action = actions["stop"]
+        run_menu.addSeparator()
+        self.toggle_breakpoint_action = self._action(
+            run_menu, "Toggle &breakpoint", self._toggle_breakpoint, QKeySequence("F9"))
+        self.confirm_action = QAction("&Confirm runs that send real input", self)
+        self.confirm_action.setCheckable(True)
+        self.confirm_action.setChecked(self.ctx.run.confirm_real_input)
+        self.confirm_action.toggled.connect(self.ctx.run.set_confirm_real_input)
+        run_menu.aboutToShow.connect(
+            lambda: self.confirm_action.setChecked(self.ctx.run.confirm_real_input))
+        run_menu.addAction(self.confirm_action)
 
         engine_menu = self.menuBar().addMenu("&Engine")
         self._action(engine_menu, "&Restart engine", self.ctx.bridge.restart)
@@ -149,12 +165,21 @@ class MainWindow(QMainWindow):
         menu.addAction(action)  # type: ignore[attr-defined]
         return action
 
+    def _toggle_breakpoint(self) -> None:
+        step_id = self.editor.tree.selected_step_id()
+        if step_id is not None:
+            self.ctx.run.toggle_breakpoint(step_id)
+
     def _engine_started(self, info: EngineInfo) -> None:
         self.engine_label.setText(f"j5 {__version__} · {info.summary()}")
         self.script_list.refresh()
 
     def _document_changed(self, state: ScriptState | None) -> None:
         self.setWindowTitle(f"{state.title} - {TITLE}" if state is not None else TITLE)
+
+    def _run_paused(self, pause: object) -> None:
+        if pause is not None:
+            self.bottom_tabs.setCurrentWidget(self.run_panel)
 
     def _run_active(self, active: bool) -> None:
         if active:
