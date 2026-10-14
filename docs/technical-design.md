@@ -555,8 +555,16 @@ is masked. Events already published are not rewritten; nothing secret has been i
 since the value did not exist before the step finished. Without an engine (the
 interpreter in tests) nothing is masked.
 
-Masking replaces the exact text in strings, mapping keys and nested containers, and a
-number equal to a secret's text. Top-level position fields (`path`, `iterations`,
+Masking replaces the exact text in strings and nested containers, and a number equal to
+a secret's text. Mapping keys are never masked: they are names (payload fields, variable
+names, result fields), and rewriting them broke clients that read fields by name. A
+secret shorter than `MIN_SECRET_LENGTH` (4) characters is masked only where a string or a
+number's text is exactly that secret, never inside longer text: masking every `x` turned
+`"backend": "x11"` into `"***11"`. The engine logs a warning naming each short secret
+param after `run_started`, and the interpreter logs one before the `step_finished` of an
+`as: {secret: true}` step that registers a short string; neither shows the value.
+Word-boundary matching was rejected: it is more complex and still leaks a secret next to
+punctuation or other text. Top-level position fields (`path`, `iterations`,
 `line`, `index`, `total`, `duration_ms`) are left alone when they hold integers, so a
 short numeric secret never breaks a position. A type error on a secret param says "a
 secret value" instead of repeating it.
@@ -565,6 +573,8 @@ Limits, by design or not yet solved:
 
 - Only the exact text is masked; a transformed value (`upper(password)`, a substring) is
   not recognised.
+- A short secret (under 4 characters) shows wherever it is part of a longer text, and a
+  secret used as a mapping key is never masked.
 - The length is visible: `type` reports how many characters it typed (in its result and
   in `input_planned.chars`), never the text.
 - Values travel unmasked from the client to the engine in the `run` command, and the

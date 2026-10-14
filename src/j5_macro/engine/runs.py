@@ -50,6 +50,8 @@ from j5_macro.script.params import (
     missing_names,
     resolve,
     secret_values,
+    short_secret_params,
+    short_secret_warning,
 )
 
 SHUTDOWN_TIMEOUT_S = 5.0
@@ -348,6 +350,9 @@ class RunManager:
         # Outside the lock: persistence may be slow, and failures only log.
         run.files = self._create_files(run)
         run.start(run_started)
+        for name in short_secret_params(script.params, variables):
+            run.sink("log", {"level": "warning",
+                             "message": short_secret_warning(f"secret param '{name}'")})
         return run
 
     def _display_scale(self, override: float | None,

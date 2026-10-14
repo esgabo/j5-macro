@@ -222,7 +222,7 @@ outlined in red: `screenshot` is relative to the run's directory, which
 | Exit 2, "missing required params" | Pass them: `--param`, `--param-env`, `--param-file`, `--params-file`. |
 | Exit 3 | The user (or the corner failsafe) stopped it. Ask before trying again. |
 | Typed text goes elsewhere | Focus the window first (click inside it); check nothing else stole focus. |
-| `***` in odd places (`"backend": "***11"`) | Every occurrence of a secret's text is masked, so a very short test secret (`x`) mangles unrelated output. Test with realistic values. |
+| `***` in odd places, or a warning "fewer than 4 characters" | Secrets of 4 or more characters are masked wherever they appear; shorter ones only as whole values, so they still show inside longer text. Test with realistic values. |
 
 Note: `j5 find --show`, `j5 pick` and `j5 capture` without `--bbox` open a full-screen
 overlay for a **human** to click or drag. As an agent, use `--bbox`, screenshots and

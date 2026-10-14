@@ -36,7 +36,11 @@ from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
 from j5_macro.runtime.vision import BoundVision, RunVision
 from j5_macro.script.model import Script, Step
-from j5_macro.script.params import secret_texts
+from j5_macro.script.params import (
+    is_short_secret,
+    secret_texts,
+    short_secret_warning,
+)
 from j5_macro.steps.registry import StepRegistry
 from j5_macro.steps.spec import LogLevel, StepError, StepSpec
 from j5_macro.vision.api import StepVision
@@ -276,12 +280,15 @@ class Machine:
                        result: dict[str, Any] | None) -> None:
         """Emit ``step_finished`` and keep the result in the step's ``as`` variable: a
         secret result is registered with the engine first, so its own ``step_finished``
-        is masked too."""
+        is masked too; a short string (masked only as a whole value) logs a warning first."""
         store = step.store_as
         if store is not None and store.secret and self._add_secrets is not None:
             texts = secret_texts(result)
             if texts:
                 self._add_secrets(texts)
+                if any(is_short_secret(text) for text in texts):
+                    self._events.log("warning", short_secret_warning(
+                        f"a string of the secret result '{store.name}'"), step.id)
         self._events.step_finished(step, its, duration_ms, result)
         if store is not None:
             self.assign(store.name, result, step.id)
