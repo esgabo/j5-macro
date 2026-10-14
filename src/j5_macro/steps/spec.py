@@ -262,6 +262,12 @@ class StepContext(Protocol):
         ...
 
     @property
+    def strict(self) -> bool:
+        """True in a strict dry run (``run``'s ``strict``): where a dry run would only
+        warn that the real run fails, the step fails instead."""
+        ...
+
+    @property
     def rng(self) -> random.Random:
         """Seeded per step and attempt; the only source of randomness executors may use."""
         ...

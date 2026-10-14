@@ -20,6 +20,9 @@ PARAM_TYPES: tuple[ParamType, ...] = ("string", "integer", "number", "boolean")
 PARAM_FIELDS = ("type", "description", "default", "secret")
 MASK = "***"
 """What a secret value is replaced with in events and answers."""
+MIN_SECRET_LENGTH = 4
+"""Secrets shorter than this are masked only as whole values, never inside longer text:
+replacing every ``x`` would garble unrelated output (``"backend": "x11"``)."""
 
 _INTEGER = re.compile(r"^[+-]?\d+$")
 
@@ -146,6 +149,27 @@ def secret_texts(value: Any) -> list[str]:
     return sorted(found, key=len, reverse=True)
 
 
+def is_short_secret(text: str) -> bool:
+    """Whether ``text`` is masked only as a whole value (see :data:`MIN_SECRET_LENGTH`)."""
+    return len(text) < MIN_SECRET_LENGTH
+
+
+def short_secret_params(declared: Mapping[str, ScriptParam],
+                        variables: Mapping[str, Any]) -> list[str]:
+    """The names of the secret params whose value is short (:func:`is_short_secret`), in
+    declaration order."""
+    return [p.name for p in declared.values()
+            if p.secret and variables.get(p.name) not in (None, "")
+            and is_short_secret(str(variables[p.name]))]
+
+
+def short_secret_warning(what: str) -> str:
+    """The warning for a short secret; ``what`` names it (``secret param 'pin'``), since
+    the message must never show the value."""
+    return (f"{what} has fewer than {MIN_SECRET_LENGTH} characters: it is masked only "
+            "where a value is exactly that secret, not inside longer text")
+
+
 def merge_secrets(secrets: list[str], more: list[str]) -> list[str]:
     """``secrets`` plus ``more``, without duplicates, longest first (the masking order)."""
     return sorted(set(secrets) | set(more), key=len, reverse=True)
@@ -166,23 +190,27 @@ def _is_position(value: Any) -> bool:
 def mask_payload(payload: Mapping[str, Any], secrets: list[str]) -> dict[str, Any]:
     """:func:`mask` over an event payload or a ``get_state`` answer, except for its
     :data:`POSITION_FIELDS` holding integers (or lists of them)."""
-    return {mask(k, secrets): v if k in POSITION_FIELDS and _is_position(v)
+    return {k: v if k in POSITION_FIELDS and _is_position(v)
             else mask(v, secrets) for k, v in payload.items()}
 
 
 def mask(value: Any, secrets: list[str]) -> Any:
-    """``value`` (JSON-like) with every occurrence of each secret replaced by ``***``,
-    in strings, mapping keys and nested containers. Non-string scalars equal to a secret's
-    text (a numeric secret) are masked too."""
+    """``value`` (JSON-like) with its secrets replaced by ``***``, in strings and nested
+    containers. A string equal to a secret becomes ``***``; inside longer strings only
+    the secrets of at least :data:`MIN_SECRET_LENGTH` characters are replaced. Non-string
+    scalars equal to a secret's text (a numeric secret) are masked too. Mapping keys are
+    never masked: they are names (payload fields, variable names), not values."""
     if not secrets:
         return value
     if isinstance(value, str):
+        if value in secrets:
+            return MASK
         for secret in secrets:
-            if secret in value:
+            if not is_short_secret(secret) and secret in value:
                 value = value.replace(secret, MASK)
         return value
     if isinstance(value, Mapping):
-        return {mask(k, secrets): mask(v, secrets) for k, v in value.items()}
+        return {k: mask(v, secrets) for k, v in value.items()}
     if isinstance(value, list | tuple):
         return [mask(v, secrets) for v in value]
     if (isinstance(value, int | float) and not isinstance(value, bool)

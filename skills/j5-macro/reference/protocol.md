@@ -34,7 +34,7 @@ $ printf '%s\n' \
 | `hello` | `v_min`, `v_max`, `client` | `v`, `capabilities` (backend, step types, `vision`, display scales) |
 | `load` | `path` or `source` (YAML text) | `script_id`, steps, params, images, warnings |
 | `validate` | `script_id` | `ok`, `errors`, `warnings` |
-| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `params?`, `vars?`, `seed?`, `input_profile?`, `allow_exec?` (false), `display_scale?`, `captures?` | `run_id`; then events until `run_finished` |
+| `run` | `script_id`, `mode` (`normal`, `step`, `dry`), `params?`, `vars?`, `seed?`, `input_profile?`, `allow_exec?` (false), `display_scale?`, `captures?`, `strict?` (false; only with `mode: dry`: fail instead of warning) | `run_id`; then events until `run_finished` (`status`, `error?`, `warnings`: the count of warning logs) |
 | `pause`, `resume`, `stop` | `run_id` | Control the active run. `stop` releases held keys |
 | `step_over`, `step_into`, `step_out` | `run_id` | Stepping while paused |
 | `get_state`, `evaluate`, `set_variable` | `run_id`, ... | Inspect while paused (secrets masked) |

@@ -134,7 +134,7 @@ def test_window_waits_need_the_windows_capability(tmp_path: Path, step: str,
                    backend_reason="no X")
     outcome = run.join()
     assert outcome.error is not None and outcome.error.code == "capability_missing"
-    assert "window waits" in outcome.error.message
+    assert "window lookups" in outcome.error.message
 
 
 # --- wait_window_out --------------------------------------------------------------------

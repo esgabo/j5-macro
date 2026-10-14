@@ -24,13 +24,16 @@ from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
 """Search failures a dry run reports as a warning instead of failing the step (also
 :class:`~j5_macro.steps.positions.NoPosition`: a region placed at a kept result that a dry
-run could not find)."""
+run could not find). A strict dry run fails the step with them."""
 
 _T = TypeVar("_T")
 
 
-def dry_run_skips(exc: StepError) -> bool:
-    """Whether a dry run reports ``exc`` as a warning and goes on."""
+def dry_run_skips(ctx: StepContext, exc: StepError) -> bool:
+    """Whether a dry run reports ``exc`` as a warning and goes on: never outside dry runs
+    or in strict ones."""
+    if not ctx.dry_run or ctx.strict:
+        return False
     return exc.info.code in DRY_RUN_SKIPPABLE or isinstance(exc, NoPosition)
 
 
@@ -76,24 +79,72 @@ def locate_target(ctx: StepContext, target: Mapping[str, Any]) -> Match:
     return match
 
 
-def dry_search(ctx: StepContext, subject: str, search: Callable[[], _T]) -> _T | None:
+def dry_search(ctx: StepContext, subject: str, search: Callable[[], _T],
+               unmet: Callable[[_T], StepError | None] | None = None) -> _T | None:
     """The single search a dry run makes instead of waiting (``search`` is one image
     search or one window lookup): its outcome, or None (after a warning naming
     ``subject``) when it cannot be made (no vision, no backend, no window), so the dry
-    run goes on."""
+    run goes on. In a strict dry run a search that cannot be made fails the step, and so
+    does an outcome for which ``unmet`` returns the error the real run would end with
+    (an image or a window that is not there, or still there)."""
     try:
-        return search()
+        outcome = search()
     except StepError as exc:
-        if not dry_run_skips(exc):
+        if not dry_run_skips(ctx, exc):
             raise
         ctx.log("warning", f"dry-run: {subject} not searched: {exc.info.message}")
         return None
+    if ctx.strict and unmet is not None:
+        error = unmet(outcome)
+        if error is not None:
+            raise error
+    return outcome
 
 
-def dry_locate(ctx: StepContext, target: Mapping[str, Any]) -> Match | None:
-    """The single search of an image target in a dry run (see :func:`dry_search`)."""
-    return dry_search(ctx, f"image {target['image']}",
-                      lambda: ctx.vision.find(target["image"], **search_options(target)))
+def window_missing(title: str, when: str = "") -> StepError:
+    """``window_not_found`` for a window looked up once."""
+    return StepError(ErrorCode.WINDOW_NOT_FOUND,
+                     f"no visible window whose title contains {title!r}{when}",
+                     {"title": title})
+
+
+def strict_not_found(image: str, match: Match, threshold: float) -> StepError:
+    """``image_not_found`` for the single search of a strict dry run."""
+    return StepError(
+        ErrorCode.IMAGE_NOT_FOUND,
+        f"{image} not found in a strict dry run (one attempt; best score "
+        f"{match.score:.3f}, threshold {threshold:g})",
+        {"best_score": round(float(match.score), 4), "threshold": threshold,
+         "template": image, "attempts": 1},
+        screenshot=match.capture)
+
+
+def strict_still_visible(image: str, match: Match) -> StepError:
+    """``still_visible`` for the single search of a strict dry run."""
+    return StepError(
+        ErrorCode.STILL_VISIBLE,
+        f"{image} still visible in a strict dry run (one attempt; score "
+        f"{match.score:.3f})",
+        {"image": image, "score": round(float(match.score), 4)},
+        screenshot=match.capture)
+
+
+def dry_locate(ctx: StepContext, target: Mapping[str, Any], *,
+               present: bool = True) -> Match | None:
+    """The single search of an image target or an image wait in a dry run (see
+    :func:`dry_search`). A strict dry run fails when the image is not found, or with
+    ``present=False`` (``wait_image_out``) when it is found."""
+    image, options = target["image"], search_options(target)
+
+    def unmet(match: Match) -> StepError | None:
+        if match.found == present:
+            return None
+        return (strict_not_found(image, match, options["threshold"]) if present
+                else strict_still_visible(image, match))
+
+    failing = (lambda m: m.found != present) if ctx.strict else None
+    return dry_search(ctx, f"image {image}",
+                      lambda: ctx.vision.find(image, failing=failing, **options), unmet)
 
 
 def describe_match(match: Match | None, label: str = "") -> str:
@@ -114,8 +165,9 @@ def describe_match(match: Match | None, label: str = "") -> str:
 def image_visible(ctx: StepContext, argument: Any) -> bool:
     """``{image_visible: img/x.png}`` or ``{image_visible: {image: ..., threshold: ...,
     scale: ..., region: ..., window: ...}}``: one search. A missing window is false
-    (nothing is searched). In dry runs a search that cannot be made (no vision) is
-    false with a warning."""
+    (nothing is searched), and so is not finding the image: never a failure. In dry
+    runs a search that cannot be made (no vision) is false with a warning; strict dry
+    runs fail as a real run does."""
     if isinstance(argument, str):
         target: Mapping[str, Any] = {"image": argument}
     elif isinstance(argument, Mapping):
@@ -132,6 +184,7 @@ def image_visible(ctx: StepContext, argument: Any) -> bool:
         raise StepError(ErrorCode.VALIDATION_FAILED,
                         "image_visible needs an image path, e.g. {image_visible: img/x.png}",
                         {"condition": "image_visible"})
+
     def search() -> bool:
         try:
             return ctx.vision.find(image, **search_options(target)).found

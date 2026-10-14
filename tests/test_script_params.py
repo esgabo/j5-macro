@@ -6,12 +6,16 @@ from j5_macro.script import load_script
 from j5_macro.script.model import ScriptParam
 from j5_macro.script.params import (
     MASK,
+    MIN_SECRET_LENGTH,
     ParamProblem,
     check_value,
     mask,
+    mask_payload,
     missing_names,
     resolve,
     secret_values,
+    short_secret_params,
+    short_secret_warning,
 )
 from j5_macro.steps import default_registry
 
@@ -180,7 +184,7 @@ def test_secret_values_are_the_texts_of_secret_params_longest_first():
     assert secret_values(declared, {"a": "", "b": None, "c": "x"}) == []
 
 
-def test_mask_replaces_every_occurrence_everywhere():
+def test_mask_replaces_every_occurrence_of_a_value_everywhere():
     secrets = ["s3cr#t pass", "1234"]
     value = {"text": "s3cr#t pass", "message": "user ann with s3cr#t pass, again s3cr#t pass",
              "nested": [{"pin": 1234}, "pin=1234", 12345, True],
@@ -188,5 +192,33 @@ def test_mask_replaces_every_occurrence_everywhere():
     assert mask(value, secrets) == {"text": MASK,
                                     "message": f"user ann with {MASK}, again {MASK}",
                                     "nested": [{"pin": MASK}, f"pin={MASK}", 12345, True],
-                                    MASK: "as a key"}
+                                    "s3cr#t pass": "as a key"}  # keys are names
     assert mask(value, []) is value
+
+
+def test_a_short_secret_is_masked_only_as_a_whole_value():
+    secrets = ["s3cr#t pass", "x", "12"]
+    value = {"backend": "x11", "x": "x", "list": ["x", " x", "box"], "pin": 12, "n": 120,
+             "message": "x and 12 inside s3cr#t pass", "number": "12"}
+    assert mask(value, secrets) == {
+        "backend": "x11", "x": MASK, "list": [MASK, " x", "box"], "pin": MASK, "n": 120,
+        "message": f"x and 12 inside {MASK}", "number": MASK}
+    assert MIN_SECRET_LENGTH == 4
+    assert mask("abcd and abcde", ["abcd", "abc"]) == f"{MASK} and {MASK}e"
+
+
+def test_mask_payload_never_masks_keys():
+    payload = {"backend": "x11", "variables": {"x": "x", "box": {"x": 1}}, "path": [0]}
+    assert mask_payload(payload, ["x"]) == {
+        "backend": "x11", "variables": {"x": MASK, "box": {"x": 1}}, "path": [0]}
+
+
+def test_short_secret_params_are_named_in_declaration_order():
+    declared = {"a": ScriptParam(name="a", secret=True), "b": ScriptParam(name="b"),
+                "c": ScriptParam(name="c", secret=True, type="integer"),
+                "d": ScriptParam(name="d", secret=True)}
+    variables = {"a": "abc", "b": "x", "c": 7, "d": "long enough"}
+    assert short_secret_params(declared, variables) == ["a", "c"]
+    assert short_secret_params(declared, {"a": "", "c": None}) == []
+    message = short_secret_warning("secret param 'a'")
+    assert message.startswith("secret param 'a' has fewer than 4 characters")

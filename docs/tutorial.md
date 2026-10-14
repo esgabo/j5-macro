@@ -302,7 +302,8 @@ means the template is nearly right; a very low one means the image is not on scr
 the search looked in the wrong place.
 
 In a dry run each image search runs once and the step says where it would act, so a dry
-run is a good way to check your templates.
+run is a good way to check your templates. A plain dry run only warns about an image it
+does not find; `j5 run --dry-run --strict` fails there, as the real run would.
 
 ## 5. Logic: variables, branches and loops
 

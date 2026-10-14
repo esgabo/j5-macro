@@ -26,6 +26,7 @@ from j5_macro.steps.images import (
     dry_search,
     match_report,
     search_options,
+    window_missing,
 )
 from j5_macro.steps.input_steps import (
     AREA_RESULT,
@@ -92,7 +93,7 @@ def wait_image_in(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
 
 def wait_image_out(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     if ctx.dry_run:
-        match = dry_locate(ctx, params)
+        match = dry_locate(ctx, params, present=False)
         return _dry(ctx, f"would wait up to {_up_to(ctx, params)} for image "
                     f"{params['image']} to disappear{describe_match(match)}",
                     {} if match is None else match_report(match, params))
@@ -107,13 +108,26 @@ def _window_report(window: WindowInfo) -> dict[str, Any]:
     return {"window": window.title, "bbox": rect_list(window.rect)}
 
 
-def _dry_window(ctx: StepContext, params: Mapping[str, Any], what: str) -> dict[str, Any]:
+def _dry_window(ctx: StepContext, params: Mapping[str, Any], *,
+                present: bool) -> dict[str, Any]:
     """One look for the window. ``window`` is the matching window's full title or,
     when none matched or the lookup could not be made, the ``title`` asked for, so later
-    steps that use it (``window: {title: "${editor.window}"}``) still check."""
+    steps that use it (``window: {title: "${editor.window}"}``) still check. A strict
+    dry run fails when the window is not there (``present``) or still there."""
     title = params["title"]
+
+    def unmet(looked: list[WindowInfo | None]) -> StepError | None:
+        window = looked[0]
+        if (window is not None) == present:
+            return None
+        if window is None:
+            return window_missing(title, " in a strict dry run")
+        return StepError(ErrorCode.STILL_VISIBLE,
+                         f"window {window.title!r} still visible in a strict dry run",
+                         {"title": title, "window": window.title})
+
     looked = dry_search(ctx, f"window {title!r}",
-                        lambda: [ctx.vision.find_window(title)])
+                        lambda: [ctx.vision.find_window(title)], unmet)
     report: dict[str, Any] = {}
     found = ""
     if looked is not None:
@@ -125,20 +139,21 @@ def _dry_window(ctx: StepContext, params: Mapping[str, Any], what: str) -> dict[
         else:
             found = " (not found)"
     report.setdefault("window", title)
+    what = "a window" if present else "no window"
     return _dry(ctx, f"would wait up to {_up_to(ctx, params)} for {what} whose title "
                 f"contains {title!r}{found}", report)
 
 
 def wait_window_in(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     if ctx.dry_run:
-        return _dry_window(ctx, params, "a window")
+        return _dry_window(ctx, params, present=True)
     return _window_report(ctx.vision.wait_window(params["title"],
                                                  timeout=_timeout(ctx, params)))
 
 
 def wait_window_out(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     if ctx.dry_run:
-        return _dry_window(ctx, params, "no window")
+        return _dry_window(ctx, params, present=False)
     return _gone(ctx.vision.wait_window_gone(params["title"],
                                              timeout=_timeout(ctx, params)))
 

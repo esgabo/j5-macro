@@ -88,6 +88,11 @@
                 "description": "Send no input: input steps describe what they would do, image searches run once.",
                 "default": false
               },
+              "strict": {
+                "type": "boolean",
+                "description": "With dryRun: fail the step where a dry run would only warn that the real run fails (an image not found, a missing window, vision not available, exec not allowed).",
+                "default": false
+              },
               "fast": {
                 "type": "boolean",
                 "description": "Use the direct input strategy for mouse and keyboard (no human-like movement).",

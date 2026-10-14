@@ -48,6 +48,7 @@ from j5_macro.runtime.clock import Clock
 from j5_macro.runtime.display import DisplayScale
 from j5_macro.script.images import reference_name
 from j5_macro.script.model import EmbeddedImage
+from j5_macro.steps.images import strict_not_found
 from j5_macro.steps.positions import anchored_region
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
@@ -90,11 +91,13 @@ class RunVision:
                  backend_reason: str | None, dry_run: bool, captures: CapturePolicy,
                  run_dir: Path | None, script_path: str | None, emit: RunEventSink,
                  clock: Clock, images: Mapping[str, EmbeddedImage] | None = None,
-                 display: DisplayScale | None = None) -> None:
+                 display: DisplayScale | None = None, strict: bool = False) -> None:
         self._factory = factory
         self._backend = backend
         self._backend_reason = backend_reason
         self.dry_run = dry_run
+        self.strict = strict
+        """A strict dry run: the single search of a wait fails when it misses."""
         self.captures = captures
         self.run_dir = run_dir
         self._script_dir = Path(script_path).parent if script_path else None
@@ -216,7 +219,7 @@ class RunVision:
         if not isinstance(title, str) or not title:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'title' must be a non-empty text",
                             {"param": "title"})
-        backend = self.windows_backend("window waits")
+        backend = self.windows_backend("window lookups")
         return next((w for w in backend.list_windows() if title in w.title), None)
 
     def window_rect(self, window: Any) -> Rect:
@@ -298,11 +301,12 @@ class BoundVision:
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
-             window: dict[str, Any] | None = None) -> Match:
+             window: dict[str, Any] | None = None,
+             failing: Callable[[Match], bool] | None = None) -> Match:
         """One attempt; not finding the image is not a failure (no capture under
-        ``on_failure``)."""
+        ``on_failure``) unless ``failing(match)`` says the step fails with it."""
         search = self._prepare(image, threshold, scale, region, window)
-        return self._attempt(search, 1)
+        return self._attempt(search, 1, failing=failing)
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
@@ -310,13 +314,19 @@ class BoundVision:
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
         ``timeout`` replaces it when set) seconds of unpaused time pass. Dry runs make
-        exactly one attempt and return its match, found or not. While waiting (a timeout
-        above 0) a missing window is "not found yet"."""
+        exactly one attempt and return its match, found or not; strict dry runs fail
+        with ``image_not_found`` when it misses. While waiting (a timeout above 0) a
+        missing window is "not found yet"."""
         timeout = self._timeout(timeout)
         polls = _WindowPolls(tolerate=timeout > 0 and not self._run.dry_run)
         search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
         if self._run.dry_run:
-            return self._attempt(search, 1)
+            strict = self._run.strict
+            match = self._attempt(search, 1, failing=(lambda m: not m.found) if strict
+                                  else None)
+            if strict and not match.found:
+                raise strict_not_found(image, match, threshold)
+            return match
 
         def attempt(number: int, final: _Final) -> Match | None:
             match = polls.run(lambda: self._attempt(
@@ -492,6 +502,8 @@ class BoundVision:
             screenshot = run.save(capture, self._step_id, attempt, match.bbox, self._log)
         if fails:
             search.failed_capture = screenshot
+        if screenshot is not None:
+            match = dataclasses.replace(match, capture=screenshot)
         if area is None:
             area = capture.rect
         run.emit_search(ImageSearchEvent(

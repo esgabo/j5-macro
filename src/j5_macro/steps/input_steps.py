@@ -37,8 +37,11 @@ from j5_macro.steps.checks import check_point, is_interpolated
 from j5_macro.steps.images import (
     describe_match,
     dry_locate,
+    dry_search,
     locate_target,
     match_report,
+    window_missing,
+    window_title,
 )
 from j5_macro.steps.positions import (
     FindWindow,
@@ -87,15 +90,33 @@ def input_step(describe: Describe, perform: Perform) -> Executor:
                 result.update(match_report(match, params))
         elif "at" in params:
             result.update(stored_report(read_stored(params["at"])))
+        else:
+            _dry_window(ctx, params)
         for name in ("from", "to"):
             target = params.get(name)
             if isinstance(target, Mapping) and "image" in target:
                 found += describe_match(dry_locate(ctx, target), name)
+            elif isinstance(target, Mapping) and "at" not in target:
+                _dry_window(ctx, target)
         description = f"would {describe(params)}{found}"
         ctx.log("info", description)
         return {**result, "description": description}
 
     return run
+
+
+def _dry_window(ctx: StepContext, target: Mapping[str, Any]) -> None:
+    """The window of an ``x``/``y`` target, looked up once in a dry run: a warning when
+    it is missing, ``window_not_found`` in a strict dry run (see
+    :func:`~j5_macro.steps.images.dry_search`)."""
+    title = window_title(target)
+    if title is None:
+        return
+    looked = dry_search(ctx, f"window {title!r}", lambda: [ctx.vision.find_window(title)],
+                        lambda found: None if found[0] is not None
+                        else window_missing(title, " in a strict dry run"))
+    if looked is not None and looked[0] is None:
+        ctx.log("warning", f"dry-run: no visible window whose title contains {title!r}")
 
 
 def _target(params: Mapping[str, Any]) -> str:

@@ -204,10 +204,11 @@ def test_cross_field_accepts(name, params):
 class FakeContext:
     """Records what the executor asks of the interpreter."""
 
-    def __init__(self, *, dry_run: bool = False, seed: int = 1) -> None:
+    def __init__(self, *, dry_run: bool = False, seed: int = 1, strict: bool = False) -> None:
         self.step_id = "s1"
         self.dry_run = dry_run
         self.timeout: float | None = None
+        self.strict = strict
         self.rng = random.Random(seed)
         self.variables: dict[str, Any] = {"a": 2}
         self.calls: list[tuple[str, Any]] = []
@@ -315,6 +316,9 @@ def test_pause_requests_a_pause():
 def test_input_placeholders_in_dry_run(name, params, text):
     ctx = FakeContext(dry_run=True)
     assert run(name, params, ctx) == {"dry_run": True, "description": text}
+    if "window" in params:  # looked up first: vision is missing here, so a warning
+        assert ctx.calls[0][1][0] == "warning" and "window 'Notes'" in ctx.calls[0][1][1]
+        del ctx.calls[0]
     assert ctx.calls == [("log", ("info", text))]
 
 

@@ -77,6 +77,9 @@ class Match:
     display_ratio: float = 1.0
     """The display scale / capture scale ratio the template was resized by, besides the
     step's ``scale`` (set by ``StepVision``); pixel offsets from the match use it."""
+    capture: str | None = None
+    """The capture saved for this attempt, relative to the run's directory (set by
+    ``StepVision`` under the run's ``captures`` policy), for ``step_failed``."""
 
 
 class Capturer(Protocol):
@@ -126,12 +129,14 @@ class StepVision(Protocol):
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
-             window: dict[str, Any] | None = None) -> Match:
+             window: dict[str, Any] | None = None,
+             failing: Callable[[Match], bool] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
         directory, or ``#name`` for an image embedded in the script; ``region`` is
         ``[x, y, w, h]``, relative to ``window`` when given, or ``{at, offset?, size?}``
         next to a stored image result. The match's ``frame`` is the client area of
-        ``window``, when given.
+        ``window``, when given. ``failing(match)`` says whether the step fails with this
+        match (a strict dry run), so its capture is saved (``Match.capture``).
         Raises StepError: ``template_missing``, ``window_not_found``,
         ``capability_missing`` (no vision)."""
         ...

@@ -166,9 +166,24 @@ def test_a_secret_result_is_registered_before_its_step_finished() -> None:
     assert controller.run().status == "completed"
     [(before, values)] = calls
     assert before[-1] == "variable_changed"  # the set step's own variable, then...
-    assert recorder.types()[len(before):] == ["step_finished", "variable_changed"]
+    # "a b" is shorter than 4 characters: a warning, before the adjacent pair.
+    assert recorder.types()[len(before):] == ["log", "step_finished", "variable_changed"]
     # Every string of the result, stripped too; no keys, numbers or blank strings.
     assert values == ["tok-123\n", "tok-123", "copy", "a b"]
+    [warning] = recorder.of("log", step_id="get_token")
+    assert warning["level"] == "warning"
+    assert warning["message"].startswith("a string of the secret result 'token' has "
+                                         "fewer than 4 characters")
+    assert "a b" not in warning["message"]
+
+
+def test_a_secret_result_without_short_strings_logs_no_warning() -> None:
+    recorder = Recorder()
+    controller = create_run(load(SECRET_SCRIPT.replace('"a b"', '"a bc"')), REGISTRY,
+                            recorder, RunOptions(add_secrets=lambda values: None),
+                            clock=ScaledClock(), vision_factory=no_vision)
+    assert controller.run().status == "completed"
+    assert recorder.of("log") == []
 
 
 def test_results_that_are_not_secret_register_nothing() -> None:

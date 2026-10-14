@@ -50,6 +50,8 @@ from j5_macro.script.params import (
     missing_names,
     resolve,
     secret_values,
+    short_secret_params,
+    short_secret_warning,
 )
 
 SHUTDOWN_TIMEOUT_S = 5.0
@@ -144,6 +146,8 @@ class Run:
         self._pending: list[tuple[str, JsonObject]] = []
         self._start_ns = 0
         self._persist_failed = False
+        self.warnings = 0
+        """How many warning ``log`` events the run published (``run_finished.warnings``)."""
 
     # -- events -----------------------------------------------------------
 
@@ -184,6 +188,7 @@ class Run:
                 payload["reason"] = outcome.reason
             if outcome.error is not None:
                 payload["error"] = outcome.error.to_json()
+            payload["warnings"] = self.warnings
             self._publish("run_finished", payload)
             self._closed = True
         return self.masked_payload(payload)
@@ -211,6 +216,8 @@ class Run:
         """Stamp, buffer, persist and write one event. Called with ``_lock`` held, so
         the wire order and the file order both match ``seq``."""
         event = self.sequencer.next(type, self.masked_payload(payload))
+        if type == "log" and payload.get("level") == "warning":
+            self.warnings += 1
         line = encode(event)
         self.events.append(event)
         if self.files is not None and not self._persist_failed:
@@ -280,6 +287,10 @@ class RunManager:
     # -- starting and finishing -------------------------------------------
 
     def start(self, payload: RunPayload) -> Run:
+        if payload.strict and payload.mode != "dry":
+            raise CommandError(ErrorCode.VALIDATION_FAILED,
+                               "payload.strict: only applies to dry runs (mode: dry)",
+                               {"field": "strict"})
         entry = self.scripts.get(payload.script_id)
         if not entry.valid:
             first = entry.errors[0]
@@ -315,6 +326,7 @@ class RunManager:
                 backend_reason=None if self.backend is None else self.backend.reason,
                 allow_exec=payload.allow_exec,
                 display_scale=payload.display_scale,
+                strict=payload.strict,
             )
             meta: JsonObject = {
                 "run_id": run_id,
@@ -348,6 +360,9 @@ class RunManager:
         # Outside the lock: persistence may be slow, and failures only log.
         run.files = self._create_files(run)
         run.start(run_started)
+        for name in short_secret_params(script.params, variables):
+            run.sink("log", {"level": "warning",
+                             "message": short_secret_warning(f"secret param '{name}'")})
         return run
 
     def _display_scale(self, override: float | None,

@@ -279,7 +279,8 @@ below the threshold means you can lower `threshold` a little. Every attempt's sc
 the `image_search` events (`j5 run --json`).
 
 In a dry run (`--dry-run`) each search runs once and the run moves on, found or not, and
-nothing is clicked.
+nothing is clicked. With `--dry-run --strict` a search that does not find its image fails
+the step, as the real run would, and its capture is saved.
 
 ## Safety
 
@@ -416,4 +417,6 @@ run r-20261012-214928-c01c  Hello j5  (mode normal, seed 99240906, backend none)
 
 A **dry run** (`j5 run --dry-run`) sends no input at all: input steps describe what they
 would do (`would click left at (120, 40)`), image searches run once, and variables, loops,
-branches, logs and sleeps run as usual.
+branches, logs and sleeps run as usual. Its summary line counts the warnings (`✓ dry run
+completed in 0.412s with 3 warnings`); `--strict` turns the ones that mean the real run
+would fail into step failures.

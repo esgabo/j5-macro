@@ -64,7 +64,9 @@ step whose target is already gone finishes at once.
 In a dry run, input steps, waits and `exec` report `dry_run: true` and a `description`,
 plus `found`, `score`, `bbox`, `center` when an image was searched (`found`, `window`,
 `bbox?` for window waits; an unmatched `wait_window_in` keeps the `title` as `window`).
-Each wait checks once. A dry `exec` result has no `stdout`.
+Each wait checks once (`--strict`: and fails if that check is not satisfied). A dry
+`exec` result has `exit_code: 0` and empty `stdout` and `stderr` with `wait` (`pid:
+null` without), so later steps that use them still check.
 
 ## Targets, windows, offsets
 

@@ -96,6 +96,7 @@ Launch attributes:
 | `paramsFromEnv` | Params read from environment variables (param name to variable name); use it for secrets so they stay out of `launch.json` |
 | `seed` | Seed of the run, to repeat the same human-like input |
 | `dryRun` | Send no input; input steps describe what they would do |
+| `strict` | With `dryRun`: fail the step where a dry run would only warn that the real run fails, such as an image that is not found (`j5 run --dry-run --strict`) |
 | `fast` | Direct mouse and keyboard strategy instead of human-like movement |
 | `allowExec` | Let the script's `exec` steps run programs (`j5 run --allow-exec`) |
 | `displayScale` | The display scale of the run, e.g. `1.5` (`j5 run --display-scale`) |

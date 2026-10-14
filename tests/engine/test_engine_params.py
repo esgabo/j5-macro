@@ -156,7 +156,8 @@ def test_a_numeric_secret_never_masks_positions() -> None:
     payloads = {e["type"]: e["payload"] for e in engine.run_events(run_id)}
     assert payloads["step_started"]["path"] == [0, 0, 1]
     assert payloads["step_started"]["iterations"] == [1, 0]
-    assert payloads["step_started"]["params"] == {"message": "pin ***"}
+    # A one-character secret is masked as a whole value only, not inside "pin 1".
+    assert payloads["step_started"]["params"] == {"message": "pin 1"}
     assert (payloads["loop_iteration"]["index"], payloads["loop_iteration"]["total"]) == (1, 1)
     assert payloads["step_finished"]["duration_ms"] == 1
     assert payloads["step_finished"]["result"] == {"value": "***"}
@@ -170,6 +171,46 @@ def test_runs_without_secrets_are_untouched() -> None:
     engine.close()
     (log,) = [e for e in engine.run_events(run_id) if e["type"] == "log"]
     assert log["payload"]["message"] == "***x"
+
+
+def test_a_short_secret_never_alters_keys_or_unrelated_text() -> None:
+    events = [("step_started", {"step_id": "hi", "path": [0], "line": 7, "type": "log",
+                                "params": {"message": "x marks x11", "text": "x"}}),
+              ("step_finished", {"step_id": "hi", "path": [0], "line": 7, "duration_ms": 1,
+                                 "result": {"x": "x", "box": "xx"}})]
+    state = {"state": "paused", "step_id": "hi", "path": [0], "line": 7,
+             "variables": {"x": "x", "password": "x", "extra": {"x": "x11"}}}
+    engine, factory = make(Behaviour(block=True, state=state, events=events,
+                                     backend="x11"))
+    run_id = engine.start(engine.load_source(SCRIPT),
+                          params={"user": "ann", "password": "x"})
+    answer = engine.ok("get_state", {"run_id": run_id})
+    assert answer["variables"] == {"x": "***", "password": "***", "extra": {"x": "x11"}}
+    factory.last.release()
+    engine.wait_finished(run_id)
+    engine.close()
+    events_seen = engine.run_events(run_id)
+    payloads = {e["type"]: e["payload"] for e in events_seen}
+    assert payloads["run_started"]["backend"] == "x11"
+    assert payloads["step_started"]["params"] == {"message": "x marks x11", "text": "***"}
+    assert payloads["step_finished"]["result"] == {"x": "***", "box": "xx"}
+    # Warned right after run_started, naming the param but never showing its value.
+    assert [e["type"] for e in events_seen][:2] == ["run_started", "log"]
+    warning = events_seen[1]["payload"]
+    assert warning["level"] == "warning"
+    assert warning["message"] == (
+        "secret param 'password' has fewer than 4 characters: it is masked only where "
+        "a value is exactly that secret, not inside longer text")
+
+
+def test_a_long_secret_logs_no_warning() -> None:
+    engine, _ = make()
+    run_id = engine.start(engine.load_source(SCRIPT),
+                          params={"user": "ann", "password": "abcd"})
+    engine.wait_finished(run_id)
+    engine.close()
+    assert not [e for e in engine.run_events(run_id) if e["type"] == "log"
+                and e["payload"]["level"] == "warning"]
 
 
 # --- results stored as secrets, through the real interpreter ----------------------------
@@ -226,3 +267,41 @@ def test_a_result_stored_as_secret_is_masked_from_its_step_finished_on(tmp_path)
     assert finished["payload"]["status"] == "failed"
     for path in tmp_path.rglob("*.json*"):
         assert TOKEN not in path.read_text(encoding="utf-8"), path
+
+
+def _fetch_short(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
+    """Stands in for a command that prints a two-character code."""
+    return {"exit_code": 0, "stdout": "ok\n", "stderr": ""}
+
+
+SHORT_RESULT = """\
+steps:
+  - id: get_code
+    fetch:
+    as: {name: code, secret: true}
+  - id: show
+    log: "${strip(code.stdout)} | okay, backend x11 ok"
+"""
+
+
+def test_a_short_result_stored_as_secret_follows_the_same_rule() -> None:
+    registry = default_registry()
+    registry.register(StepType(StepSpec(name="fetch", doc="Fetch a code."), _fetch_short))
+    engine = Engine(registry=registry)
+    run_id = engine.start(engine.load_source(SHORT_RESULT))
+    engine.wait_finished(run_id)
+    engine.close()
+
+    events = engine.run_events(run_id)
+    types = [(e["type"], e["payload"].get("step_id")) for e in events]
+    at = types.index(("step_finished", "get_code"))
+    assert types[at - 1] == ("log", "get_code")
+    assert types[at + 1] == ("variable_changed", "get_code")
+    warning = events[at - 1]["payload"]
+    assert warning["level"] == "warning"
+    assert "'code'" in warning["message"] and "fewer than 4 characters" in warning["message"]
+    assert events[at]["payload"]["result"] == {"exit_code": 0, "stdout": "***", "stderr": ""}
+    (log,) = [e["payload"]["message"] for e in events if e["type"] == "log"
+              and e["payload"].get("step_id") == "show"]
+    # The whole value is masked as such; "ok" inside longer text is left alone.
+    assert log == "ok | okay, backend x11 ok"
