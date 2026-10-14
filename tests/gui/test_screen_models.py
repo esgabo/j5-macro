@@ -289,4 +289,4 @@ def test_failures_without_a_matching_search() -> None:
     [failure] = search_failures(events)
     assert (failure.template, failure.best_score, failure.bbox_in_capture) == \
         ("img/a.png", 0.5, None)
-    assert failure.template_file("/s/a.yaml") == os.path.normpath("/s/img/a.png")
+    assert failure.template_file("/s/a.yaml") == os.path.abspath("/s/img/a.png")

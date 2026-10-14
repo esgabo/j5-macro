@@ -215,8 +215,12 @@ def test_strict_dry_run_fails_where_the_real_run_would(qtbot: Any, window: Any,
     assert image.save(str(scripts / "target.png"))
     open_script(qtbot, window, write(scripts, "strict.yaml", STRICT))
     panel = window.run_panel
-    with qtbot.waitSignal(window.ctx.run.run_finished, timeout=WAIT) as finished:
+    # The first search of the session loads OpenCV and grabs the real desktop, which
+    # can take far longer than the GUI waits on a cold Windows runner.
+    with qtbot.waitSignal(window.ctx.run.run_finished, timeout=4 * WAIT,
+                          raising=False) as finished:
         panel.start("dry")
+    assert finished.signal_triggered, "\n".join(panel.log_lines())
     # Not found, or the screen cannot be searched here: a plain dry run completes.
     assert finished.args[0]["status"] == "completed"
     warnings = finished.args[0]["warnings"]
