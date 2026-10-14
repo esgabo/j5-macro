@@ -385,10 +385,23 @@ def test_update_nested_mapping_keeps_unchanged_parts() -> None:
     )
 
 
+def test_update_renames_a_step() -> None:
+    out = edit(BASIC, {"op": "update", "step_id": "inner", "common": {"id": "nap"}},
+               {"op": "update", "step_id": "nap", "params": {"duration": "2s"}})
+    assert changed_lines(BASIC, out) == (
+        ["        - id: inner", "          sleep: 1s"],
+        ["        - id: nap", "          sleep: 2s"],
+    )
+    assert edit(BASIC, {"op": "update", "step_id": "greet",
+                        "common": {"id": "greet"}}) == BASIC
+
+
 @pytest.mark.parametrize(("edit_", "reason"), [
     ({"step_id": "nope", "params": {"x": 1}}, "unknown step id"),
     ({"step_id": "lp", "params": {"do": []}}, "blocks are not parameters"),
-    ({"step_id": "greet", "common": {"id": "other"}}, "not a common field"),
+    ({"step_id": "greet", "common": {"id": "lp"}}, "id 'lp' is already used"),
+    ({"step_id": "greet", "common": {"id": "9lives"}}, "invalid id '9lives'"),
+    ({"step_id": "greet", "common": {"id": None}}, "invalid id None"),
     ({"step_id": "greet", "common": {"frob": 1}}, "not a common field"),
 ])
 def test_update_errors(edit_: dict[str, Any], reason: str) -> None:

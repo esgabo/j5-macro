@@ -81,7 +81,7 @@ from j5_macro.script.loader import _TOP_LEVEL, ID_PATTERN, _parse_error, _plain
 from j5_macro.steps.spec import StepLookup, StepSpec, unknown_step_type
 
 COMMON_FIELDS = ("break", "timeout", "on_error", "input", "as")
-"""Common step fields an ``update`` may change (``id`` is not one of them)."""
+"""Common step fields an ``update`` may change or remove; it may also change ``id``."""
 
 _ID_AND_COMMON = ("id", *COMMON_FIELDS)
 _SCALARS = (str, int, float, bool, type(None))
@@ -791,12 +791,26 @@ class _Tree:
                                "their steps with insert, move and delete")
             _map_set(ref.node, key, self._updated_body(ref, ref.spec, ref.node[key],
                                                        edit.params))
-        for name in edit.common or {}:
-            if name not in COMMON_FIELDS:
-                raise _Refused(f"{name!r} is not a common field; expected one of "
+        common = dict(edit.common or {})
+        for name in common:
+            if name != "id" and name not in COMMON_FIELDS:
+                raise _Refused(f"{name!r} is not a common field; expected one of id, "
                                f"{', '.join(COMMON_FIELDS)}")
-        for name, value in (edit.common or {}).items():
+        if "id" in common:
+            self._rename(ref, common.pop("id"))
+        for name, value in common.items():
             _set_or_delete(ref.node, name, value)
+
+    def _rename(self, ref: _Ref, new_id: Any) -> None:
+        """Give the step ``ref`` the id ``new_id`` (valid and unused)."""
+        if not isinstance(new_id, str) or not ID_PATTERN.match(new_id):
+            raise _Refused(f"invalid id {new_id!r}: use letters, digits, '_' or '-', "
+                           "starting with a letter or '_'")
+        if new_id == ref.id:
+            return
+        if any(r.id == new_id for r in self.refs()):
+            raise _Refused(f"id {new_id!r} is already used")
+        _map_set(ref.node, "id", new_id)
 
     @staticmethod
     def _updated_body(ref: _Ref, spec: StepSpec, body: Any,

@@ -384,7 +384,7 @@ class InsertEdit(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UpdateEdit(Payload):
     """Replace the given ``params`` (``None`` removes one) and ``common`` fields
-    (``break``, ``timeout``, ``on_error``, ``input``, ``as``)."""
+    (``break``, ``timeout``, ``on_error``, ``input``, ``as``; ``id`` renames the step)."""
 
     op: Literal["update"] = "update"
     step_id: str
