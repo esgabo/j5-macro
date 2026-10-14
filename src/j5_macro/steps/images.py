@@ -2,7 +2,9 @@
 (docs/contract.md, "Script format and step registry": images and coordinates).
 
 An image target is a mapping with ``image`` and optional ``threshold``, ``scale``,
-``region`` and ``window``; searches go through ``ctx.vision``
+``region`` and ``window``, plus ``pick``, ``nth``, ``after`` and ``before`` to choose
+among several matches (:mod:`j5_macro.vision.selection`); searches go through
+``ctx.vision``
 (:class:`~j5_macro.vision.api.StepVision`). Image results report where the match is
 (:func:`match_report`), so they can be kept with ``as`` and used as ``at`` targets.
 
@@ -23,6 +25,7 @@ from j5_macro.protocol.errors import ErrorCode
 from j5_macro.steps.positions import NoPosition, area_report, relative
 from j5_macro.steps.spec import StepContext, StepError
 from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD, Match
+from j5_macro.vision.selection import SELECTION_KEYS, selection_of
 
 DRY_RUN_SKIPPABLE = (ErrorCode.CAPABILITY_MISSING.value, ErrorCode.WINDOW_NOT_FOUND.value)
 """Search failures a dry run reports as a warning instead of failing the step (also
@@ -72,7 +75,16 @@ def search_options(target: Mapping[str, Any]) -> dict[str, Any]:
     for name in ("region", "window"):
         if target.get(name) is not None:
             options[name] = target[name]
+    select = selection_of(target)
+    if select is not None:
+        options["select"] = select
     return options
+
+
+def not_found_note(match: Match) -> str:
+    """``; 2 matches, none after #header``: why a search that chose among several
+    matches found none, to append to a message; empty otherwise."""
+    return f"; {match.note}" if match.note else ""
 
 
 def window_title(target: Mapping[str, Any]) -> str | None:
@@ -84,11 +96,21 @@ def window_title(target: Mapping[str, Any]) -> str | None:
 
 def match_report(match: Match, target: Mapping[str, Any]) -> dict[str, Any]:
     """``found``, ``score``, ``bbox`` and ``center`` of a match of ``target`` and, for a
-    window search, ``window`` (the title) and ``window_bbox``, for step results."""
+    window search, ``window`` (the title) and ``window_bbox``, for step results; with
+    ``matches`` (each with ``score`` and the same area fields) when the search chose
+    among several."""
     title = window_title(target)
-    return {"found": match.found, "score": round(float(match.score), 4),
-            **area_report(match.bbox, title,
-                          relative(match.bbox, match.frame) if title is not None else None)}
+    report = {"found": match.found, "score": round(float(match.score), 4),
+              **area_report(match.bbox, title,
+                            relative(match.bbox, match.frame) if title is not None
+                            else None)}
+    if match.matches is not None:
+        report["matches"] = [
+            {"score": round(float(m.score), 4),
+             **area_report(m.bbox, title,
+                           relative(m.bbox, match.frame) if title is not None else None)}
+            for m in match.matches]
+    return report
 
 
 def locate_target(ctx: StepContext, target: Mapping[str, Any]) -> Match:
@@ -97,7 +119,8 @@ def locate_target(ctx: StepContext, target: Mapping[str, Any]) -> Match:
     runs a miss raises ``image_not_found``."""
     match = ctx.vision.wait(target["image"], timeout=0.0, **search_options(target))
     if not ctx.dry_run and (not match.found or match.bbox is None):
-        raise StepError(ErrorCode.IMAGE_NOT_FOUND, f"{target['image']} not found",
+        raise StepError(ErrorCode.IMAGE_NOT_FOUND,
+                        f"{target['image']} not found{not_found_note(match)}",
                         {"best_score": round(float(match.score), 4),
                          "threshold": search_options(target)["threshold"],
                          "template": target["image"]})
@@ -151,7 +174,7 @@ def strict_not_found(image: str, match: Match, threshold: float,
     return StepError(
         ErrorCode.IMAGE_NOT_FOUND,
         f"{image} not found{when} (one attempt; best score "
-        f"{match.score:.3f}, threshold {threshold:g})",
+        f"{match.score:.3f}, threshold {threshold:g}{not_found_note(match)})",
         {"best_score": round(float(match.score), 4), "threshold": threshold,
          "template": image, "attempts": 1},
         screenshot=match.capture)
@@ -202,14 +225,16 @@ def describe_match(match: Match | None, label: str = "") -> str:
 
 def image_visible(ctx: StepContext, argument: Any) -> bool:
     """``{image_visible: img/x.png}`` or ``{image_visible: {image: ..., threshold: ...,
-    scale: ..., region: ..., window: ...}}``: one search. A missing window is false
+    scale: ..., region: ..., window: ..., pick/nth/after/before: ...}}``: one search
+    (true when the match it chooses exists). A missing window is false
     (nothing is searched), and so is not finding the image: never a failure. In dry
     runs a search that cannot be made (no vision) is false with a warning; strict dry
     runs fail as a real run does."""
     if isinstance(argument, str):
         target: Mapping[str, Any] = {"image": argument}
     elif isinstance(argument, Mapping):
-        unknown = set(argument) - {"image", "threshold", "scale", "region", "window"}
+        unknown = set(argument) - {"image", "threshold", "scale", "region", "window",
+                                   *SELECTION_KEYS}
         if unknown:
             raise StepError(ErrorCode.VALIDATION_FAILED,
                             f"image_visible: unknown keys {', '.join(sorted(unknown))}",

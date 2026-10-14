@@ -48,8 +48,8 @@ from j5_macro.runtime.clock import Clock
 from j5_macro.runtime.display import DisplayScale
 from j5_macro.script.images import reference_name
 from j5_macro.script.model import EmbeddedImage
-from j5_macro.steps.images import relaxed_warning, strict_not_found
-from j5_macro.steps.positions import anchored_region
+from j5_macro.steps.images import not_found_note, relaxed_warning, strict_not_found
+from j5_macro.steps.positions import anchored_region, locate_stored, read_stored
 from j5_macro.steps.spec import LogLevel, StepError
 from j5_macro.vision.api import (
     DEFAULT_INTERVAL,
@@ -60,6 +60,15 @@ from j5_macro.vision.api import (
     Template,
     ToolkitFactory,
     VisionToolkit,
+)
+from j5_macro.vision.selection import (
+    ANCHORS,
+    Selection,
+    choose,
+    eligible,
+    none_chosen,
+    reading_order,
+    selection_problem,
 )
 
 TOOLKIT_MODULE = "j5_macro.vision.toolkit"
@@ -306,25 +315,29 @@ class BoundVision:
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
-             failing: Callable[[Match], bool] | None = None) -> Match:
+             failing: Callable[[Match], bool] | None = None,
+             select: Selection | None = None) -> Match:
         """One attempt; not finding the image is not a failure (no capture under
         ``on_failure``) unless ``failing(match)`` says the step fails with it."""
-        search = self._prepare(image, threshold, scale, region, window)
+        search = self._prepare(image, threshold, scale, region, window, select=select)
         return self._attempt(search, 1, failing=failing)
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
-             interval: float = DEFAULT_INTERVAL) -> Match:
+             interval: float = DEFAULT_INTERVAL, select: Selection | None = None,
+             own_timeout: bool = False) -> Match:
         """Attempts every ``interval`` until found or ``timeout`` (the step's common
-        ``timeout`` replaces it when set) seconds of unpaused time pass. Dry runs make
+        ``timeout`` replaces it when set, unless ``own_timeout``) seconds of unpaused
+        time pass. Dry runs make
         exactly one attempt and return its match, found or not; strict dry runs fail
         with ``image_not_found`` when it misses (a warning once relaxed, see
         :attr:`~j5_macro.steps.spec.StepContext.relaxed_by`). While waiting (a timeout
         above 0) a missing window is "not found yet"."""
-        timeout = self._timeout(timeout)
+        timeout = timeout if own_timeout else self._timeout(timeout)
         polls = _WindowPolls(tolerate=timeout > 0 and not self._run.dry_run)
-        search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
+        search = self._prepare(image, threshold, scale, region, window, polls.tolerate,
+                               select)
         if self._run.dry_run:
             strict = self._strict and self._relaxed_by is None
             match = self._attempt(search, 1, failing=(lambda m: not m.found) if strict
@@ -350,7 +363,8 @@ class BoundVision:
             return StepError(
                 ErrorCode.IMAGE_NOT_FOUND,
                 f"{image} not found after {attempts} attempt(s) in {timeout:g}s "
-                f"(best score {match.score:.3f}, threshold {threshold:g})",
+                f"(best score {match.score:.3f}, threshold {threshold:g}"
+                f"{not_found_note(match)})",
                 {"best_score": round(match.score, 4), "threshold": threshold,
                  "template": image, "attempts": attempts},
                 screenshot=search.failed_capture)
@@ -361,12 +375,14 @@ class BoundVision:
                   threshold: float = DEFAULT_THRESHOLD, scale: float = DEFAULT_SCALE,
                   region: list[int] | dict[str, Any] | None = None,
                   window: dict[str, Any] | None = None,
-                  interval: float = DEFAULT_INTERVAL) -> float:
+                  interval: float = DEFAULT_INTERVAL,
+                  select: Selection | None = None) -> float:
         """Attempts every ``interval`` until the image is not found; returns the unpaused
         seconds waited. A missing window is "not gone yet"."""
         timeout = self._timeout(timeout)
         polls = _WindowPolls(tolerate=timeout > 0)
-        search = self._prepare(image, threshold, scale, region, window, polls.tolerate)
+        search = self._prepare(image, threshold, scale, region, window, polls.tolerate,
+                               select)
 
         def attempt(number: int, final: _Final) -> Match | None:
             match = polls.run(lambda: self._attempt(
@@ -459,7 +475,8 @@ class BoundVision:
             self._wait(max(0.0, min(interval, timeout - active())))
 
     def _prepare(self, image: str, threshold: float, scale: float, region: Any,
-                 window: Any, missing_window_ok: bool = False) -> _Search:
+                 window: Any, missing_window_ok: bool = False,
+                 select: Selection | None = None) -> _Search:
         if isinstance(threshold, bool) or not isinstance(threshold, int | float) \
                 or not 0 <= threshold <= 1:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'threshold' must be between 0 and 1",
@@ -468,6 +485,18 @@ class BoundVision:
             raise StepError(ErrorCode.VALIDATION_FAILED, "'scale' must be a positive number",
                             {"param": "scale"})
         template = self._run.load_template(image)
+        anchors: dict[str, _Anchor] = {}
+        if select is not None:
+            problem = selection_problem(select)
+            if problem is not None:
+                param, message = problem
+                raise StepError(ErrorCode.VALIDATION_FAILED, f"'{param}' {message}",
+                                {"param": param})
+            if self._run.toolkit().locate_all is None:
+                raise StepError(ErrorCode.CAPABILITY_MISSING,
+                                "this vision toolkit cannot find every match of an image "
+                                "(pick, nth, after, before)")
+            anchors = self._anchors(select)
         # Fail early on a bad region or window (unless a wait polls for the window).
         try:
             self._run.search_area(region, self._run.window_frame(window))
@@ -476,7 +505,29 @@ class BoundVision:
                 raise
         return _Search(image=image, template=template, threshold=float(threshold),
                        scale=float(scale), region=region, window=window,
-                       capture_scale=self._run.capture_scale(image))
+                       capture_scale=self._run.capture_scale(image), select=select,
+                       anchors=anchors)
+
+    def _anchors(self, select: Selection) -> dict[str, _Anchor]:
+        """The anchors of ``select``: images (with their template, loaded now) and
+        stored results (checked now, placed on every attempt)."""
+        anchors: dict[str, _Anchor] = {}
+        for name in ANCHORS:
+            value = getattr(select, name)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                template = self._run.load_template(value)
+                anchors[name] = _Anchor(image=value, template=template,
+                                        capture_scale=self._run.capture_scale(value))
+            elif isinstance(value, Mapping):
+                read_stored(value, name)
+                anchors[name] = _Anchor(stored=value)
+            else:
+                raise StepError(ErrorCode.VALIDATION_FAILED,
+                                f"'{name}' must be an image or an image result kept with "
+                                "'as'", {"param": name})
+        return anchors
 
     def _attempt(self, search: _Search, attempt: int, *,
                  failing: Callable[[Match], bool] | None = None) -> Match:
@@ -499,7 +550,10 @@ class BoundVision:
         display_scale = run.display.at(None if area is None else area.center)
         ratio = display_scale / search.capture_scale
         scale = search.scale * ratio
-        match = toolkit.locate(search.template, capture, search.threshold, scale)
+        if search.select is None:
+            match = toolkit.locate(search.template, capture, search.threshold, scale)
+        else:
+            match = self._choose(search, capture, scale, display_scale, attempt)
         match = dataclasses.replace(match, display_ratio=ratio)
         if frame is not None:
             match = dataclasses.replace(match, frame=frame)
@@ -524,6 +578,81 @@ class BoundVision:
             attempt=attempt, elapsed_ms=elapsed_ms,
             screenshot=screenshot))
         return match
+
+
+    def _choose(self, search: _Search, capture: Frame, scale: float,
+                display_scale: float, attempt: int) -> Match:
+        """The match ``search.select`` chooses among every match in ``capture``, with
+        ``matches`` (all of them, in reading order) and, when none is chosen, a ``note``
+        saying why. Image anchors are searched in the same capture."""
+        run = self._run
+        toolkit = run.toolkit()
+        assert search.select is not None and toolkit.locate_all is not None
+        ordered = reading_order(
+            [m for m in toolkit.locate_all(search.template, capture, search.threshold, scale)
+             if m.bbox is not None])
+        places: dict[str, Rect | None] = {}
+        missing: str | None = None
+        for name, anchor in search.anchors.items():
+            if anchor.stored is not None:
+                stored = read_stored(anchor.stored, name)
+                places[name], _ = locate_stored(
+                    stored, lambda title: run.window_rect({"title": title}), name)
+                continue
+            assert anchor.image is not None and anchor.template is not None
+            anchor_scale = search.scale * display_scale / anchor.capture_scale
+            found = self._locate_anchor(anchor, capture, search.threshold, anchor_scale,
+                                        display_scale, attempt)
+            places[name] = found.bbox if found.found else None
+            if not found.found and missing is None:
+                missing = (f"{name} {anchor.image} not found (best score "
+                           f"{found.score:.3f})")
+        after, before = places.get("after"), places.get("before")
+        chosen = None if missing is not None else choose(
+            ordered, search.select, after=after, before=before)
+        if chosen is not None:
+            return dataclasses.replace(chosen, matches=tuple(ordered))
+        # The best location, for the event and messages (below the threshold too).
+        best = max(ordered, key=lambda m: m.score) if ordered else \
+            toolkit.locate(search.template, capture, search.threshold, scale)
+        note = missing
+        if note is None and ordered:
+            note = none_chosen(len(ordered), len(eligible(ordered, after, before)),
+                               search.select)
+        return Match(found=False, score=best.score, bbox=best.bbox,
+                     elapsed_ms=best.elapsed_ms, matches=tuple(ordered), note=note)
+
+    def _locate_anchor(self, anchor: _Anchor, capture: Frame, threshold: float,
+                       scale: float, display_scale: float, attempt: int) -> Match:
+        """One search of an image anchor in the target's capture, with its
+        ``image_search`` event."""
+        run = self._run
+        assert anchor.image is not None and anchor.template is not None
+        began = run.clock.now()
+        match = run.toolkit().locate(anchor.template, capture, threshold, scale)
+        run.emit_search(ImageSearchEvent(
+            template=anchor.image, threshold=threshold, found=match.found,
+            best_score=round(float(match.score), 4),
+            bbox=None if match.bbox is None else rect_list(match.bbox),
+            region=rect_list(capture.rect), scale=round(scale, 4),
+            display_scale=round(display_scale, 4),
+            capture_scale=round(anchor.capture_scale, 4),
+            attempt=attempt, elapsed_ms=max(0, round((run.clock.now() - began) * 1000))))
+        return match
+
+
+class _Anchor:
+    """An ``after`` or ``before`` anchor: an image (with its template) or a stored
+    result."""
+
+    __slots__ = ("capture_scale", "image", "stored", "template")
+
+    def __init__(self, *, image: str | None = None, template: Template | None = None,
+                 capture_scale: float = 1.0, stored: Mapping[str, Any] | None = None) -> None:
+        self.image = image
+        self.template = template
+        self.capture_scale = capture_scale
+        self.stored = stored
 
 
 class _Final:
@@ -580,11 +709,15 @@ class _WindowPolls:
 class _Search:
     """One find or wait: its resolved inputs and the capture of its failing attempt."""
 
-    __slots__ = ("capture_scale", "failed_capture", "image", "region", "scale",
-                 "template", "threshold", "window")
+    __slots__ = ("anchors", "capture_scale", "failed_capture", "image", "region", "scale",
+                 "select", "template", "threshold", "window")
 
     def __init__(self, *, image: str, template: Template, threshold: float, scale: float,
-                 region: Any, window: Any, capture_scale: float = 1.0) -> None:
+                 region: Any, window: Any, capture_scale: float = 1.0,
+                 select: Selection | None = None,
+                 anchors: dict[str, _Anchor] | None = None) -> None:
+        self.select = select
+        self.anchors = anchors or {}
         self.image = image
         self.capture_scale = capture_scale
         self.template = template

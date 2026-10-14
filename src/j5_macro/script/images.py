@@ -37,6 +37,10 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _WHITESPACE = re.compile(r"\s+")
 _IMAGE_PARAM_TYPES = ("string",)
 _TARGET_PARAM_TYPES = ("object", "condition")
+_ANCHOR_KEYS = ("after", "before")
+"""Keys of an image target that may hold an image too: the anchors that choose among
+several matches (a stored result there is a mapping, or text with ``${``)."""
+_ANCHOR_PARAM_TYPES = ("string", "any")
 
 
 def reference_name(value: Any) -> str | None:
@@ -126,9 +130,10 @@ def image_slots(params: Mapping[str, Any],
     string value, ``param`` being its dotted name for messages (``image``,
     ``from.image``, ``when.image_visible``, ``while.image_visible.image``).
 
-    Looks at an ``image`` string parameter, and inside mapping parameters of type
-    ``object`` or ``condition`` at their ``image`` key and at ``image_visible``, either
-    a string or a mapping with ``image``. Parameters the step type does not declare
+    Looks at an ``image`` string parameter and the ``after``/``before`` anchors next to
+    it, and inside mapping parameters of type ``object`` or ``condition`` at their
+    ``image``, ``after`` and ``before`` keys and at ``image_visible``, either a string or
+    a mapping with ``image`` (and anchors). Parameters the step type does not declare
     are skipped (the loader reports them)."""
     if spec is None:
         return
@@ -140,16 +145,22 @@ def image_slots(params: Mapping[str, Any],
             if isinstance(value, str):
                 yield params, name, "image"
             continue
+        if str(name) in _ANCHOR_KEYS and param.type in _ANCHOR_PARAM_TYPES:
+            if isinstance(value, str) and "image" in params:
+                yield params, name, str(name)
+            continue
         if param.type not in _TARGET_PARAM_TYPES or not isinstance(value, Mapping):
             continue
         for key, inner in list(value.items()):
             where = f"{name}.{key}"
-            if str(key) == "image" and isinstance(inner, str):
-                yield value, key, where
+            if str(key) in ("image", *_ANCHOR_KEYS) and isinstance(inner, str):
+                if str(key) == "image" or "image" in value:
+                    yield value, key, where
             elif str(key) == "image_visible":
                 if isinstance(inner, str):
                     yield value, key, where
                 elif isinstance(inner, Mapping):
-                    image_key = next((k for k in inner if str(k) == "image"), None)
-                    if image_key is not None and isinstance(inner[image_key], str):
-                        yield inner, image_key, f"{where}.image"
+                    for image_key in [k for k in inner
+                                      if str(k) in ("image", *_ANCHOR_KEYS)]:
+                        if isinstance(inner[image_key], str):
+                            yield inner, image_key, f"{where}.{image_key}"

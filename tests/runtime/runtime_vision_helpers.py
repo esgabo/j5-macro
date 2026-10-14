@@ -59,10 +59,20 @@ class FakeCapturer:
 
 class FakeToolkit:
     """Builds a :class:`VisionToolkit` whose locator returns ``matches`` in order (the
-    last one repeats) and records every call."""
+    last one repeats) and records every call. ``by_template`` answers ``locate`` for
+    the templates it names (by file name or ``#name``) instead; ``every`` holds what
+    each ``locate_all`` call returns, in order (the last one repeats)."""
 
-    def __init__(self, matches: Iterable[Match] = ()) -> None:
+    def __init__(self, matches: Iterable[Match] = (), *,
+                 every: Iterable[list[Match]] = (),
+                 by_template: dict[str, Match] | None = None) -> None:
         self.matches = list(matches) or [miss(0.1)]
+        self.every = list(every) or [[]]
+        self.by_template = by_template or {}
+        self.listed: list[tuple[Path, tuple[int, int], float, float]] = []
+        """The ``locate_all`` calls."""
+        self.listing = True
+        """Whether the toolkit can find every match (``locate_all``)."""
         self.capturer = FakeCapturer()
         self.templates: list[Path] = []
         self.searches: list[tuple[Path, tuple[int, int], float, float]] = []
@@ -81,7 +91,8 @@ class FakeToolkit:
         return VisionToolkit(capturer=self.capturer, load_template=self.load_template,
                              locate=self.locate, save_image=self.save_image,
                              decode_template=self.decode_template if self.embedding
-                             else None)
+                             else None,
+                             locate_all=self.locate_all if self.listing else None)
 
     def decode_template(self, data: bytes, label: str) -> Template:
         self.decoded.append((data, label))
@@ -97,9 +108,20 @@ class FakeToolkit:
 
     def locate(self, template: Template, frame: Frame, threshold: float,
                scale: float) -> Match:
+        named = self.by_template.get(template.path.name)
+        if named is None and str(template.path).startswith("#"):
+            named = self.by_template.get(str(template.path))
+        if named is not None:
+            return named
         index = min(len(self.searches), len(self.matches) - 1)
         self.searches.append((template.path, frame.origin, threshold, scale))
         return self.matches[index]
+
+    def locate_all(self, template: Template, frame: Frame, threshold: float,
+                   scale: float) -> list[Match]:
+        index = min(len(self.listed), len(self.every) - 1)
+        self.listed.append((template.path, frame.origin, threshold, scale))
+        return self.every[index]
 
     def save_image(self, frame: Frame, path: Path, outline: Rect | None) -> None:
         path.write_bytes(b"\x89PNG fake")

@@ -21,7 +21,12 @@ set (a missing window then counts as "not found yet"); a miss fails with
 :mod:`j5_macro.steps.positions`). For both, the action lands on the centre of the area
 plus ``offset``, and the area is passed to the input layer as the ``target`` for
 human-like landing (without an offset). Results report the area used, so they can be
-kept with ``as`` in turn.
+kept with ``as`` in turn. ``pick``, ``nth``, ``after`` and ``before`` choose among
+several matches of an image target (:mod:`j5_macro.vision.selection`).
+
+``click`` may rest on its target before pressing: with ``hover`` it moves there, waits
+until the hovered look of the target (an image) appears, then clicks; with ``dwell`` it
+waits that long after moving. Both together wait for the image, then dwell.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from j5_macro.steps.images import (
     dry_search,
     locate_target,
     match_report,
+    search_options,
     window_missing,
     window_title,
 )
@@ -53,6 +59,7 @@ from j5_macro.steps.positions import (
     rect_list,
     region_problem,
     relative,
+    stored_problem,
     stored_report,
 )
 from j5_macro.steps.spec import (
@@ -67,8 +74,11 @@ from j5_macro.steps.spec import (
     parse_duration,
 )
 from j5_macro.vision.api import DEFAULT_SCALE, DEFAULT_THRESHOLD
+from j5_macro.vision.selection import ANCHORS, PICKS, SELECTION_KEYS
 
 BUTTONS = ("left", "right", "middle")
+DEFAULT_HOVER_TIMEOUT = "2s"
+HOVER_KEYS = ("image", "threshold", "scale", "region", "window", "timeout")
 
 Describe = Callable[[dict[str, Any]], str]
 Perform = Callable[[StepContext, dict[str, Any]], dict[str, Any]]
@@ -121,7 +131,7 @@ def _dry_window(ctx: StepContext, target: Mapping[str, Any]) -> None:
 
 def _target(params: Mapping[str, Any]) -> str:
     if "image" in params:
-        where = f"image {params['image']}"
+        where = f"image {params['image']}{_selection(params)}"
     elif "at" in params:
         where = _describe_stored(params["at"])
     else:
@@ -130,6 +140,20 @@ def _target(params: Mapping[str, Any]) -> str:
     if isinstance(window, Mapping) and window:
         where += f" in window {dict(window)}"
     return where
+
+
+def _selection(params: Mapping[str, Any]) -> str:
+    """`` (nth 2, after #header)``: how an image target chooses among matches."""
+    parts = [f"{name} {_anchor(params[name])}" for name in ANCHORS
+             if params.get(name) is not None]
+    for name in ("pick", "nth"):
+        if params.get(name) is not None:
+            parts.insert(0, f"{name} {params[name]}")
+    return f" ({', '.join(parts)})" if parts else ""
+
+
+def _anchor(value: Any) -> str:
+    return value if isinstance(value, str) else _describe_stored(value)
 
 
 def _describe_stored(value: Any) -> str:
@@ -147,7 +171,14 @@ def _describe_stored(value: Any) -> str:
 def _describe_click(p: dict[str, Any]) -> str:
     clicks = p.get("clicks", 1)
     times = "" if clicks == 1 else f" x{clicks}"
-    return f"click {p.get('button', 'left')}{times} at {_target(p)}{_offset(p)}"
+    rest = ""
+    hover = p.get("hover")
+    if isinstance(hover, Mapping):
+        rest += (f" once {hover.get('image')} appears there (up to "
+                 f"{hover.get('timeout', DEFAULT_HOVER_TIMEOUT)})")
+    if p.get("dwell") is not None:
+        rest += f" after resting {p['dwell']}"
+    return f"click {p.get('button', 'left')}{times} at {_target(p)}{_offset(p)}{rest}"
 
 
 def _describe_move(p: dict[str, Any]) -> str:
@@ -269,10 +300,57 @@ def perform_click(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     if clicks < 1:
         raise StepError(ErrorCode.VALIDATION_FAILED, "'clicks' must be 1 or more",
                         {"param": "clicks"})
+    dwell = _dwell(ctx, params)
     (x, y), target, report = _resolve_target(ctx, inp, params)
     ctx.check_stop()
+    rested: dict[str, Any] = {}
+    if params.get("hover") is not None or dwell is not None:
+        inp.move(x, y, target=target)
+        if params.get("hover") is not None:
+            hovered = _wait_hover(ctx, params["hover"], params, report)
+            rested["hover"] = match_report(hovered, params["hover"])
+        if dwell is not None:
+            ctx.wait(dwell)
+            rested["dwell"] = dwell
+        ctx.check_stop()
+    # After a rest the pointer is already on the target: the click does not move it.
     inp.click(x, y, button=button, clicks=clicks, target=target)
-    return {"x": x, "y": y, "button": button.value, "clicks": clicks, **report}
+    return {"x": x, "y": y, "button": button.value, "clicks": clicks, **report, **rested}
+
+
+def _dwell(ctx: StepContext, params: Mapping[str, Any]) -> float | None:
+    """``dwell`` in seconds (with its variance drawn), None without one."""
+    if params.get("dwell") is None:
+        return None
+    try:
+        return parse_duration(params["dwell"]).sample(ctx.rng)
+    except ValueError as exc:
+        raise StepError(ErrorCode.VALIDATION_FAILED, str(exc), {"param": "dwell"}) from exc
+
+
+def _wait_hover(ctx: StepContext, hover: Any, params: Mapping[str, Any],
+                report: Mapping[str, Any]) -> Any:
+    """Wait for ``hover``'s image, the hovered look of the target, with the pointer
+    resting on the target. It is searched in ``hover``'s own ``region``/``window`` when
+    given, else around the target's area (twice its size), else (an ``x``/``y`` target)
+    in the step's window or the whole desktop. ``image_not_found`` when it does not
+    appear within its ``timeout`` (2 s by default; never the step's common timeout)."""
+    problem = hover_problem(hover)
+    if problem is not None:
+        raise StepError(ErrorCode.VALIDATION_FAILED, f"'hover' {problem}", {"param": "hover"})
+    target = dict(hover)
+    if "region" not in target and "window" not in target:
+        if report.get("bbox") is not None:
+            target["region"] = {"at": {"bbox": report["bbox"]}, "size": ["2w", "2h"]}
+        elif params.get("window") is not None:
+            target["window"] = params["window"]
+    try:
+        timeout = parse_duration(hover.get("timeout", DEFAULT_HOVER_TIMEOUT)).sample(ctx.rng)
+    except ValueError as exc:
+        raise StepError(ErrorCode.VALIDATION_FAILED, str(exc),
+                        {"param": "hover.timeout"}) from exc
+    options = search_options(target)
+    return ctx.vision.wait(target["image"], timeout=timeout, own_timeout=True, **options)
 
 
 def perform_move(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
@@ -347,8 +425,68 @@ def _check_threshold(params: Mapping[str, Any]) -> list[ParamProblem]:
     return []
 
 
+def check_selection(params: Mapping[str, Any], where: str = "") -> list[ParamProblem]:
+    """``pick``, ``nth``, ``after`` and ``before``: only on image targets, ``pick`` or
+    ``nth`` (not both, ``nth`` not 0), and anchors that are images or stored results."""
+    present = [name for name in SELECTION_KEYS if params.get(name) is not None]
+    if not present:
+        return []
+    if "image" not in params:
+        return [ParamProblem(f"{where}{name}", "only applies to 'image' targets")
+                for name in present]
+    problems: list[ParamProblem] = []
+    if "pick" in present and "nth" in present:
+        problems.append(ParamProblem(f"{where}nth", "use only one of 'pick' and 'nth'"))
+    nth = params.get("nth")
+    if nth == 0 and not isinstance(nth, bool):
+        problems.append(ParamProblem(f"{where}nth", "counts from 1 (or from -1, the last)"))
+    pick = params.get("pick")
+    if where and pick is not None and not is_interpolated(pick) and pick not in PICKS:
+        problems.append(ParamProblem(f"{where}pick", f"expected one of {', '.join(PICKS)}"))
+    for name in ANCHORS:
+        value = params.get(name)
+        if value is None or isinstance(value, str):
+            if value == "":
+                problems.append(ParamProblem(f"{where}{name}", "must not be empty"))
+            continue
+        problem = stored_problem(value)
+        if problem is not None:
+            problems.append(ParamProblem(f"{where}{name}", "must be an image or an image "
+                                         f"result kept with 'as': it {problem}"))
+    return problems
+
+
+def hover_problem(hover: Any) -> str | None:
+    """What is wrong with ``click``'s ``hover``, or None."""
+    if hover is None or is_interpolated(hover):
+        return None
+    if not isinstance(hover, Mapping):
+        return "must be {image: ..., timeout: ...}"
+    unknown = sorted(str(k) for k in hover if k not in HOVER_KEYS)
+    if unknown:
+        return f"has unknown key(s) {', '.join(unknown)}; expected {', '.join(HOVER_KEYS)}"
+    image = hover.get("image")
+    if not isinstance(image, str) or not image:
+        return "needs 'image', the target's hovered look"
+    for name in ("threshold", "scale"):
+        value = hover.get(name)
+        if value is not None and not is_interpolated(value) and (
+                isinstance(value, bool) or not isinstance(value, int | float)):
+            return f"'{name}' must be a number"
+    problem = region_problem(hover.get("region"))
+    if problem is not None:
+        return f"'region' {problem}"
+    timeout = hover.get("timeout")
+    if timeout is not None and not is_interpolated(timeout):
+        try:
+            parse_duration(timeout)
+        except ValueError as exc:
+            return f"'timeout' {exc}"
+    return None
+
+
 def check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
-    problems = _check_threshold(params)
+    problems = _check_threshold(params) + check_selection(params)
     region = region_problem(params.get("region"))
     if region is not None:
         problems.append(ParamProblem("region", region))
@@ -374,6 +512,9 @@ def _check_offset(params: Mapping[str, Any], where: str = "") -> list[ParamProbl
 def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
     problems = check_point(params) + check_image_options(params)
     problems += _check_offset(params)
+    hover = hover_problem(params.get("hover"))
+    if hover is not None:
+        problems.append(ParamProblem("hover", hover))
     clicks = params.get("clicks")
     if isinstance(clicks, int) and clicks < 1:
         problems.append(ParamProblem("clicks", "must be 1 or more"))
@@ -390,6 +531,7 @@ def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
         value = params.get(name)
         if isinstance(value, Mapping):
             problems += check_point(value, name) + _check_offset(value, f"{name}.")
+            problems += check_selection(value, f"{name}.")
     return problems
 
 
@@ -475,6 +617,24 @@ REGION = ParamSpec(name="region", type="any",
                        "2w); defaults to the window, else the whole desktop.")
 BUTTON = ParamSpec(name="button", type="string", default="left", choices=BUTTONS,
                    doc="Mouse button.")
+PICK = ParamSpec(name="pick", type="string", choices=PICKS,
+                 doc="Which match to take when the image appears more than once: first "
+                     "or last in reading order (rows from top to bottom, each left to "
+                     "right), the top, bottom, left or right one, or the best score. "
+                     "The result then lists every match in 'matches'.")
+NTH = ParamSpec(name="nth", type="integer",
+                doc="Take the n-th match in reading order: 1 is the first, -1 the last.")
+AFTER = ParamSpec(name="after", type="any",
+                  doc="Only matches after this anchor in reading order (in a row below "
+                      "it, or to its right in its row): an image, searched in the same "
+                      "area, or an image result kept with 'as'. Without pick or nth, "
+                      "the first one after it.")
+BEFORE = ParamSpec(name="before", type="any",
+                   doc="Only matches before this anchor in reading order: an image, "
+                       "searched in the same area, or an image result kept with 'as'. "
+                       "Without pick or nth (and without 'after'), the last one before it.")
+SELECTION = (PICK, NTH, AFTER, BEFORE)
+"""The parameters that choose among several matches of an image."""
 
 AREA_RESULT = (
     ResultField(name="bbox", type="list",
@@ -487,6 +647,12 @@ AREA_RESULT = (
                     "area, when the search had a window."),
 )
 """Where an image result is: what makes it usable as an ``at`` target."""
+
+MATCHES_RESULT = ResultField(
+    name="matches", type="list", optional=True,
+    doc="With pick, nth, after or before: every match at or above the threshold in "
+        "reading order, each {score, bbox, center} (plus window and window_bbox with a "
+        "window).")
 
 TARGET_RESULT = (
     ResultField(name="image", type="string", optional=True,
@@ -506,6 +672,7 @@ TARGET_RESULT = (
     ResultField(name="window_area", type="list", optional=True,
                 doc="An x/y target with a window: the window's client area used, "
                     "[x, y, width, height] on the desktop."),
+    MATCHES_RESULT,
 )
 
 DRY_RESULT = (
@@ -526,14 +693,28 @@ CLICK = StepType(StepSpec(
     params=(
         _image(), X, Y, AT, WINDOW, BUTTON,
         ParamSpec(name="clicks", type="integer", default=1, doc="Number of clicks."),
-        OFFSET, THRESHOLD, SCALE, REGION,
+        OFFSET, THRESHOLD, SCALE, REGION, *SELECTION,
+        ParamSpec(name="hover", type="object",
+                  doc="Rest on the target until it looks hovered, then click: {image: "
+                      "<its hovered look>, timeout: 2s}, plus threshold, scale, region "
+                      "and window (by default it is searched around the target); fails "
+                      "with image_not_found when it does not appear."),
+        ParamSpec(name="dwell", type="duration",
+                  doc="Rest on the target this long before pressing, e.g. 300ms (after "
+                      "'hover' when both are given)."),
     ),
     result=(
         ResultField(name="x", type="integer", doc="The point clicked, on the desktop."),
         ResultField(name="y", type="integer", doc="The point clicked, on the desktop."),
         ResultField(name="button", type="string", doc="The button clicked."),
         ResultField(name="clicks", type="integer", doc="How many clicks."),
-        *TARGET_RESULT, *DRY_RESULT,
+        *TARGET_RESULT,
+        ResultField(name="hover", type="object", optional=True,
+                    doc="With hover: where its image appeared (found, score, bbox, "
+                        "center...)."),
+        ResultField(name="dwell", type="number", optional=True,
+                    doc="With dwell: the seconds rested before pressing."),
+        *DRY_RESULT,
     ),
 ), input_step(_describe_click, perform_click))
 
@@ -541,7 +722,7 @@ MOVE = StepType(StepSpec(
     name="move",
     effect="input",
     doc="Move the mouse to an image, a kept image result or x/y.",
-    params=(_image(), X, Y, AT, WINDOW, OFFSET, THRESHOLD, SCALE, REGION),
+    params=(_image(), X, Y, AT, WINDOW, OFFSET, THRESHOLD, SCALE, REGION, *SELECTION),
     result=(
         ResultField(name="x", type="integer", doc="Where the pointer went, on the desktop."),
         ResultField(name="y", type="integer", doc="Where the pointer went, on the desktop."),
@@ -556,7 +737,8 @@ DRAG = StepType(StepSpec(
     params=(
         ParamSpec(name="from", type="object", required=True,
                   doc="Start point: {image: ...}, {at: ...} or {x: ..., y: ...}, each "
-                      "with an optional offset."),
+                      "with an optional offset; an image may choose among its matches "
+                      "with pick, nth, after and before."),
         ParamSpec(name="to", type="object", required=True,
                   doc="End point: {image: ...}, {at: ...} or {x: ..., y: ...}, each "
                       "with an optional offset."),
