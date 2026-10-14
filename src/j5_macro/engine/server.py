@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import traceback
 from collections import deque
 from collections.abc import Callable
+from typing import NoReturn
 
-from j5_macro.engine.dispatch import CommandError, Handler, HandlerSpec
+from j5_macro.engine.dispatch import CommandError, Deferred, Handler, HandlerSpec
 from j5_macro.engine.events import EventSequencer
 from j5_macro.engine.transport import LineTransport
 from j5_macro.protocol.errors import ErrorCode
@@ -68,6 +70,22 @@ class EngineServer:
         no run event can precede the ``run`` response on the wire.
         """
         self._after_response.append(callback)
+
+    def answer_later(self, command: Command, work: Callable[[], JsonObject], *,
+                     name: str = "j5-deferred") -> NoReturn:
+        """From a handler on the protocol thread: answer ``command`` with what ``work``
+        returns (or the error it raises), computed on a new thread started once the
+        handler returns, while the protocol thread goes on reading commands. Never
+        returns (raises :class:`Deferred`)."""
+
+        def worker() -> None:
+            response = self._respond_with(command, lambda _: work())
+            with contextlib.suppress(OSError, ValueError):  # the client may be gone
+                self.respond(response)
+
+        thread = threading.Thread(target=worker, name=name, daemon=True)
+        self._after_response.append(thread.start)
+        raise Deferred
 
     def on_ready(self, hook: Callable[[], None]) -> None:
         """Run ``hook`` right after ``ready`` is emitted (e.g. startup warnings, which
@@ -137,16 +155,30 @@ class EngineServer:
             self.log("error", "ignored malformed command: 'type' and 'id' must be strings")
             return
         try:
-            self.respond(self.dispatch(message))
+            response = self.dispatch(message)
+            if response is not None:
+                self.respond(response)
         finally:
             callbacks, self._after_response = self._after_response, []
             for callback in callbacks:
                 callback()
 
-    def dispatch(self, command: Command) -> Response:
-        """Run the handler for ``command`` and build its response."""
+    def dispatch(self, command: Command) -> Response | None:
+        """Run the handler for ``command`` and build its response; None when the handler
+        answers later (:meth:`answer_later`)."""
         try:
-            result = self._invoke(command)
+            return self._respond_with(command, self._invoke)
+        except Deferred:
+            return None
+
+    def _respond_with(self, command: Command,
+                      handler: Callable[[Command], JsonObject]) -> Response:
+        """The response to ``command``: what ``handler`` returns, or the error it raises
+        (:class:`Deferred` goes through)."""
+        try:
+            result = handler(command)
+        except Deferred:
+            raise
         except CommandError as exc:
             return Response(type=command.type, id=command.id, ok=False, error=exc.info)
         except PayloadError as exc:

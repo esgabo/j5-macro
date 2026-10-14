@@ -242,6 +242,9 @@ class RunManager:
         self.active: Run | None = None
         self.runs: OrderedDict[str, Run] = OrderedDict()
         self._lock = threading.Lock()
+        self.overlay_open: Callable[[], bool] = lambda: False
+        """True while an authoring overlay is open: runs are refused meanwhile (set by
+        :mod:`j5_macro.engine.authoring`)."""
 
     # -- lookup -----------------------------------------------------------
 
@@ -289,6 +292,10 @@ class RunManager:
                 raise CommandError(ErrorCode.BUSY,
                                    f"run {self.active.run_id} is still active",
                                    {"run_id": self.active.run_id})
+            if self.overlay_open():
+                raise CommandError(ErrorCode.BUSY,
+                                   "an authoring overlay is open; finish it or press Escape",
+                                   {"reason": "overlay"})
             started = utc_now()
             run_id = self._unique_run_id(started)
             seed = payload.seed if payload.seed is not None else new_seed()

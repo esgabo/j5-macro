@@ -24,6 +24,7 @@ from j5_macro.backends.base import (
     MonitorScale,
     Rect,
     UnknownKey,
+    WindowInfo,
 )
 from j5_macro.backends.windows.dpi import declare_dpi_awareness
 from j5_macro.backends.windows.hotkey import HotkeyWatcher
@@ -245,6 +246,24 @@ class WindowsBackend:
                 if rect is not None:
                     return rect
             return None
+
+    def list_windows(self) -> list[WindowInfo]:
+        """Every visible (not minimized, not cloaked) top-level window with a title,
+        topmost first, with its client area."""
+        with self._lock:
+            self._check_open()
+            api = self._api
+            found: list[WindowInfo] = []
+            for hwnd in api.windows():
+                if not hwnd:
+                    continue
+                title = api.window_title(hwnd)
+                if not title or not api.window_shown(hwnd):
+                    continue
+                rect = api.client_rect(hwnd)
+                if rect is not None:
+                    found.append(WindowInfo(title, rect))
+            return found
 
     def watch_hotkey(self, keys: list[str], callback: Callable[[], None]) -> Callable[[], None]:
         if not keys:

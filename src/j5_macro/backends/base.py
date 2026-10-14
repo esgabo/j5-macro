@@ -68,11 +68,19 @@ class Capabilities:
     char_input: bool
     screen_capture: bool
     windows: bool = False
-    """``find_window`` works (window-relative coordinates)."""
+    """``find_window`` and ``list_windows`` work (window-relative coordinates)."""
     hotkey: bool = False
     """``watch_hotkey`` works (global emergency stop key)."""
     display_scale: bool = False
     """``display_scale`` and ``display_scales`` report the display scale of monitors."""
+
+
+@dataclass(frozen=True, slots=True)
+class WindowInfo:
+    """A visible top-level window: its title and its client area on the desktop."""
+
+    title: str
+    rect: Rect
 
 
 MonitorScale = tuple[Rect, float]
@@ -147,6 +155,11 @@ class Backend(Protocol):
         """Client area (the content, without the window manager's title bar and borders),
         in desktop coordinates, of the topmost visible window whose title contains
         ``title`` (case-sensitive), or None."""
+        ...
+
+    def list_windows(self) -> list[WindowInfo]:
+        """Every visible top-level window with a non-empty title, topmost first, with its
+        client area in desktop coordinates (capability ``windows``)."""
         ...
 
     def watch_hotkey(self, keys: list[str], callback: Callable[[], None]) -> Callable[[], None]:

@@ -18,6 +18,7 @@ from j5_macro.backends.base import (
     MonitorScale,
     Rect,
     UnknownKey,
+    WindowInfo,
     scale_at,
 )
 
@@ -129,6 +130,10 @@ class FakeBackend:
 
     def find_window(self, title: str) -> Rect | None:
         return next((rect for name, rect in self.windows.items() if title in name), None)
+
+    def list_windows(self) -> list[WindowInfo]:
+        """:attr:`windows` in insertion order, the first one topmost."""
+        return [WindowInfo(name, rect) for name, rect in self.windows.items() if name]
 
     def watch_hotkey(self, keys: list[str], callback: Callable[[], None]) -> Callable[[], None]:
         entry = (list(keys), callback)

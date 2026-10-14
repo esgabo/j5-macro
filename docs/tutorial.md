@@ -28,7 +28,7 @@ The extras matter:
 
 - `x11` lets j5 move the mouse and press keys in an X11 session.
 - `vision` adds screen capture and image matching (OpenCV), which you need for the
-  image steps in chapter 4.
+  image steps in chapter 4 and the authoring tools in chapter 11.
 
 **Which desktops work.** j5 drives real input on **Windows** (install the `windows` extra
 instead of `x11`: `pip install -e ".[windows,vision]"`) and on **Linux with an X11
@@ -205,7 +205,9 @@ Fixed coordinates break when a button moves. Instead, give j5 a picture of the b
 let it find it.
 
 **Make a template.** A template is a small PNG of what you want to find, cut from a
-screenshot taken at the same display scaling:
+screenshot taken at the same display scaling. The quickest way is `j5 capture -o
+img/save_button.png`: drag a rectangle around the button and it is saved (chapter 11
+shows it and its siblings). By hand:
 
 1. Take a screenshot with your usual tool (Xfce's Screenshot tool can capture a
    region), or with ImageMagick: `import -window root full.png`.
@@ -615,6 +617,77 @@ $ j5 run examples/write_note.yaml --param recipient=Ana \
 `"${body}\n"` types the body and then presses Enter: only a string that is exactly one
 `${...}`, with nothing else around it, gives the bare value; any other string is text
 (see [Interpolation](scripts.md#interpolation)).
+
+## 11. Writing scripts faster
+
+A script is mostly text, except for the parts that need the screen: a template to look
+for, the coordinates of a point inside a window, and whether a template really matches.
+`j5` does those three for you and prints a step you can paste (see [cli.md](cli.md#authoring-tools)
+for every option). They need the `vision` extra, and the interactive ones need tkinter
+(on Debian and Ubuntu: `sudo apt install python3-tk`).
+
+**Capture a template.** Open the editor, then:
+
+```console
+$ j5 capture --embed save_button.yaml --name save_button
+j5: drag a rectangle on the screen (Escape cancels)
+j5: embedded [620, 440, 90, 36] as #save_button in save_button.yaml
+click: {image: "#save_button", window: {title: Untitled 1 - Mousepad}}
+```
+
+The screen freezes and you drag a rectangle around the button; a magnifier next to the
+pointer shows the pixels under it, so you can start and end exactly on its edge. The
+template goes into the script itself, in its `images` section, so the script stays one
+file; `-o img/save_button.png` saves a PNG file instead. The last line is a step that
+uses it. For an icon on a background that changes, add `--transparent`: the pixels of the
+border's colour become transparent and are ignored when matching. If you capture a flat
+colour, j5 warns you, since it would never match. And if your display is scaled (125 %,
+150 %), the embedded image remembers the scale it was captured at, so the script still
+finds it on a machine at another scale.
+
+**Pick a point.** For fixed coordinates inside a window:
+
+```console
+$ j5 pick
+j5: click a point on the screen (Escape cancels)
+j5: (212, 176) on the desktop, (212, 148) in 'Untitled 1 - Mousepad'
+click: {window: {title: Untitled 1 - Mousepad}, x: 212, y: 148}
+```
+
+The point is relative to the window's content, so the step still works when the window
+moves. Shorten the title to the part that does not change (`{title: Mousepad}`).
+
+**Test a match.** Before running anything, check that a template is found, and where:
+
+```console
+$ j5 find '#save_button' --script save_button.yaml --show
+j5: #save_button found at [620, 440, 90, 36], score 1.000; scale 1 = display 1 / capture 1
+click: {image: "#save_button"}
+```
+
+`find` searches exactly as a step would. `--show` outlines the best match on the screen
+for three seconds: green when found, red with its score when not, which tells you
+whether the template is wrong (a low score) or the threshold is a little too strict (a
+score just under it). It exits with code 1 when the image is not found.
+
+**Without the mouse.** Every tool also works without the overlay, which is how an agent
+(or a script of your own) writes scripts: list the windows, look at a screenshot, capture
+a rectangle by its coordinates, and check it.
+
+```console
+$ j5 windows
+[0, 28, 1280, 772]       Untitled 1 - Mousepad
+$ j5 screenshot --window Mousepad
+/tmp/j5-macro/screenshot-20261013-101500-123456.png
+$ j5 capture --bbox 620,412,90,36 --window Mousepad --embed save_button.yaml --name save_button
+$ j5 find '#save_button' --script save_button.yaml --window Mousepad
+$ j5 validate save_button.yaml
+$ j5 run --dry-run save_button.yaml
+```
+
+With `--bbox` and `--window`, the rectangle is relative to the window's content, as the
+screenshot of that window shows it. Add `--json` to any of them for the engine's full
+answer.
 
 ## Next steps
 

@@ -110,3 +110,21 @@ not JSON is taken as text.
 
 Stopping the debug session stops the run and releases every key and button it held. The
 emergency stop key (`ctrl+alt+shift+q`) and the screen-corner failsafe work as in `j5 run`.
+
+## Write scripts faster
+
+Four commands in the Command Palette (category **j5**, with a YAML file open) run the j5
+CLI's authoring tools next to the script in the active editor (see
+[`docs/cli.md`](../../docs/cli.md#authoring-tools)). They save the file first.
+
+| Command | Runs | Then |
+| --- | --- | --- |
+| **j5: Capture template** | `j5 capture --embed <script> --name NAME`, or `j5 capture -o img/NAME.png` | Asks for the name and where the template goes, lets you drag a rectangle on the frozen screen, and inserts the `click` step that uses it at the cursor |
+| **j5: Pick point** | `j5 pick` | Click a point on the frozen screen; inserts a `click` step at it, relative to the window under it |
+| **j5: Find image** | `j5 find IMAGE --script <script> --show` | Asks for the template (the selected text by default, e.g. `#save_button`), outlines the best match on the screen, shows the score, and inserts a `click` step when it is found |
+| **j5: Pack script** | `j5 pack <script> -o <script>` | Embeds every image file the script uses into it, then reloads the file |
+
+On an empty line, the step is inserted as a list item (`- click: ...`). Escape cancels
+the overlay. The CLI comes from the `j5.command` setting (for example
+`["/path/to/venv/bin/j5"]`), else from `j5.adapterCommand` without its `dap`, else `j5`
+from the `PATH`.

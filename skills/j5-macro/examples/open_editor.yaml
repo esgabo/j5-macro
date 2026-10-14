@@ -1,0 +1,70 @@
+# Start a text editor, wait until its window is really there, and type a line that
+# includes today's date read from a program.
+#
+# Starting programs needs the run's opt-in, which only the user can give:
+#
+#   j5 run --allow-exec open_editor.yaml
+#
+# Without --allow-exec the exec steps fail with capability_missing. The editor is
+# Mousepad (Xfce's); for another one change the command of `open_editor` and recapture
+# #menu_bar from its window.
+# The #menu_bar template ("File  Edit" of Mousepad's menu bar) was captured under Xvfb
+# at 100 %; on another desktop recapture it once the editor is open:
+#
+#   j5 capture --bbox 2,2,72,20 --window Mousepad --embed open_editor.yaml --name menu_bar -f
+version: 1
+name: Open an editor and write a dated line
+params:
+  note: {description: Text to write after the date, default: "Written by j5."}
+steps:
+  # Started detached: the step finishes at once and the editor outlives the run.
+  - id: open_editor
+    exec: {command: [mousepad]}
+
+  # Better than a fixed sleep: wait for something only the ready window shows. Search
+  # the whole desktop here: a `window` that does not exist yet fails the step at once
+  # with window_not_found instead of waiting for it.
+  - id: wait_editor
+    wait_image: {image: "#menu_bar", timeout: 20s}
+    as: menu
+
+  # Waited for, its output kept: today = {exit_code, stdout, stderr}.
+  - id: read_date
+    exec: {command: [date, +%F], wait: true, timeout: 5s}
+    as: today
+  # A dry run starts nothing, so its kept result has no stdout: fall back to a placeholder
+  # there, so the dry run checks the rest of the script too.
+  - id: date_text
+    set: {name: date, expr: "strip(today.stdout) if 'stdout' in today else 'YYYY-MM-DD'"}
+
+  # Click in the text area, six menu-bar heights below the menu bar, to give it the focus.
+  - id: focus_text
+    click: {at: "${menu}", offset: [0, 6h]}
+
+  - id: write
+    type: "${date}: ${note}\n"
+images:
+  menu_bar:
+    png: |
+      iVBORw0KGgoAAAANSUhEUgAAAEgAAAAUCAIAAAChw+ycAAAEm0lEQVRYCd3BbWwTZRwA8P9jl+0Y
+      gW1O1ssYG2Pl7rYwXgYGPhBOcE94aO3lrFjwZHB4Zc5RMSIvAls6RsiYg00eL9FLjJ+MTSO4bpFg
+      iDEaDWG8fDGwKSovAxNYhAF57jqafTBZsqRNw4cJfunvhxybQTZCjs0gGyHHZpCNkGMzyEbIsRlk
+      I+TYDDJ09Ry/MzICKToPHXQSiY0NeqRl//JlS/e2RMJNb88pK4VnpKvn+J2REUjR3npgen4+pBgf
+      H9/bGmnZs9uV49rYoEda9i9fthSeADk2gwyabggeT92SRTDplXUEAE729tWvWV1UVChjYplUEgV4
+      RjTdEDyeuiWLYBLB9bm5uZAimUyuwiQei5aUzDrZ21e/ZnVRUWGoOaz4vIrPC+mQYzPIoOlGMKCq
+      ih/SDVy8tKCmenp+voyJZVJJFADATiQGh4YAoLamhuM4+E803QgGVFXxQ4aHjx5dGRwqmDnT46mS
+      MYnHojzvHrh4aUFN9dU//uw82r1i+YurVq6sW7wIUiDHZpBB041gQFUVP6STMbFMKomCjIllUkkU
+      fr18ZV9rZPbs0mQy+eDBw56POirnzoWp03QjGFBVxQ/pBs5f2N/WXlFe/vjx2MLa2t6+/ngsyvNu
+      GRPLpF9/0/vjz7+UzJolzp/f1rIPUiDHZpBB042ldYtXrlgBE0rcJZUVFQAgY2KZVBIFGRPLpJ6q
+      eW9s0de/GtiwPgAAR4523xwe/pR+DFOn6Ubl3PKFC2phwgvFxS+vlpPJ5HqtQdsQ3Pj6awDQ1XP8
+      ZLwvHovyvFvGxDKpJAqh5rDi8yo+L6RDjs0gg6YbjLGCggKYsOalVVsbNgGAjIllUkkUZEwsk7pc
+      z+mN73R3dkzjOAD469q1Y9T86cxpl8sFU6TpRl5ubllZKUyomFMe2rrlt9+vNoZ3/HD625ycHAAY
+      vnU7uGlzPBblebeMiWVSSRRCzWHF51V8XkiHHJtBBk03ggFVVfyQTsbEMqkkCjImlknvj45+2Bqp
+      lgRIcaS9vaioEKZI041gQFUVP6Q4e27gcGfXqd4TMIExVu9T4rEoz7tlTCyTSqIQag4rPq/i80I6
+      5NgMMmi6EQyoquKHdDImlkklUZAxsUyax3GbjW3fn+rPy8uDp6PpRjCgqoofUly/cePNraHv+ntn
+      zpgBAINDQ281bY/HojzvljGxTCqJQqg5rPi8is8L6ZBjM8ig6UYwoKqKH9LJmFgmlURBxsQyqSQK
+      jdvfnVdZuXNHGAA++/yLm7duHes4DFOn6ca6tdhH1sKkwoIChNCWbU1CVdXeXe8nx8db29rPnhuI
+      x6I875YxsUwqicJ7H+ye7/Fsb2pECEEK5NgMMmi6EQyoquKHdDImlkklUZAxsUwqicKdu3cPdXRe
+      vjIIAG53SduBfTXV1TB1mm5cu34dUpz46suy2aU3hocPRA7evv13jsu1Z9fOyKHD8ViU590yJpZJ
+      JVEYOH/hGP3k3j/3zpzqd7lcMAk5NoOnZicSCdspLn4eIQT/g/ujo/nTpnEcB08wNjbGcRykQI7N
+      IBshx2aQjZBjM8hGyLEZZKN/AYjUuZAxQws/AAAAAElFTkSuQmCC

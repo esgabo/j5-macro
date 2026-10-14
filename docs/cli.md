@@ -12,18 +12,23 @@ Need input! Desktop automation.
 
 positional arguments:
   <command>
-    run       run a script
-    validate  validate a script without running it
-    runs      list, show and delete saved runs
-    steps     list the step types and their parameters
-    schema    print the JSON Schema of scripts for editors
-    pack      embed the image files a script uses into the script
-    unpack    write a script's embedded images back to files
-    dap       serve the Debug Adapter Protocol on stdio (for VS Code)
+    run         run a script
+    validate    validate a script without running it
+    runs        list, show and delete saved runs
+    steps       list the step types and their parameters
+    schema      print the JSON Schema of scripts for editors
+    pack        embed the image files a script uses into the script
+    unpack      write a script's embedded images back to files
+    windows     list the visible windows and their client areas
+    screenshot  save a PNG of the desktop, a window or a region
+    capture     capture a template: drag a rectangle on the screen
+    pick        pick a point on the screen and print a click step
+    find        search the screen for a template, as a step would
+    dap         serve the Debug Adapter Protocol on stdio (for VS Code)
 
 options:
-  -h, --help  show this help message and exit
-  --version   show program's version number and exit
+  -h, --help    show this help message and exit
+  --version     show program's version number and exit
 $ j5 --version
 j5-macro 0.0.1
 ```
@@ -40,6 +45,11 @@ j5-macro 0.0.1
 | [`j5 pack`](#j5-pack) | Embed the image files a script uses into the script |
 | [`j5 unpack`](#j5-unpack) | Write a script's embedded images back to files |
 | [`j5 runs`](#j5-runs) | List, replay and delete saved runs |
+| [`j5 windows`](#j5-windows) | List the visible windows and their client areas |
+| [`j5 screenshot`](#j5-screenshot) | Save a PNG of the desktop, a window or a region |
+| [`j5 capture`](#j5-capture) | Capture a template, into a file or a script |
+| [`j5 pick`](#j5-pick) | Pick a point and print a click step for it |
+| [`j5 find`](#j5-find) | Test a template: one search, as a step would make it |
 | [`j5 dap`](#j5-dap) | Serve the Debug Adapter Protocol (started by VS Code) |
 
 ## `j5 run`
@@ -307,6 +317,130 @@ j5: wrote 1 image to pointer/img and the script to pointer/pointer_bundle.yaml
 Exit codes: 0 done, 1 invalid script, no embedded images or a file in the way, 2 usage
 error.
 
+## Authoring tools
+
+Five commands help write scripts: they read the screen, send no input and need no run.
+`capture`, `pick` and `find` print the YAML of a step, ready to paste into a script;
+`--json` prints the engine's answer instead (see [Authoring
+tools](contract.md#authoring-tools) in the contract). Notes and hints go to standard
+error. Like image steps, they need the `vision` extra and a display; `windows`, `--window`
+and the window an answer names need a backend that finds windows.
+
+`capture` without `--bbox`, `pick` and `find --show` freeze the screen and show it
+full-screen above every window, on every monitor: drag a rectangle (or click a point)
+with the left button, with a magnifier next to the pointer for pixel accuracy. Escape or
+the right button cancels, and the command exits with code 3. The overlay is drawn with
+tkinter, which comes with Python on Windows; on Linux it may be a separate package
+(`python3-tk` on Debian and Ubuntu). Only one overlay opens at a time, and never during a
+run.
+
+### `j5 windows`
+
+```text
+j5 windows [-h] [--json]
+```
+
+Lists the visible windows, topmost first: the client area of each (the window's content
+without the title bar and borders, as `[x, y, width, height]` on the desktop) and its
+title. `window: {title: ...}` in a script matches any part of the title.
+
+```console
+$ j5 windows
+[0, 28, 1280, 772]       Untitled - Notes
+[300, 200, 640, 480]     Save As
+```
+
+### `j5 screenshot`
+
+```text
+j5 screenshot [-h] [-o FILE] [--window TITLE] [--region X,Y,W,H] [--json]
+```
+
+Saves a PNG of the whole desktop, of a window's client area (`--window`) or of a region
+(relative to the window when both are given) and prints its path. Without `-o` the file
+goes to a new `j5-macro/screenshot-<time>.png` in the system's temporary directory; with
+`-o` an existing file is replaced. For agents, this is how they look at the screen before
+capturing anything.
+
+```console
+$ j5 screenshot --window Notes
+/tmp/j5-macro/screenshot-20261013-101500-123456.png
+j5: [0, 28, 1280, 772] of window 'Untitled - Notes' at [0, 0, 1280, 772], display scale 1
+```
+
+### `j5 capture`
+
+```text
+j5 capture [-h] (-o FILE | --embed SCRIPT --name NAME) [--window TITLE]
+           [--bbox X,Y,W,H] [--padding PIXELS] [--transparent] [-f] [--json]
+```
+
+Captures a template. Without `--bbox` you drag the rectangle on the overlay; with it the
+rectangle is taken as given (relative to `--window`'s client area when given), which is
+what scripts and agents use. The template goes to a PNG file (`-o`) or into a script's
+`images` section (`--embed SCRIPT --name NAME`, then used as `"#NAME"`; comments and
+formatting of the script are kept). Existing files and entries are only replaced with
+`-f`. It prints a `click` step on the template, with the window the rectangle lies in.
+
+- `--padding PIXELS` grows the rectangle on every side.
+- `--transparent` makes the pixels of the rectangle's border colour transparent, so an
+  icon matches on any background (transparent pixels are ignored when matching).
+- A capture of a single flat colour gets a warning: it would never match.
+- **Display scale.** When the display scale (125 %, 150 %...) differs from the script's
+  `capture_scale`, an embedded image records it as its `scale`, so the script finds it at
+  any scale. A file cannot record it: j5 prints a hint when the scale is not 100 %.
+
+```console
+$ j5 capture --embed notes.yaml --name save_button
+j5: drag a rectangle on the screen (Escape cancels)
+j5: embedded [812, 40, 24, 24] as #save_button in notes.yaml
+click: {image: "#save_button", window: {title: Untitled - Notes}}
+$ j5 capture --bbox 812,12,24,24 --window Notes -o img/save.png
+j5: saved [812, 40, 24, 24] to /home/me/scripts/img/save.png
+click: {image: img/save.png, window: {title: Untitled - Notes}}
+```
+
+### `j5 pick`
+
+```text
+j5 pick [-h] [--window TITLE] [--json]
+```
+
+Click a point on the overlay; prints a `click` step at it, relative to the client area of
+the window under it (or of `--window`), or on the desktop when it is in no window.
+
+```console
+$ j5 pick
+j5: click a point on the screen (Escape cancels)
+j5: (212, 176) on the desktop, (212, 148) in 'Untitled - Notes'
+click: {window: {title: Untitled - Notes}, x: 212, y: 148}
+```
+
+### `j5 find`
+
+```text
+j5 find [-h] [--script SCRIPT] [--window TITLE] [--region X,Y,W,H]
+        [--threshold T] [--scale S] [--display-scale SCALE] [--show]
+        [--show-ms MS] [--json] IMAGE
+```
+
+Searches the screen once for IMAGE exactly as a step would, without running anything:
+the same matcher, threshold, region, window and display scale adjustment. With `--script`,
+IMAGE is relative to the script's directory and may be `"#name"`, an embedded image, and
+the script's `capture_scale` applies; without it IMAGE is a file relative to the current
+directory. When found, it prints a `click` step on it; either way the score, the place
+and the scales go to standard error. `--show` highlights the best match on the screen
+for `--show-ms` milliseconds (3000 by default; a key or a click closes it sooner): green
+when found, red with the score when not.
+
+```console
+$ j5 find '#save_button' --script notes.yaml --window Notes
+j5: #save_button found at [812, 40, 24, 24] ([812, 12, 24, 24] in 'Untitled - Notes'), score 0.998; scale 1 = display 1 / capture 1
+click: {image: "#save_button", window: {title: Notes}}
+```
+
+Exit codes: 0 found, 1 not found (or an error), 2 usage error, 3 cancelled.
+
 ## `j5 runs`
 
 ```text
@@ -372,13 +506,13 @@ with the extension in `editors/vscode`. `python -m j5_macro.dap` is the same ser
 
 ## Exit codes
 
-| Code | `run` | `validate` | `runs` | `pack`, `unpack` | All commands |
-| --- | --- | --- | --- | --- | --- |
-| 0 | Completed | Valid (warnings allowed) | Done | Done | |
-| 1 | The run failed, or a paused step kept failing with no terminal to ask | Invalid or unreadable | No saved run with that id | Invalid script, an image that cannot be embedded, nothing to unpack or a file in the way | The engine could not be started or died |
-| 2 | The script could not be loaded or the run could not start | | Malformed run id | | Usage error (bad options) |
-| 3 | The run was stopped (emergency stop, corner failsafe, interference set to `stop`, `q` in the debugger) | | | | |
-| 130 | Interrupted with Ctrl+C | | | | Interrupted with Ctrl+C |
+| Code | `run` | `validate` | `runs` | `pack`, `unpack` | Authoring tools | All commands |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | Completed | Valid (warnings allowed) | Done | Done | Done (`find`: found) | |
+| 1 | The run failed, or a paused step kept failing with no terminal to ask | Invalid or unreadable | No saved run with that id | Invalid script, an image that cannot be embedded, nothing to unpack or a file in the way | The engine refused (no vision, a file in the way...); `find`: not found | The engine could not be started or died |
+| 2 | The script could not be loaded or the run could not start | | Malformed run id | | | Usage error (bad options) |
+| 3 | The run was stopped (emergency stop, corner failsafe, interference set to `stop`, `q` in the debugger) | | | | Cancelled with Escape | |
+| 130 | Interrupted with Ctrl+C | | | | | Interrupted with Ctrl+C |
 
 ## Environment variables
 

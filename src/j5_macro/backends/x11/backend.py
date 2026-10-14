@@ -28,6 +28,7 @@ from j5_macro.backends.base import (
     MonitorScale,
     Rect,
     UnknownKey,
+    WindowInfo,
 )
 from j5_macro.backends.x11.hotkey import HotkeyWatcher, lock_variants
 from j5_macro.backends.x11.keys import (
@@ -42,7 +43,7 @@ from j5_macro.backends.x11.keys import (
     spare_keycodes,
 )
 from j5_macro.backends.x11.scale import display_scale_from
-from j5_macro.backends.x11.windows import find_window
+from j5_macro.backends.x11.windows import find_window, list_windows
 
 DEFAULT_REMAP_GRACE_SECONDS = 0.25
 
@@ -349,6 +350,11 @@ class X11Backend:
         with self._lock:
             self._check_open()
             return find_window(self._display, title)
+
+    def list_windows(self) -> list[WindowInfo]:
+        with self._lock:
+            self._check_open()
+            return list_windows(self._display)
 
     def watch_hotkey(self, keys: list[str], callback: Callable[[], None]) -> Callable[[], None]:
         if not keys:

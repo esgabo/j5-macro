@@ -1,5 +1,5 @@
-"""Core command handlers and wiring: ``hello``, the script and run commands, and
-not-yet-implemented stubs for the rest of the contract."""
+"""Core command handlers and wiring: ``hello``, the script and run commands, the
+authoring tools, and not-yet-implemented stubs for the rest of the contract."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ import contextlib
 import importlib.util
 from pathlib import Path
 
+from j5_macro.engine import authoring, history
 from j5_macro.engine import editing as edit_commands
-from j5_macro.engine import history
 from j5_macro.engine import runs as run_commands
 from j5_macro.engine import scripts as script_commands
 from j5_macro.engine.backend import EngineBackend
 from j5_macro.engine.dispatch import CommandError
+from j5_macro.engine.overlay import OverlayFactory
 from j5_macro.engine.runs import RunManager
 from j5_macro.engine.scripts import ScriptStore
 from j5_macro.engine.server import EngineServer
@@ -22,6 +23,7 @@ from j5_macro.protocol.payloads import HelloPayload
 from j5_macro.runtime.api import RunFactory
 from j5_macro.runtime.display import monitor_scales
 from j5_macro.steps.registry import StepRegistry
+from j5_macro.vision.api import ToolkitFactory
 
 SUPPORTED_VERSIONS = frozenset({PROTOCOL_VERSION})
 
@@ -33,6 +35,8 @@ CONTRACT_COMMANDS = (
     # docs/contract.md, "Script management"
     "list_scripts", "create_script", "get_script", "edit_script", "list_runs", "get_run",
     "delete_run",
+    # docs/contract.md, "Authoring tools"
+    "list_windows", "screenshot", "capture_region", "pick_point", "find_image",
 )
 
 
@@ -75,13 +79,17 @@ def install(
     run_factory: RunFactory | None = None,
     runs_dir: Path | None = None,
     backend: EngineBackend | None = None,
+    toolkit_factory: ToolkitFactory | None = None,
+    overlay_factory: OverlayFactory | None = None,
 ) -> RunManager:
     """Register every contract command; the ones not built yet answer not_implemented.
 
     ``run_factory`` defaults to the interpreter's ``create_run`` (imported when a run
     starts); ``runs_dir`` None keeps runs in memory only. ``backend`` is the engine's
     input backend (see :mod:`j5_macro.engine.backend`); None leaves input unconfigured
-    and logs nothing about it (embedding and tests).
+    and logs nothing about it (embedding and tests). ``toolkit_factory`` and
+    ``overlay_factory`` replace the vision toolkit and the overlay of the authoring
+    tools (tests).
     """
 
     def hello(command: Command) -> JsonObject:
@@ -115,10 +123,12 @@ def install(
 
     scripts = ScriptStore(registry)
     script_commands.install(server, scripts)
-    edit_commands.install(server, scripts)
+    writer = edit_commands.install(server, scripts)
     manager = RunManager(server, scripts, run_factory, runs_dir, backend=backend)
     run_commands.install(server, manager)
     history.install(server, manager)
+    authoring.install(server, scripts, manager, writer, backend,
+                      toolkit_factory=toolkit_factory, overlay_factory=overlay_factory)
     if backend is not None:
         install_backend(server, manager, backend)
     return manager

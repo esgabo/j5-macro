@@ -708,8 +708,10 @@ images:
   where it is stored or where j5 runs from, so it can be pasted into a chat or loaded from
   text.
 
-`j5 pack` embeds the image files a script uses, and `j5 unpack` writes them back to files
-(see [the CLI reference](cli.md#j5-pack)):
+`j5 capture --embed script.yaml --name NAME` captures a template straight into the
+script, recording its `scale` when the display is scaled (see [the CLI
+reference](cli.md#j5-capture)). `j5 pack` embeds the image files a script uses, and
+`j5 unpack` writes them back to files (see [the CLI reference](cli.md#j5-pack)):
 
 ```console
 $ j5 pack save_report.yaml -o save_report.bundle.yaml

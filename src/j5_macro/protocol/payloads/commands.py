@@ -459,6 +459,152 @@ class GetRunResult(Result):
     """Paths relative to ``runs/<run_id>/``."""
 
 
+# --- authoring tools (docs/contract.md, "Authoring tools") --------------------------------
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowRef(Payload):
+    """A window as steps name it: the topmost visible one whose title contains
+    ``title``."""
+
+    title: str
+
+    def check(self, path: str) -> None:
+        if not self.title:
+            raise PayloadError(f"{path}.title: must not be empty")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowInfo(Payload):
+    title: str
+    bbox: list[int]
+    """The client area on the desktop, ``[x, y, w, h]``."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ListWindowsResult(Result):
+    windows: list[WindowInfo]
+    """Topmost first."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ScreenshotPayload(Payload):
+    path: str | None = None
+    """None: a new file in the system's temporary directory."""
+    window: WindowRef | None = None
+    region: list[int] | None = None
+    """``[x, y, w, h]``, relative to ``window`` when given."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ScreenshotResult(Result):
+    path: str
+    bbox: list[int]
+    display_scale: float
+    window: str | None = None
+    window_bbox: list[int] | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CaptureRegionPayload(Payload):
+    """Without ``bbox`` the user selects the rectangle on the overlay. The destination
+    is ``path`` or ``script_id`` with ``name``."""
+
+    bbox: list[int] | None = None
+    """``[x, y, w, h]``, relative to ``window`` when given."""
+    window: WindowRef | None = None
+    path: str | None = None
+    script_id: str | None = None
+    name: str | None = None
+    overwrite: bool = False
+    padding: int = 0
+    transparent: bool = False
+
+    def check(self, path: str) -> None:
+        if (self.script_id is None) != (self.name is None):
+            raise PayloadError(f"{path}: script_id and name go together")
+        _exactly_one(path, path=self.path, script_id=self.script_id)
+        if self.padding < 0:
+            raise PayloadError(f"{path}.padding: must be 0 or more")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CaptureWarning(Payload):
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CaptureRegionResult(Result):
+    bbox: list[int]
+    display_scale: float
+    path: str | None = None
+    image_name: str | None = None
+    version: str | None = None
+    """The script's version after embedding the image."""
+    scale: float | None = None
+    """The embedded entry's ``scale``, when it got one."""
+    window: str | None = None
+    window_bbox: list[int] | None = None
+    warnings: list[CaptureWarning] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PickPointPayload(Payload):
+    window: WindowRef | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PickPointResult(Result):
+    x: int
+    y: int
+    display_scale: float
+    window: str | None = None
+    window_area: list[int] | None = None
+    """The window's client area on the desktop."""
+    window_point: list[int] | None = None
+    """The point relative to the window's client area."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FindImagePayload(Payload):
+    image: str
+    script_id: str | None = None
+    threshold: float = 0.9
+    scale: float = 1.0
+    region: list[int] | None = None
+    window: WindowRef | None = None
+    display_scale: float | None = None
+    show: bool = False
+    show_ms: int = 3000
+
+    def check(self, path: str) -> None:
+        if not self.image:
+            raise PayloadError(f"{path}.image: must not be empty")
+        if not 0 <= self.threshold <= 1:
+            raise PayloadError(f"{path}.threshold: must be between 0 and 1")
+        for name, value in (("scale", self.scale), ("display_scale", self.display_scale)):
+            if value is not None and not 0 < value < float("inf"):
+                raise PayloadError(f"{path}.{name}: must be a positive number")
+        if self.show_ms < 0:
+            raise PayloadError(f"{path}.show_ms: must be 0 or more")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FindImageResult(Result):
+    found: bool
+    score: float
+    region: list[int]
+    scale: float
+    display_scale: float
+    capture_scale: float
+    elapsed_ms: int
+    bbox: list[int] | None = None
+    center: list[int] | None = None
+    window: str | None = None
+    window_bbox: list[int] | None = None
+
+
 COMMAND_PAYLOADS: dict[str, type[Payload]] = {
     "hello": HelloPayload,
     "list_step_types": EmptyPayload,
@@ -483,6 +629,11 @@ COMMAND_PAYLOADS: dict[str, type[Payload]] = {
     "list_runs": ListRunsPayload,
     "get_run": GetRunPayload,
     "delete_run": RunRef,
+    "list_windows": EmptyPayload,
+    "screenshot": ScreenshotPayload,
+    "capture_region": CaptureRegionPayload,
+    "pick_point": PickPointPayload,
+    "find_image": FindImagePayload,
 }
 
 COMMAND_RESULTS: dict[str, type[Payload]] = {
@@ -509,4 +660,9 @@ COMMAND_RESULTS: dict[str, type[Payload]] = {
     "list_runs": ListRunsResult,
     "get_run": GetRunResult,
     "delete_run": EmptyResult,
+    "list_windows": ListWindowsResult,
+    "screenshot": ScreenshotResult,
+    "capture_region": CaptureRegionResult,
+    "pick_point": PickPointResult,
+    "find_image": FindImageResult,
 }

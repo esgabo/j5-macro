@@ -89,6 +89,22 @@ the events later, with screen captures of failed image searches in the run's fol
 
 ## For AI agents
 
+The repository ships an Agent Skill, [skills/j5-macro](../skills/j5-macro/SKILL.md),
+that teaches an agent everything below: the authoring loop, script writing, dry runs,
+reading events and failure captures, troubleshooting and the safety rules (ask before
+sending input, `--allow-exec` only with consent, secrets only through secret params). It
+has a script-format cheat sheet, a command reference, validated example scripts and a
+small practice window (`skills/j5-macro/scripts/practice_form.py`). To install it, copy
+the folder into the agent's skills directory, for Claude Code `~/.claude/skills/` (or a
+project's `.claude/skills/`):
+
+```console
+$ cp -r skills/j5-macro ~/.claude/skills/
+```
+
+The test suite validates its examples and checks that every command and option it shows
+exists, so update the skill along with the CLI.
+
 An agent can drive j5 like any shell user:
 
 1. Write or pick a script; `j5 validate --json script.yaml` returns problems with their
@@ -99,6 +115,23 @@ An agent can drive j5 like any shell user:
 3. Read the exit code and, on failure, the `step_failed` and `run_finished` events: they
    name the step, the line and the error code (`image_not_found` with the best score,
    `window_not_found`, `expression_error`...).
+
+To write the parts of a script that need the screen, an agent uses the authoring tools
+without their overlay ([cli.md](cli.md#authoring-tools)); each one sends no input:
+
+```console
+$ j5 windows --json                          # titles and client areas
+$ j5 screenshot --window Notes               # prints the PNG's path: look at it
+$ j5 capture --bbox 812,12,24,24 --window Notes --embed script.yaml --name save_button
+$ j5 find '#save_button' --script script.yaml --window Notes --json
+$ j5 validate script.yaml
+$ j5 run --dry-run script.yaml
+$ j5 run script.yaml
+```
+
+`--bbox` with `--window` is relative to the window's content, exactly as the window's
+screenshot shows it. `j5 find` exits with 1 when the template is not found and reports
+the best score, so a capture can be checked before any run.
 
 Things an agent should know:
 
