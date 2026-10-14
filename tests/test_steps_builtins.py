@@ -27,6 +27,7 @@ EXAMPLES: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
     "set": ({"name": "x", "value": 1}, {"value": 1}),
     "log": ({"message": "hi"}, {"message": "hi", "level": "trace"}),
     "pause": ({}, {"message": 3}),
+    "exec": ({"command": ["ls", "-l"]}, {"command": "ls", "wait": "yes"}),
 }
 
 
@@ -62,6 +63,8 @@ def test_defaults():
     assert defaults("scroll", {}) == {"dx": 0, "dy": 0}
     assert defaults("log", {"message": "m"}) == {"message": "m", "level": "info"}
     assert defaults("loop", {"times": 2}) == {"times": 2, "as": "item"}
+    assert defaults("exec", {"command": "ls"}) == {"command": "ls", "shell": False,
+                                                   "wait": False, "check": True}
 
 
 def test_shorthands_and_blocks():
@@ -69,7 +72,7 @@ def test_shorthands_and_blocks():
     assert shorthand == {"click": None, "move": None, "drag": None, "scroll": None,
                          "type": "text", "key": "press", "wait_image": "image",
                          "sleep": "duration", "if": None, "loop": None, "set": None,
-                         "log": "message", "pause": "message"}
+                         "log": "message", "pause": "message", "exec": "command"}
     if_spec, loop_spec = REGISTRY.spec("if"), REGISTRY.spec("loop")
     assert if_spec and if_spec.blocks == ("then", "else")
     assert if_spec.required_blocks == ("then",)
@@ -101,6 +104,42 @@ def _problems(name, params):
     ("drag", {"from": {"x": 1}, "to": {"x": 1, "y": 1}}, "from.y"),
     ("drag", {"from": {"x": 1, "y": 1}, "to": {}}, "to"),
     ("wait_image", {"image": "a.png", "region": [0, 0, 10]}, "region"),
+    ("click", {"at": "${a}", "image": "a.png"}, "image"),
+    ("click", {"at": "${a}", "x": 1, "y": 2}, "at"),
+    ("click", {"at": "${a}", "window": {"title": "Notes"}}, "window"),
+    ("click", {"at": "${a}", "region": [0, 0, 5, 5]}, "region"),
+    ("click", {"at": "label"}, "at"),
+    ("click", {"at": {"found": True}}, "at"),
+    ("click", {"at": {"bbox": [1, 2, 0, 4]}}, "at"),
+    ("click", {"at": {"bbox": [1, 2, 3, 4], "window": "Notes"}}, "at"),
+    ("click", {"at": {"bbox": [1, 2, 3, 4], "window": "", "window_bbox": [1, 2, 3, 4]}},
+     "at"),
+    ("move", {"at": {"bbox": [1, 2, 3, 4]}, "offset": [1, 2, 3]}, "offset"),
+    ("drag", {"from": {"at": "${a}", "window": {"title": "N"}}, "to": {"x": 1, "y": 1}},
+     "from.window"),
+    ("drag", {"from": {"at": "${a}", "offset": [1]}, "to": {"x": 1, "y": 1}},
+     "from.offset"),
+    ("wait_image", {"image": "a.png", "region": {"offset": [0, 40]}}, "region"),
+    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "near": 1}}, "region"),
+    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": [1]}}, "region"),
+    ("wait_image", {"image": "a.png", "region": {"at": {"found": True}}}, "region"),
+    ("wait_image", {"image": "a.png", "region": "left"}, "region"),
+    # Offsets in units of the target's size need a target with a size.
+    ("click", {"x": 1, "y": 2, "offset": ["1w", 0]}, "offset"),
+    ("move", {"x": 1, "y": 2, "offset": [0, "-0.5h"]}, "offset"),
+    ("drag", {"from": {"x": 1, "y": 1, "offset": ["2h", 0]}, "to": {"x": 1, "y": 1}},
+     "from.offset"),
+    ("click", {"image": "a.png", "offset": ["1 w", 0]}, "offset"),
+    ("click", {"image": "a.png", "offset": ["1x", 0]}, "offset"),
+    ("click", {"image": "a.png", "offset": ["w", 0]}, "offset"),
+    ("click", {"at": "${a}", "offset": [True, 0]}, "offset"),
+    ("click", {"image": "a.png", "offset": "1w"}, "offset"),
+    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": ["0w", 10]}},
+     "region"),
+    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "size": [-5, 10]}},
+     "region"),
+    ("wait_image", {"image": "a.png", "region": {"at": "${a}", "offset": ["1q", 0]}},
+     "region"),
     ("key", {"press": "ctrl+"}, "press"),
     ("type", {"text": "a\x07b"}, "text"),
     ("type", {"text": "\x1b[2J"}, "text"),
@@ -119,6 +158,28 @@ def test_cross_field_problems(name, params, param):
     ("set", {"name": "x", "value": None}),
     ("set", {"name": "x", "expr": "a + 1"}),
     ("click", {"image": "a.png", "offset": [5, -5]}),
+    ("click", {"at": "${label}"}),
+    ("click", {"at": "${label}", "offset": [0, 40], "threshold": 0.9, "scale": 1.0}),
+    ("click", {"at": {"bbox": [1, 2, 3, 4], "window": "Notes",
+                      "window_bbox": [0, 0, 3, 4], "found": True}}),
+    ("click", {"at": {"bbox": None, "dry_run": True}}),  # a dry run that did not search
+    ("click", {"at": {"dry_run": True, "description": "would wait"}}),  # nor could
+    ("click", {"at": {"bbox": "${b}"}}),
+    ("move", {"at": "${label}", "offset": [3, 4]}),
+    ("drag", {"from": {"at": "${label}", "offset": [0, 5]},
+              "to": {"image": "a.png", "offset": [1, 1]}}),
+    ("wait_image", {"image": "a.png", "region": {"at": "${label}"}}),
+    ("wait_image", {"image": "a.png", "region": {"at": "${label}", "offset": [0, 40],
+                                                 "size": [200, 30]}}),
+    ("wait_image", {"image": "a.png", "region": "${r}"}),
+    ("click", {"image": "a.png", "offset": ["0.5w", "-2h"]}),
+    ("click", {"at": "${label}", "offset": ["1.5h", ".25w"]}),
+    ("click", {"at": "${label}", "offset": ["+1w", 0.5]}),
+    ("click", {"x": 1, "y": 2, "offset": ["${dx}", 3]}),  # checked when interpolated
+    ("drag", {"from": {"image": "a.png", "offset": ["-1w", 0]},
+              "to": {"at": "${label}", "offset": [0, "1h"]}}),
+    ("wait_image", {"image": "a.png", "region": {"at": "${label}", "offset": [0, "1h"],
+                                                 "size": ["3w", "1h"]}}),
     ("click", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1.0}),
     ("move", {"x": 1, "y": 2, "threshold": 0.9, "scale": 1}),
     ("key", {"press": "${combo}"}),

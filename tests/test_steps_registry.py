@@ -8,7 +8,7 @@ from j5_macro.steps import registry as registry_module
 from j5_macro.steps.builtins import default_registry
 
 V1_STEPS = ["click", "move", "drag", "scroll", "type", "key", "wait_image", "sleep", "if",
-            "loop", "set", "log", "pause"]
+            "loop", "set", "log", "pause", "exec"]
 
 NOOP = StepType(StepSpec(name="noop", doc="Do nothing.",
                          params=(ParamSpec(name="a", type="integer"),
@@ -57,6 +57,7 @@ def test_default_registry_has_every_v1_step():
         assert step_type is not None
         spec = step_type.spec
         assert spec.doc and all(p.doc for p in spec.params), name
+        assert spec.result and all(f.doc for f in spec.result), name
         assert (step_type.executor is None) == (spec.kind == "control"), name
 
 
@@ -70,6 +71,13 @@ def test_describe_matches_the_wire_shape():
     assert "anyOf" in sleep["schema"]
     loop = next(e for e in entries if e["name"] == "loop")
     assert loop["schema"]["required"] == ["do"]
+    wait = next(e for e in entries if e["name"] == "wait_image")
+    fields = {f["name"]: (f["type"], f["optional"]) for f in wait["result"]}
+    assert {k: fields[k] for k in ("found", "score", "bbox", "center", "window",
+                                   "window_bbox")} == {
+        "found": ("boolean", False), "score": ("number", False), "bbox": ("list", False),
+        "center": ("list", False), "window": ("string", True),
+        "window_bbox": ("list", True)}
 
 
 def test_load_plugins_runs_entry_points(monkeypatch):

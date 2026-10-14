@@ -58,6 +58,9 @@ class Capabilities(Payload):
     """The vision toolkit and its extra are installed (image steps can search the
     screen); capturing may still fail at run time, with ``capability_missing``. Omitted
     by engines that predate it."""
+    display_scales: list[dict[str, Any]] | None = None
+    """Each monitor the backend reports, ``{bbox: [x, y, w, h], scale}``; empty when it
+    cannot tell. Omitted by engines that predate it."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -77,6 +80,8 @@ class StepNode(Payload):
     on_error: OnError | None = None
     timeout: str | None = None
     input: dict[str, Any] | None = None
+    store_as: dict[str, Any] | None = field(default=None, metadata=wire_name("as"))
+    """The common ``as`` field, as ``{name, secret}``."""
     blocks: dict[str, list[StepNode]] | None = None
 
 
@@ -115,10 +120,22 @@ class ParamInfo(Payload):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ResultFieldInfo(Payload):
+    """One field of a step type's result; ``optional`` fields are only present in
+    some cases."""
+
+    name: str
+    type: str
+    optional: bool = False
+    doc: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StepTypeInfo(Payload):
     name: str
     params: list[ParamInfo]
     doc: str = ""
+    result: list[ResultFieldInfo] = field(default_factory=list)
     json_schema: dict[str, Any] = field(default_factory=dict, metadata=wire_name("schema"))
 
 
@@ -145,6 +162,11 @@ class LoadResult(Result):
     params: list[dict[str, Any]] = field(default_factory=list)
     """Declared params: ``name``, ``type``, ``secret``, ``required`` and optionally
     ``description`` and ``default`` (never for secrets)."""
+    images: list[dict[str, Any]] = field(default_factory=list)
+    """Embedded images: ``name``, ``format``, ``bytes``, ``width``, ``height`` and
+    optionally ``scale``; never the data."""
+    capture_scale: float | None = None
+    """The script's ``capture_scale``, when given."""
     warnings: list[Diagnostic] = field(default_factory=list)
 
 
@@ -171,6 +193,15 @@ class RunPayload(Payload):
     seed: int | None = None
     input_profile: dict[str, Any] | None = None
     captures: Captures = "on_failure"
+    allow_exec: bool = False
+    """Let ``exec`` steps start programs; without it they fail with capability_missing."""
+    display_scale: float | None = None
+    """The display scale of the whole run (1.0 = 100 %); None detects it per monitor."""
+
+    def check(self, path: str) -> None:
+        scale = self.display_scale
+        if scale is not None and not 0 < scale < float("inf"):
+            raise PayloadError(f"{path}.display_scale: must be a positive number")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -286,6 +317,9 @@ class GetScriptResult(Result):
     path: str | None
     steps: list[StepNode]
     params: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
+    """As in :class:`LoadResult`."""
+    capture_scale: float | None = None
     valid: bool = True
     errors: list[ErrorInfo] = field(default_factory=list)
 
@@ -329,7 +363,7 @@ class InsertEdit(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UpdateEdit(Payload):
     """Replace the given ``params`` (``None`` removes one) and ``common`` fields
-    (``break``, ``timeout``, ``on_error``, ``input``)."""
+    (``break``, ``timeout``, ``on_error``, ``input``, ``as``)."""
 
     op: Literal["update"] = "update"
     step_id: str
@@ -357,9 +391,18 @@ class SetMetaEdit(Payload):
     input: dict[str, Any] | None = None
     params: dict[str, Any] | None = None
     vars: dict[str, Any] | None = None
+    images: dict[str, Any] | None = None
+    """Embedded images by name, each ``{png: <base64>, scale?: number}``."""
+    capture_scale: float | None = None
+    """The script's ``capture_scale``; it cannot be removed this way."""
+
+    def check(self, path: str) -> None:
+        scale = self.capture_scale
+        if scale is not None and not 0 < scale < float("inf"):
+            raise PayloadError(f"{path}.capture_scale: must be a positive number")
 
 
-Edit = InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
+Edit =InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

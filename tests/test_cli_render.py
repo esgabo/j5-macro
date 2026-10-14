@@ -207,6 +207,18 @@ def test_run_header_and_summaries():
                                  duration_ms=5)) == ["■ stopped (user) after 0.005s  (seed 42)"]
 
 
+def test_run_header_shows_scales_other_than_1():
+    assert RunRenderer().render(event(
+        "run_started", script_name="X", mode="normal", seed=1, backend="x11",
+        display_scale=1.5, display_scale_source="detected", capture_scale=1.25)) == [
+        "run r-1  X  (mode normal, seed 1, backend x11, display scale 1.5, "
+        "capture scale 1.25)"]
+    assert RunRenderer().render(event(
+        "run_started", script_name="X", mode="normal", seed=1, display_scale=1.0,
+        display_scale_source="default", capture_scale=1.0)) == [
+        "run r-1  X  (mode normal, seed 1)"]
+
+
 def test_run_header_without_a_script_name_shows_the_script_id():
     assert RunRenderer().render(event("run_started", script_id="s1", mode="step", seed=1)) == [
         "run r-1  s1  (mode step, seed 1)"]

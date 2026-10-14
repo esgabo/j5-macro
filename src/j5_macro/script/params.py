@@ -123,6 +123,34 @@ def secret_values(declared: Mapping[str, ScriptParam],
     return sorted(found, key=len, reverse=True)
 
 
+def secret_texts(value: Any) -> list[str]:
+    """The strings to mask for a result stored with ``as: {secret: true}``: every string
+    in ``value`` (itself, or inside mappings and lists, at any depth; keys, numbers and
+    booleans are not), and each one without its leading and trailing whitespace, so
+    ``strip(token.stdout)`` is masked too. Empty and whitespace-only strings are left out
+    (they would mask every space or line break)."""
+    found: set[str] = set()
+
+    def visit(item: Any) -> None:
+        if isinstance(item, str):
+            if item.strip():
+                found.update((item, item.strip()))
+        elif isinstance(item, Mapping):
+            for child in item.values():
+                visit(child)
+        elif isinstance(item, list | tuple):
+            for child in item:
+                visit(child)
+
+    visit(value)
+    return sorted(found, key=len, reverse=True)
+
+
+def merge_secrets(secrets: list[str], more: list[str]) -> list[str]:
+    """``secrets`` plus ``more``, without duplicates, longest first (the masking order)."""
+    return sorted(set(secrets) | set(more), key=len, reverse=True)
+
+
 POSITION_FIELDS = frozenset({"path", "iterations", "line", "index", "total", "duration_ms"})
 """Top-level payload fields that say where or how long, never what: engine-made integers
 that :func:`mask_payload` leaves alone, so a numeric secret never turns ``path: [0]``

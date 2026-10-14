@@ -97,6 +97,8 @@ Launch attributes:
 | `seed` | Seed of the run, to repeat the same human-like input |
 | `dryRun` | Send no input; input steps describe what they would do |
 | `fast` | Direct mouse and keyboard strategy instead of human-like movement |
+| `allowExec` | Let the script's `exec` steps run programs (`j5 run --allow-exec`) |
+| `displayScale` | The display scale of the run, e.g. `1.5` (`j5 run --display-scale`) |
 | `noDebug` | Run without stopping (Run Without Debugging sets it) |
 | `cwd` | Directory a relative `program` is resolved against |
 | `python` | Start the adapter with this interpreter (`python -m j5_macro.dap`) |

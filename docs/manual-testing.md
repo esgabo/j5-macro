@@ -35,7 +35,8 @@ in them says which line the target should log.
 
 | Script | Command | Expected |
 | --- | --- | --- |
-| [pointer.yaml](../examples/smoke/pointer.yaml) | `j5 run examples/smoke/pointer.yaml` | Exit code 0. The target logs, in order: a click on the pattern, `left down`/`left up` at (150, 50), two clicks at (160, 60), right and middle clicks at (200, 70), a click on the pattern at (54, 44), `left down at (120, 40)` and `left up at (280, 100)`, then `wheel down` twice and `wheel right` once at (250, 90). The run logs `pattern visible` and `pattern correctly absent from the event log area` |
+| [pointer.yaml](../examples/smoke/pointer.yaml) | `j5 run examples/smoke/pointer.yaml` | Exit code 0. The target logs, in order: a click on the pattern, `left down`/`left up` at (150, 50), two clicks at (160, 60), right and middle clicks at (200, 70), a click on the pattern at (56, 44), another click on the pattern (the kept result), `left down`/`left up` at (140, 68), `left down at (120, 40)` and `left up at (280, 100)`, then `wheel down` twice and `wheel right` once at (250, 90). The run logs `pattern visible`, `pattern correctly absent from the event log area` and `pattern visible where it was kept` |
+| [pointer_embedded.yaml](../examples/smoke/pointer_embedded.yaml) | Copy it to an empty directory and run `j5 run pointer_embedded.yaml` there | The same as `pointer.yaml`: the template is embedded in the script (made with `j5 pack`), so it runs from any directory, with no `img/` next to it. Its `image_search` events show the template as `#pattern` |
 | [keyboard.yaml](../examples/smoke/keyboard.yaml) | `j5 run examples/smoke/keyboard.yaml --param extra=end` | Exit code 0. The target's last log line is the `text '...'` line written at the top of the script, character for character: accents, `€`, CJK, Greek, Cyrillic and the emoji included |
 | [flow.yaml](../examples/smoke/flow.yaml) | `j5 run examples/smoke/flow.yaml --param name=Ana` | Exit code 0. Logs `hello Ana`, then `count 5, seen ['APPLE', 'BANANA', 'CHERRY']`; pauses at `checkpoint` until Enter; logs the warning |
 
@@ -46,6 +47,22 @@ run once and the steps describe what they would do).
 Then repeat `pointer.yaml` and `keyboard.yaml` with `--seed 1` twice and compare the
 `input_planned` events of both runs (`j5 runs show --json RUN_ID`): the same seed and the
 same start position give the same plans.
+
+## Display scale
+
+The templates in `examples/smoke/img` are captured at 100 %. These runs check that they,
+and the offsets in units of the pattern's size (`0.25w`, `[2w, 0.5h]`), follow a larger
+display. `target.py --scale 1.5` draws the window 1.5 times larger, as an application
+that follows a 150 % display does: the pattern is 72x72 at (30, 30), centre (66, 66),
+and the pad is at (150, 30), 300x150. Positions in its log are real pixels.
+
+| Run | How | Expected |
+| --- | --- | --- |
+| 100 % | `python examples/smoke/target.py`, then `j5 run examples/smoke/pointer.yaml` | As in the table above. The run header shows no display scale (it is 1), and every `image_search` (`j5 runs show --json RUN_ID`) has `scale`, `display_scale` and `capture_scale` 1 |
+| 150 %, given | `python examples/smoke/target.py --scale 1.5`, then `j5 run --display-scale 1.5 examples/smoke/pointer.yaml` | Exit code 0. The header shows `display scale 1.5`; each `image_search` has `scale` 1.5 and a score near 1. The target logs clicks on the pattern (anywhere on it; (66, 66) with `--fast`), at (84, 66) for `click_with_offset` and `left down`/`left up` at (210, 102) for `click_next_to_pattern`. `x`/`y` steps are positions and are not scaled: the pad clicks and the wheel are logged at the same pixels as at 100 %, and `drag_across_pad` starts left of the larger pad, so the pad logs nothing for it. The three image conditions log as at 100 % |
+| 150 %, detected | Set the display to 150 % (Windows: Settings, Display; Xfce: Appearance, Fonts, custom DPI 144, which sets `Xft.dpi`), start `target.py --scale 1.5` and run `j5 run examples/smoke/pointer.yaml` without `--display-scale` | The same as the run above, with `display scale 1.5` detected. `j5 run --json` shows `display_scale_source: detected` in `run_started` |
+| Mismatch | At 150 % detected, start `target.py` without `--scale` (it draws at 100 % size) and run `pointer.yaml` | `wait_pattern` fails with `image_not_found` (the template is searched 1.5 times larger than the pattern); `j5 run --display-scale 1 examples/smoke/pointer.yaml` passes as at 100 % |
+| Capture scale | Copy `pointer_embedded.yaml` to an empty directory, add `scale: 1.5` to its `pattern` entry, and run it with `--display-scale 1.5` against `target.py` without `--scale` | Exit code 0 and the results of the 100 % run: `image_search` reports `display_scale` 1.5, `capture_scale` 1.5 and `scale` 1. With `capture_scale: 1.5` at the top of the script instead of the entry's `scale`, the same; with both removed, `wait_pattern` fails as in the mismatch above |
 
 ## Safety checks
 
@@ -73,12 +90,17 @@ same start position give the same plans.
 **Windows:**
 
 - **Scaled display.** Set the display scale to 150 % (Settings, Display), sign out and
-  in, and run `pointer.yaml` and `keyboard.yaml`. The positions in the target's log are
-  the same as at 100 %: the engine declares per-monitor DPI awareness, so coordinates and
-  captures are physical pixels. The image search still finds the pattern with score 1.
+  in, start `target.py --scale 1.5` and run `pointer.yaml` and `keyboard.yaml`. The
+  engine declares per-monitor DPI awareness, so coordinates and captures are physical
+  pixels, and it detects the 150 % (`display scale 1.5` in the run header): the results
+  are those of the "150 %, detected" row of [Display scale](#display-scale).
+  `j5 run --json examples/hello.yaml` shows it in `run_started`.
 - **Several monitors.** Put a second monitor to the left of the main one (so the desktop
   has negative coordinates), move the target there, and run `pointer.yaml`. Repeat with
-  monitors at different scales.
+  monitors at different scales (say the main one at 100 % and the second at 150 %, the
+  target started with the second monitor's `--scale`): the `image_search` events of the
+  window searches report the scale of the monitor the target is on (`display_scale`),
+  and the run header shows the main monitor's.
 - **Keyboard layouts.** Switch to another layout (Spanish, German, French AZERTY) and run
   `keyboard.yaml`: the text is identical (characters are sent as Unicode, not as keys),
   and the shortcuts press the key that types their character in the active layout.

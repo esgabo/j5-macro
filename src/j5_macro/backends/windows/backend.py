@@ -17,7 +17,14 @@ import contextlib
 import threading
 from collections.abc import Callable
 
-from j5_macro.backends.base import MODIFIER_KEYS, Button, Capabilities, Rect, UnknownKey
+from j5_macro.backends.base import (
+    MODIFIER_KEYS,
+    Button,
+    Capabilities,
+    MonitorScale,
+    Rect,
+    UnknownKey,
+)
 from j5_macro.backends.windows.dpi import declare_dpi_awareness
 from j5_macro.backends.windows.hotkey import HotkeyWatcher
 from j5_macro.backends.windows.keys import (
@@ -69,7 +76,7 @@ class WindowsBackend:
     name = "windows"
     capabilities = Capabilities(pointer_position=True, move_abs=True, move_rel=True,
                                 char_input=True, screen_capture=False, windows=True,
-                                hotkey=True)
+                                hotkey=True, display_scale=True)
 
     def __init__(self, api: Win32Api | None = None) -> None:
         if api is None:
@@ -97,6 +104,17 @@ class WindowsBackend:
         with self._lock:
             self._check_open()
             return self._api.cursor_pos()
+
+    def display_scale(self, x: int, y: int) -> float | None:
+        """The effective DPI of the monitor at (x, y), or the nearest one, over 96."""
+        with self._lock:
+            self._check_open()
+            return self._api.scale_at(x, y)
+
+    def display_scales(self) -> list[MonitorScale]:
+        with self._lock:
+            self._check_open()
+            return self._api.monitor_scales()
 
     def move_abs(self, x: int, y: int) -> None:
         with self._lock:

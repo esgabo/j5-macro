@@ -1,7 +1,7 @@
 # Command-line reference
 
-`j5` is the command-line client of the j5 engine. Every command except `schema` and `dap`
-starts the engine as a child process, sends it commands and shows what comes back (see
+`j5` is the command-line client of the j5 engine. Every command except `schema`, `pack`,
+`unpack` and `dap` starts the engine as a child process, sends it commands and shows what comes back (see
 [how-it-works.md](how-it-works.md)).
 
 ```console
@@ -17,6 +17,8 @@ positional arguments:
     runs      list, show and delete saved runs
     steps     list the step types and their parameters
     schema    print the JSON Schema of scripts for editors
+    pack      embed the image files a script uses into the script
+    unpack    write a script's embedded images back to files
     dap       serve the Debug Adapter Protocol on stdio (for VS Code)
 
 options:
@@ -35,6 +37,8 @@ j5-macro 0.0.1
 | [`j5 validate`](#j5-validate) | Check a script without running it |
 | [`j5 steps`](#j5-steps) | List the step types and their parameters |
 | [`j5 schema`](#j5-schema) | Print the JSON Schema of scripts, for editors |
+| [`j5 pack`](#j5-pack) | Embed the image files a script uses into the script |
+| [`j5 unpack`](#j5-unpack) | Write a script's embedded images back to files |
 | [`j5 runs`](#j5-runs) | List, replay and delete saved runs |
 | [`j5 dap`](#j5-dap) | Serve the Debug Adapter Protocol (started by VS Code) |
 
@@ -42,7 +46,8 @@ j5-macro 0.0.1
 
 ```text
 j5 run [-h] [--runs-dir DIR] [--step | --dry-run] [--break STEP_ID]
-       [--seed SEED] [--fast] [--param NAME=VALUE]
+       [--seed SEED] [--fast] [--allow-exec] [--display-scale SCALE]
+       [--param NAME=VALUE]
        [--param-file NAME=PATH] [--param-env NAME=VARIABLE]
        [--params-file FILE] [--var NAME=VALUE]
        [--captures {on_failure,all}] [--stop-key COMBO] [--json]
@@ -60,6 +65,8 @@ Loads the script, runs it and shows its progress. The output is explained in
 | `--dry-run` | Send no input: input steps describe what they would do, image searches run once. Cannot be combined with `--step` (use `--break` to pause a dry run) |
 | `--seed SEED` | Integer seed of the run, to repeat the same human-like input. Without it the engine picks one and shows it |
 | `--fast` | Use the `direct` strategy for mouse and keyboard: no human-like movement or typing |
+| `--allow-exec` | Let the script's [`exec`](scripts.md#exec) steps run programs. Without it they fail with `capability_missing` |
+| `--display-scale SCALE` | The [display scale](scripts.md#display-scale) of this run, `1.5` or `150%`, for every monitor, instead of detecting it (per monitor on Windows, from `Xft.dpi` on X11). Templates and pixel offsets are scaled by it over the script's `capture_scale`. Not a positive number: usage error (exit 2) |
 | `--param NAME=VALUE` | Set a script param. The value is taken as text exactly as written (converted for `integer`, `number` and `boolean` params). Repeatable |
 | `--param-file NAME=PATH` | Set a param to the contents of a UTF-8 file, without its final line break; `-` reads standard input (only one param can). Repeatable |
 | `--param-env NAME=VARIABLE` | Set a param from an environment variable; fails if the variable is not set. Repeatable |
@@ -166,7 +173,10 @@ j5 validate [-h] [--json] script
 ```
 
 Loads the script in the engine and reports its problems as `path:line:` messages, its
-params, and a verdict. It sends no input.
+params, its [embedded images](scripts.md#embedded-images), and a verdict. It sends no
+input. Problems with an embedded image (data that is not base64 of a PNG file, an image
+over the size limits, a `"#name"` with no such image) are reported at the line of the
+entry or of the step.
 
 ```console
 $ j5 validate examples/hello.yaml
@@ -183,8 +193,14 @@ nope.yaml: error[script_not_found]: cannot open script '/home/me/j5-macro/nope.y
 nope.yaml: invalid (1 error)
 ```
 
-`--json` prints one object with `path`, `valid`, `script_id`, `errors`, `warnings` and
-`params`.
+```console
+$ j5 validate examples/smoke/pointer_embedded.yaml
+image #pattern (png, 48x48, 202 bytes)
+examples/smoke/pointer_embedded.yaml: valid
+```
+
+`--json` prints one object with `path`, `valid`, `script_id`, `errors`, `warnings`,
+`params` and `images`.
 
 Exit codes: 0 valid (warnings allowed), 1 invalid or unreadable, 2 usage error.
 
@@ -202,7 +218,7 @@ JSON Schema.
 ```console
 $ j5 steps
 click  Click on an image or at x/y.
-  image: string  Template image, relative to the script file.
+  image: string  Template image: a path relative to the script file, or "#name" of an image embedded in the script.
   x: integer  Horizontal position in physical pixels.
   y: integer  Vertical position in physical pixels.
   window: object  Window to work in, e.g. {title: ...}; coordinates become relative.
@@ -238,6 +254,58 @@ or map the schema to your scripts in `.vscode/settings.json`:
 ```json
 "yaml.schemas": {"./j5-script.schema.json": ["*.j5.yaml", "scripts/**/*.yaml"]}
 ```
+
+## `j5 pack`
+
+```text
+j5 pack [-h] [-o FILE] script
+```
+
+Embeds every image file the script references into its `images` section (see [Embedded
+images](scripts.md#embedded-images)), so it can be shared as a single file. Each image
+parameter written as a path (`img/save button.png`, in `click`, `move`, `drag`,
+`wait_image` or `image_visible`) becomes a reference to the embedded copy
+(`"#save_button"`):
+
+- names come from the file stems, made valid (`save button` gives `save_button`) and
+  unique (`dialog`, `dialog_2`);
+- identical files share one entry, also with an image the script already embeds;
+- a path built with `${...}` is left as it is, with a warning;
+- comments and formatting are kept, and no step id is added (the same structured editing
+  as the engine's `edit_script`); the new section goes at the end of the file.
+
+The script must be valid, and every file must be a PNG of at most 1 MiB (8 MiB for all
+of a script's images together); otherwise nothing is written. `-o FILE` writes the result
+to a file, which may be the script itself; without it the packed script goes to standard
+output. A summary goes to standard error. It does not start the engine.
+
+```console
+$ j5 pack examples/smoke/pointer.yaml -o pointer_bundle.yaml
+j5: embedded 1 image (#pattern), 5 image parameters rewritten; wrote pointer_bundle.yaml
+```
+
+Exit codes: 0 done, 1 invalid script or an image that cannot be embedded, 2 usage error.
+
+## `j5 unpack`
+
+```text
+j5 unpack [-h] -d DIR [-f] script
+```
+
+The reverse of `j5 pack`: writes each embedded image to `DIR/img/<name>.png` and the
+script to `DIR/<script file name>`, with every `"#name"` turned back into the path
+`img/<name>.png` and the `images` section removed. When a step builds its image with
+`${...}` (it may name an embedded image at run time), the section is kept and j5 says
+so. A capture `scale` cannot be kept in a file: it is dropped with a warning. Existing
+files are not overwritten unless `-f` / `--force` is given.
+
+```console
+$ j5 unpack pointer_bundle.yaml -d pointer/
+j5: wrote 1 image to pointer/img and the script to pointer/pointer_bundle.yaml
+```
+
+Exit codes: 0 done, 1 invalid script, no embedded images or a file in the way, 2 usage
+error.
 
 ## `j5 runs`
 
@@ -304,13 +372,13 @@ with the extension in `editors/vscode`. `python -m j5_macro.dap` is the same ser
 
 ## Exit codes
 
-| Code | `run` | `validate` | `runs` | All commands |
-| --- | --- | --- | --- | --- |
-| 0 | Completed | Valid (warnings allowed) | Done | |
-| 1 | The run failed, or a paused step kept failing with no terminal to ask | Invalid or unreadable | No saved run with that id | The engine could not be started or died |
-| 2 | The script could not be loaded or the run could not start | | Malformed run id | Usage error (bad options) |
-| 3 | The run was stopped (emergency stop, corner failsafe, interference set to `stop`, `q` in the debugger) | | | |
-| 130 | Interrupted with Ctrl+C | | | Interrupted with Ctrl+C |
+| Code | `run` | `validate` | `runs` | `pack`, `unpack` | All commands |
+| --- | --- | --- | --- | --- | --- |
+| 0 | Completed | Valid (warnings allowed) | Done | Done | |
+| 1 | The run failed, or a paused step kept failing with no terminal to ask | Invalid or unreadable | No saved run with that id | Invalid script, an image that cannot be embedded, nothing to unpack or a file in the way | The engine could not be started or died |
+| 2 | The script could not be loaded or the run could not start | | Malformed run id | | Usage error (bad options) |
+| 3 | The run was stopped (emergency stop, corner failsafe, interference set to `stop`, `q` in the debugger) | | | | |
+| 130 | Interrupted with Ctrl+C | | | | Interrupted with Ctrl+C |
 
 ## Environment variables
 

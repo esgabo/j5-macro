@@ -35,7 +35,7 @@ def test_click_relative_to_a_window_with_an_offset():
         backend=backend(**{"Untitled - Notes": NOTES}))
     assert outcome.status == "completed", outcome
     assert result == {"x": 115, "y": 217, "button": "left", "clicks": 1,
-                      "window": [100, 200, 800, 600]}
+                      "window": "Notes", "window_area": [100, 200, 800, 600]}
     session = input_run.factory.session
     assert session.named("find_window")[0][1] == "Notes"
     assert session.named("click")[0][1] == (115, 217, Button.LEFT, 1)
@@ -52,7 +52,8 @@ def test_interpolated_coordinates():
 def test_move_relative_to_a_window():
     _, _, result = one_step("move: {x: 0, y: 0, window: {title: Notes}}",
                             backend=backend(Notes=NOTES))
-    assert result == {"x": 100, "y": 200, "window": [100, 200, 800, 600]}
+    assert result == {"x": 100, "y": 200, "window": "Notes",
+                      "window_area": [100, 200, 800, 600]}
 
 
 def test_missing_window_is_window_not_found():
@@ -119,7 +120,7 @@ def test_drag_between_points_in_windows():
         backend=backend(Notes=NOTES))
     assert outcome.status == "completed", outcome
     assert result == {"from": [101, 202], "to": [300, 400], "button": "middle",
-                      "from_window": [100, 200, 800, 600]}
+                      "from_window": "Notes", "from_window_area": [100, 200, 800, 600]}
     assert input_run.factory.session.named("drag")[0][1] == ((101, 202), (300, 400),
                                                              Button.MIDDLE)
 

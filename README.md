@@ -34,12 +34,15 @@ $ j5 run report.yaml --param 'customer=ACME #42'
 
 - **Readable scripts.** YAML steps with stable ids, variables, expressions, `if`, loops,
   error handling (`continue`, `retry`, `pause`) and a JSON Schema for editor completion.
+  An `exec` step launches applications or reads values from commands, when the run
+  allows it (`--allow-exec`).
 - **Human-like input.** Curved mouse paths (WindMouse or Bézier) with Fitts' law timing, a
   bell-shaped speed, overshoot and jitter; typing with a natural rhythm, pauses and
   optional corrected typos. Or `direct` and `linear` when speed matters. Runs are seeded
   and reproducible.
 - **Sees the screen.** Waits for and clicks on images, with thresholds, regions,
-  transparent templates and screenshots of failed searches.
+  transparent templates and screenshots of failed searches. Templates and offsets follow
+  the display scale, so a script captured at 100 % still works at 150 %.
 - **Debuggable.** `j5 run --step` with breakpoints, stepping into loops and branches,
   variables and expressions; the same in VS Code through a Debug Adapter Protocol server.
 - **Values from outside.** Params from the command line, files or environment variables;

@@ -10,7 +10,7 @@ import pytest
 from engine_harness import Engine
 
 from j5_macro.backends import select_backend
-from j5_macro.backends.base import Capabilities
+from j5_macro.backends.base import Capabilities, Rect
 from j5_macro.backends.fake import FakeBackend
 from j5_macro.backends.select import BackendChoice
 from j5_macro.engine.backend import (
@@ -71,6 +71,57 @@ def test_ready_and_hello_report_the_backend(engine: Engine) -> None:
     log = typed(engine.engine_events("log")[0])
     assert log == LogEvent(level="info", message=f"emergency stop key: {DEFAULT_STOP_KEY}")
     assert fake_of(engine).hotkeys[0][0] == STOP_KEYS
+
+
+def test_ready_and_hello_report_the_display_scales(fake_env: None) -> None:
+    fake = FakeBackend(monitors=[(Rect(0, 0, 1920, 1080), 1.0),
+                                 (Rect(1920, 0, 2560, 1440), 1.5)])
+    engine = Engine(backend=EngineBackend(BackendChoice("fake", fake, "test")))
+    try:
+        expected = [{"bbox": [0, 0, 1920, 1080], "scale": 1.0},
+                    {"bbox": [1920, 0, 2560, 1440], "scale": 1.5}]
+        ready = typed(engine.engine_events("ready")[0])
+        assert ready.capabilities.display_scales == expected
+        hello = HelloResult.from_json(engine.ok("hello", {"v_min": 1, "v_max": 1,
+                                                          "client": "tests"}))
+        assert hello.capabilities.display_scales == expected
+    finally:
+        engine.close()
+
+
+def test_run_started_reports_the_display_scale(fake_env: None) -> None:
+    fake = FakeBackend(monitors=[(Rect(0, 0, 1920, 1080), 1.25)])
+    engine = Engine(backend=EngineBackend(BackendChoice("fake", fake, "test")))
+    try:
+        script_id = engine.load_source("capture_scale: 1.5\nsteps:\n  - log: hi\n")
+        detected = engine.start(script_id)
+        started = typed(engine.event("run_started", detected))
+        assert (started.display_scale, started.display_scale_source,
+                started.capture_scale) == (1.25, "detected", 1.5)
+        engine.wait_finished(detected)
+        forced = engine.start(script_id, display_scale=2)
+        started = typed(engine.event("run_started", forced))
+        assert (started.display_scale, started.display_scale_source) == (2.0, "run")
+        engine.wait_finished(forced)
+        assert engine.runs.get(forced).options.display_scale == 2.0
+        error = engine.error("run", {"script_id": script_id, "mode": "normal",
+                                     "display_scale": 0})
+        assert error["code"] == "validation_failed"
+        assert "display_scale" in error["message"]
+    finally:
+        engine.close()
+
+
+def test_run_started_without_a_backend_defaults_to_1() -> None:
+    engine = Engine()
+    try:
+        run_id = engine.start(engine.load_source())
+        payload = engine.event("run_started", run_id)["payload"]
+        assert (payload["display_scale"], payload["display_scale_source"],
+                payload["capture_scale"]) == (1.0, "default", 1.0)
+        engine.wait_finished(run_id)
+    finally:
+        engine.close()
 
 
 @pytest.mark.parametrize("mode", ["normal", "dry"])

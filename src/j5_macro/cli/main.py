@@ -4,8 +4,9 @@ Exit codes (every command):
 
 - 0: success (``validate``: the script is valid, warnings allowed; ``run``: completed).
 - 1: ``validate``: the script is invalid or cannot be read; ``run``: the run failed;
-  ``runs show``/``runs delete``: no saved run with that id; any command: the engine
-  could not be started or died.
+  ``runs show``/``runs delete``: no saved run with that id; ``pack``/``unpack``: the
+  script is invalid, an image cannot be embedded or a file is in the way; any command:
+  the engine could not be started or died.
 - 2: usage error; ``run``: the script could not be loaded or the run could not start;
   ``runs show``/``runs delete``: a malformed run id.
 - 3: ``run``: the run was stopped (by the engine, e.g. user interference).
@@ -90,6 +91,31 @@ or map it to your script files in .vscode/settings.json:
   "yaml.schemas": {"./j5-script.schema.json": ["*.j5.yaml", "scripts/**/*.yaml"]}"""
 
 
+PACK_HELP = """\
+Embed every image file the script references into its 'images' section, so the
+script can be shared as a single file. Each image parameter written as a path
+(img/button.png) becomes a reference to the embedded copy ("#button"); names come
+from the file stems, and identical files share one entry. Paths built with ${...}
+are left as they are. Comments and formatting are kept.
+
+  j5 pack save_report.yaml -o save_report.bundle.yaml
+  j5 pack save_report.yaml -o save_report.yaml        (in place)
+
+exit codes: 0 done, 1 invalid script or an image that cannot be embedded (missing,
+not a PNG file, over 1 MiB, or over 8 MiB in all), 2 usage error"""
+
+UNPACK_HELP = """\
+Write the embedded images of a script to DIR/img/<name>.png and the script to
+DIR/<script file name>, with every "#name" reference turned back into the path
+img/<name>.png and the 'images' section removed. Existing files are not
+overwritten without --force.
+
+  j5 unpack save_report.bundle.yaml -d save_report/
+
+exit codes: 0 done, 1 invalid script, no embedded images or a file in the way,
+2 usage error"""
+
+
 RUNS_HELP = f"""\
 Every run is saved in the runs directory: --runs-dir, else ${RUNS_DIR_ENV}, else the
 platform state directory (~/.local/state/j5-macro/runs on Linux,
@@ -111,6 +137,20 @@ def _runs_dir_option() -> argparse.ArgumentParser:
                         help=f"the runs directory (default: ${RUNS_DIR_ENV}, else the "
                              "platform state directory)")
     return parent
+
+
+def _display_scale(text: str) -> float:
+    """``--display-scale``: a positive number, ``1.5`` or ``150%``."""
+    value = text.strip()
+    percent = value.endswith("%")
+    try:
+        number = float(value[:-1] if percent else value)
+    except ValueError:
+        number = float("nan")
+    if not 0 < number < float("inf"):
+        raise argparse.ArgumentTypeError(
+            f"expected a positive number such as 1.5 or 150%, got {text!r}")
+    return number / 100 if percent else number
 
 
 def _stop_key(text: str) -> str:
@@ -148,6 +188,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--seed", type=int, help="seed for human-like input")
     run.add_argument("--fast", action="store_true",
                      help="force the direct input strategy for mouse and keyboard")
+    run.add_argument("--allow-exec", action="store_true",
+                     help="let the script's exec steps run programs (without it they fail "
+                          "with capability_missing)")
+    run.add_argument("--display-scale", metavar="SCALE", type=_display_scale,
+                     help="the display scale of this run, e.g. 1.5 or 150%%, instead of "
+                          "detecting it per monitor; templates and pixel offsets are "
+                          "scaled by it over the script's capture_scale")
     run.add_argument("--param", dest="params", metavar="NAME=VALUE", action="append",
                      type=parse_param, default=[],
                      help="set a script param to VALUE, taken as text exactly as written "
@@ -209,6 +256,23 @@ def build_parser() -> argparse.ArgumentParser:
         description=SCHEMA_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     schema.add_argument("-o", "--output", metavar="FILE",
                         help="write the schema to FILE instead of stdout")
+
+    pack = sub.add_parser(
+        "pack", help="embed the image files a script uses into the script",
+        description=PACK_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    pack.add_argument("script", help="path to a YAML script")
+    pack.add_argument("-o", "--output", metavar="FILE",
+                      help="write the packed script to FILE (it may be the script itself) "
+                           "instead of stdout")
+
+    unpack = sub.add_parser(
+        "unpack", help="write a script's embedded images back to files",
+        description=UNPACK_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    unpack.add_argument("script", help="path to a YAML script with an images section")
+    unpack.add_argument("-d", "--directory", metavar="DIR", required=True,
+                        help="where to write the script and its img/ directory")
+    unpack.add_argument("-f", "--force", action="store_true",
+                        help="overwrite files that already exist")
 
     sub.add_parser("dap", help="serve the Debug Adapter Protocol on stdio (for VS Code)",
                    description="Debug Adapter Protocol server on standard input and output, "
@@ -291,6 +355,14 @@ def _runs(args: argparse.Namespace, cmd: list[str], runs_dir: str, io: Output) -
 def _dispatch(args: argparse.Namespace) -> int:
     if args.command == "schema":
         return _schema(args.output)
+    if args.command in ("pack", "unpack"):
+        from j5_macro.cli import bundle
+
+        if args.command == "pack":
+            return bundle.pack(args.script, args.output, out=sys.stdout, err=sys.stderr,
+                               style=_style(sys.stderr))
+        return bundle.unpack(args.script, args.directory, force=args.force, err=sys.stderr,
+                             style=_style(sys.stderr))
     if args.command == "dap":
         from j5_macro.dap.server import main as dap_main
 
@@ -335,6 +407,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         seed=args.seed,
         input_profile=copy.deepcopy(FAST_PROFILE) if args.fast else None,
         captures=args.captures,
+        allow_exec=args.allow_exec,
+        display_scale=args.display_scale,
         as_json=args.json,
         interactive=interactive,
     )

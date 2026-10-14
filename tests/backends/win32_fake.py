@@ -8,7 +8,7 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from j5_macro.backends.base import Rect
+from j5_macro.backends.base import Rect, scale_at
 from j5_macro.backends.windows.win32 import (
     WM_HOTKEY,
     InputDenied,
@@ -28,6 +28,8 @@ class FakeWin32:
     screen: Rect = field(default_factory=lambda: Rect(-1920, 0, 3840, 1080))
     cursor: tuple[int, int] | None = (0, 0)
     windows_list: list[FakeWindow] = field(default_factory=list)
+    monitors: list[tuple[Rect, float]] = field(default_factory=list)
+    """``monitor_scales`` answers; empty: the system cannot say."""
     """Topmost first; the handle of a window is its index plus one."""
     layout: dict[str, int] = field(default_factory=dict)
     """``vk_for_char`` answers: characters of the current layout."""
@@ -54,6 +56,12 @@ class FakeWin32:
 
     def virtual_screen(self) -> Rect:
         return self.screen
+
+    def scale_at(self, x: int, y: int) -> float | None:
+        return scale_at(self.monitors, x, y)
+
+    def monitor_scales(self) -> list[tuple[Rect, float]]:
+        return list(self.monitors)
 
     # --- windows ---------------------------------------------------------------------
 

@@ -11,6 +11,7 @@ thread and reports through the event sink.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import importlib
 import secrets
 import threading
@@ -40,10 +41,12 @@ from j5_macro.protocol.payloads import (
     StopPayload,
 )
 from j5_macro.runtime.api import ControlError, RunController, RunFactory, RunOptions, RunOutcome
+from j5_macro.runtime.display import DEFAULT_SCALE, run_display_scale
 from j5_macro.script.params import (
     ParamProblem,
     mask,
     mask_payload,
+    merge_secrets,
     missing_names,
     resolve,
     secret_values,
@@ -123,10 +126,12 @@ class Run:
                  secrets: list[str] | None = None) -> None:
         self.server = server
         self.secrets = list(secrets or [])
-        """Values of the run's secret params, masked in every event and answer."""
+        """Values masked in every event and answer, longest first: the run's secret
+        params, then the results stored as secrets (:meth:`add_secrets`). Replaced, never
+        changed in place, so readers on other threads see one list or the other."""
         self.run_id = run_id
         self.script_id = entry.script_id
-        self.options = options
+        self.options = dataclasses.replace(options, add_secrets=self.add_secrets)
         self.sequencer = EventSequencer(run_id)
         self.events: list[Event] = []
         self.controller: RunController | None = None
@@ -182,6 +187,12 @@ class Run:
             self._publish("run_finished", payload)
             self._closed = True
         return self.masked_payload(payload)
+
+    def add_secrets(self, values: list[str]) -> None:
+        """The run's :data:`~j5_macro.runtime.api.SecretSink`: mask ``values`` too, in
+        every event published from now on and in every answer."""
+        with self._lock:
+            self.secrets = merge_secrets(self.secrets, values)
 
     def masked(self, value: Any) -> Any:
         """``value`` with this run's secret values replaced by ``***``."""
@@ -295,6 +306,8 @@ class RunManager:
                 run_dir=None if self.store is None else self.store.root / run_id,
                 backend=None if self.backend is None else self.backend.backend,
                 backend_reason=None if self.backend is None else self.backend.reason,
+                allow_exec=payload.allow_exec,
+                display_scale=payload.display_scale,
             )
             meta: JsonObject = {
                 "run_id": run_id,
@@ -309,7 +322,8 @@ class RunManager:
                       secret_values(script.params, variables))
             factory = self._factory if self._factory is not None else default_run_factory()
             try:
-                run.controller = factory(entry.script, self.scripts.registry, run.sink, options)
+                run.controller = factory(entry.script, self.scripts.registry, run.sink,
+                                         run.options)
             except ControlError as exc:
                 raise CommandError.from_info(exc.info) from exc
             run_started: JsonObject = {
@@ -319,6 +333,7 @@ class RunManager:
                 "seed": seed,
                 "backend": self._backend_name(run.controller),
                 "input_profile": merge_profile(entry.script.input, payload.input_profile),
+                **self._display_scale(payload.display_scale, script.capture_scale),
             }
             self.active = run
             self.runs[run_id] = run
@@ -327,6 +342,16 @@ class RunManager:
         run.files = self._create_files(run)
         run.start(run_started)
         return run
+
+    def _display_scale(self, override: float | None,
+                       capture_scale: float | None) -> JsonObject:
+        """``run_started``'s ``display_scale``, ``display_scale_source`` and
+        ``capture_scale``."""
+        scale, source = run_display_scale(
+            override, None if self.backend is None else self.backend.backend)
+        return {"display_scale": round(scale, 4), "display_scale_source": source,
+                "capture_scale": capture_scale if capture_scale is not None
+                else DEFAULT_SCALE}
 
     def _backend_name(self, controller: RunController) -> str:
         """``run_started.backend``: the controller's backend name if it reports one, else

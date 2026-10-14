@@ -69,14 +69,14 @@ extra is not installed.
 | --- | --- |
 | `tests/test_protocol.py`, `test_payloads.py`, `test_errors.py` | The message envelope, the typed payload of every command, result and event, and error codes |
 | `tests/test_loader.py`, `test_spec.py`, `test_steps_*.py`, `test_expr.py` | Script loading and validation, step specs, the registry, built-in steps, the JSON Schema, the expression language |
-| `tests/test_script_editor.py`, `test_script_params.py` | Comment-preserving script edits, params and secrets |
+| `tests/test_script_editor.py`, `test_script_params.py`, `test_script_images.py` | Comment-preserving script edits, params and secrets, embedded images (`png_support.py` builds small PNG files without numpy) |
 | `tests/engine/` | The engine in process (`engine_harness.py` runs a server on a thread, fed through the transport): runs, history and persistence, params, script management and editing, backend selection and the stop key |
 | `tests/runtime/` | The interpreter with a fast clock and an event recorder that validates every payload: flow, stepping and pauses, errors, seeding, input steps, interference and vision, on the fake backend |
 | `tests/input/` | The mouse and keyboard planners (pure, no display) and the input session against a fake backend |
 | `tests/vision/` | Template matching, image files, and capturing a real X screen (`x11`) |
 | `tests/backends/` | Backend selection, the Windows backend against a fake Win32 layer (`win32_fake.py`; a few tests use the real system on Windows), the X11 backend and its key mapping (`x11`), and `test_e2e_x11.py`: the whole stack (CLI, engine, interpreter, masters, X11 backend) on Xvfb, with an observer window that records the input it really receives |
 | `tests/test_client*.py` | The asyncio client against a scriptable fake engine (`tests/fakes/fake_engine.py`) |
-| `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
+| `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, `j5 pack` and `j5 unpack`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
 | `tests/test_engine_process.py`, `test_engine_server.py`, `test_integration.py` | The real engine process, and the real client against it with every payload checked against the typed payloads |
 | `tests/test_e2e_cli.py`, `test_e2e_debugger.py` | The real `j5` CLI, engine and interpreter, with no fakes but the input backend; debugger commands piped through standard input |
 | `tests/test_dap_*.py` | The DAP adapter: framing, line to step mapping, the session against a fake engine, and end to end over framed stdio against the real engine (`J5_BACKEND=fake`) |
@@ -122,17 +122,21 @@ coding agents alike:
 A step type is data plus a function. Look at `src/j5_macro/steps/basic.py` for small
 examples (`sleep`, `set`, `log`, `pause`).
 
-1. **Contract.** Add the step to the "v1 step types" table of the
-   [contract](contract.md#script-format-and-step-registry), with its parameters and
-   behaviour (dry run included).
+1. **Contract.** Add the step to the "v1 step types" and "Step results" tables of the
+   [contract](contract.md#script-format-and-step-registry), with its parameters, result
+   and behaviour (dry run included).
 2. **Spec.** Declare a `StepSpec` (`j5_macro.steps.spec`): `name`, `doc`, its
-   `ParamSpec`s (name, type, required, default, doc, choices), block slots for control
-   steps, and an optional `shorthand` parameter for the scalar form (`sleep: 2s`).
+   `ParamSpec`s (name, type, required, default, doc, choices), the `ResultField`s of its
+   result (name, type, doc, optional; what `as` keeps, shown by `list_step_types` and
+   `j5 schema`), block slots for control steps, and an optional `shorthand` parameter
+   for the scalar form (`sleep: 2s`).
 3. **Executor.** Write `run_<name>(ctx, params) -> dict | None`. `params` are already
    interpolated and type-checked; the returned dict becomes `step_finished.result`. Talk
    to the run only through `StepContext`: `ctx.rng` (the step's seeded generator),
    `ctx.wait()`, `ctx.log()`, `ctx.evaluate()`, `ctx.set_variable()`, `ctx.input`,
-   `ctx.vision`, `ctx.dry_run`. Raise `StepError(code, message)` to fail.
+   `ctx.vision`, `ctx.dry_run`, `ctx.check_stop()` (for long work that polls, such as
+   `exec` waiting for a program), `ctx.timeout` (the common field), `ctx.script_dir` and
+   `ctx.allow_exec`. Raise `StepError(code, message)` to fail.
 4. **Cross-parameter checks** (optional): a function returning `ParamProblem`s, such as
    "exactly one of `value` and `expr`".
 5. **Register** the `StepType(spec, executor)` with its check in `BUILTINS`
@@ -157,7 +161,7 @@ built-in's (steps 2 to 4 above). In addition, a plugin step must:
 - be an action step with an executor (`if` and `loop` style steps with blocks are only
   built in),
 - have a name made of letters, digits and `_`, not one of the common step fields (`id`,
-  `break`, `timeout`, `on_error`, `input`), and not one already taken. Built-in names
+  `break`, `timeout`, `on_error`, `input`, `as`), and not one already taken. Built-in names
   always win, and between plugins the first entry point by name wins,
 - use only the parameter types of `ParamType` (`j5_macro.steps.spec`), with a
   `shorthand` that names one of its parameters,
@@ -282,11 +286,13 @@ plugin and runs it through the engine.
 A backend implements the `Backend` protocol of `j5_macro.backends.base`, and nothing more:
 `screen_bounds`, `pointer_position`, `move_abs`/`move_rel`, `button_down`/`button_up`,
 `scroll`, `key_down`/`key_up` (physical keys by lowercase name), `char_down`/`char_up`
-(characters, whatever the layout), `find_window`, `watch_hotkey` and `close` (which
-releases anything still held). Its `capabilities` say which optional parts exist
+(characters, whatever the layout), `find_window`, `display_scale`/`display_scales`
+(the display scale of a monitor, and of every monitor), `watch_hotkey` and `close`
+(which releases anything still held). Its `capabilities` say which optional parts exist
 (`pointer_position`, `move_abs`, `move_rel`, `char_input`, `screen_capture`, `windows`,
-`hotkey`), and the masters adapt: for example, without `pointer_position` there is no
-interference detection. The table of primitives is in the
+`hotkey`, `display_scale`), and the masters adapt: for example, without
+`pointer_position` there is no interference detection, and without `display_scale`
+every display scale is 1 unless the run sets one. The table of primitives is in the
 [contract](contract.md#mouse-and-keyboard-masters).
 
 Then add it to `select_backend` (`j5_macro.backends.select`) and to the values of

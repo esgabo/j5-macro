@@ -237,15 +237,22 @@ needs the `vision` extra (`pip install j5-macro[vision]`).
 - **Templates.** A template is a PNG (or other image) file, relative to the script's
   folder. Crop it tightly around something with texture or an edge: a template of a single
   flat colour never matches. Transparent pixels of a PNG (alpha below 128) are ignored, so
-  a cut-out icon matches on any background.
+  a cut-out icon matches on any background. A PNG can also be embedded in the script
+  itself (its `images` section, referred to as `"#name"`), so a script can be shared as
+  one file; see [Embedded images](scripts.md#embedded-images).
 - **Score and threshold.** j5 compares the template with every position on the screen
   using normalised cross-correlation and reports the **best score**, from 0 to 1. The image
   is found when the best score reaches `threshold` (0.9 by default). The score ignores
   uniform brightness and contrast changes, but not changes in the pattern itself.
 - **Where to search.** The whole desktop (all screens) by default; `window: {title: ...}`
   searches the first visible window whose title contains that text; `region: [x, y, w, h]`
-  limits the search to a rectangle (relative to the window when one is given). `scale`
-  resizes the template, for templates captured at another display scaling.
+  limits the search to a rectangle (relative to the window when one is given).
+- **Display scale.** Templates are resized by the screen's display scale (detected per
+  monitor on Windows, from `Xft.dpi` on X11, or `--display-scale`) over the scale they
+  were captured at (the script's `capture_scale`, 1 by default), so a template captured
+  at 100 % is still found at 150 %. Pixel offsets from a match follow the same ratio,
+  and offsets such as `1.5h` count in the match's own size. A step's `scale` resizes
+  the template further. See [Display scale](scripts.md#display-scale).
 - **Waiting.** `wait_image` retries every 0.25 s until it finds the image or its `timeout`
   (10 s by default) runs out; pausing the run pauses the wait. `click`, `move` and `drag`
   search once, or wait up to the step's `timeout` when you set one. An action aims at the
@@ -289,6 +296,10 @@ control back:
   (`stop`), or j5 ignores it (`off`). Only the mouse is watched: on X11, injected keys are
   hard to tell apart from yours.
 - **Ctrl+C** in the terminal stops the run; a second Ctrl+C quits without waiting.
+- **Programs only on request.** An `exec` step runs a program only when you allow it for
+  that run with `j5 run --allow-exec`; otherwise it fails before starting anything.
+  Stopping the run kills a program the step is waiting for, with its children; programs
+  started without `wait` keep running (see [scripts.md](scripts.md#exec)).
 - **Held keys are always released.** j5 tracks every key and button it holds. Stopping a
   run, a failed step, interference and the end of the run all release them. If the
   engine process dies, `j5` releases whatever it last reported as held, from its own

@@ -164,6 +164,7 @@ def step_node(step: Step) -> StepNode:
         on_error=step.on_error,
         timeout=None if step.timeout is None else format_seconds(step.timeout),
         input=step.input,
+        store_as=None if step.store_as is None else step.store_as.to_json(),
         blocks={slot: [step_node(child) for child in children]
                 for slot, children in step.blocks.items()} or None,
     )
@@ -425,6 +426,8 @@ def install(server: EngineServer, store: ScriptStore, *,
             script_id=entry.script_id,
             steps=[step_node(step) for step in result.script.steps],
             params=[param.to_json() for param in result.script.params.values()],
+            images=[image.to_json() for image in result.script.images.values()],
+            capture_scale=result.script.capture_scale,
             warnings=_warnings(result),
         ).to_json()
 
@@ -484,8 +487,8 @@ def install(server: EngineServer, store: ScriptStore, *,
     def get_script(command: Command) -> JsonObject:
         entry = store.get(ScriptRef.from_json(command.payload).script_id)
         script, text, version, errors = store.view(entry)
-        # While the current text is invalid, name, steps and params are those of the
-        # last valid version, kept until the text is fixed.
+        # While the current text is invalid, name, steps, params, images and capture_scale
+        # are those of the last valid version, kept until the text is fixed.
         return GetScriptResult(
             script_id=entry.script_id,
             version=version,
@@ -494,6 +497,8 @@ def install(server: EngineServer, store: ScriptStore, *,
             path=None if entry.path is None else str(entry.path),
             steps=[step_node(step) for step in script.steps],
             params=[param.to_json() for param in script.params.values()],
+            images=[image.to_json() for image in script.images.values()],
+            capture_scale=script.capture_scale,
             valid=not errors,
             errors=errors,
         ).to_json()

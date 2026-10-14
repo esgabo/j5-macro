@@ -156,6 +156,71 @@ def test_capture_from_several_threads(painted_window: Any) -> None:
     assert not errors, errors
 
 
+def test_a_script_finds_its_embedded_template_on_screen(painted_window: Any) -> None:
+    import cv2
+
+    from j5_macro.runtime import RunOptions
+    from j5_macro.runtime.interpreter import create_run
+    from j5_macro.script.images import encode_base64
+    from j5_macro.script.loader import load_script
+    from j5_macro.steps import default_registry
+
+    ok, encoded = cv2.imencode(".png", pattern())
+    assert ok
+    block = encode_base64(encoded.tobytes()).replace("\n", "\n      ").rstrip()
+    text = ("steps:\n  - id: w\n    wait_image: {image: \"#window\", timeout: 3s}\n"
+            f"images:\n  window:\n    png: |\n      {block}\n")
+    registry = default_registry()
+    result = load_script(text, lookup=registry.spec, check=registry.check_params)
+    assert result.script is not None, result.errors
+    events: list[tuple[str, dict[str, Any]]] = []
+    outcome = create_run(result.script, registry, lambda t, p: events.append((t, p)),
+                         RunOptions()).run()
+    assert outcome.status == "completed", outcome
+    searches = [p for t, p in events if t == "image_search"]
+    assert searches[-1]["template"] == "#window" and searches[-1]["found"]
+    assert searches[-1]["bbox"] == [WINDOW.x, WINDOW.y, WINDOW.width, WINDOW.height]
+
+
+@pytest.mark.parametrize(("display_scale", "capture_scale", "found"), [
+    (1.5, None, True),   # captured at 100 %, shown at 150 %
+    (None, 1.0, False),  # nothing says the display is scaled: the template is too small
+    (2.0, 1.333333, True),
+])
+def test_templates_captured_at_another_scale_are_found(
+        painted_window: Any, display_scale: float | None, capture_scale: float | None,
+        found: bool) -> None:
+    import cv2
+
+    from j5_macro.runtime import RunOptions
+    from j5_macro.runtime.interpreter import create_run
+    from j5_macro.script.images import encode_base64
+    from j5_macro.script.loader import load_script
+    from j5_macro.steps import default_registry
+
+    # The window as an application at 100 % would draw it: 2/3 of its size on screen.
+    small = cv2.resize(pattern(), (WINDOW.width * 2 // 3, WINDOW.height * 2 // 3),
+                       interpolation=cv2.INTER_AREA)
+    ok, encoded = cv2.imencode(".png", small)
+    assert ok
+    block = encode_base64(encoded.tobytes()).replace("\n", "\n      ").rstrip()
+    header = "" if capture_scale is None else f"capture_scale: {capture_scale}\n"
+    text = (f"{header}steps:\n  - id: w\n    wait_image: {{image: \"#small\"}}\n"
+            f"images:\n  small:\n    png: |\n      {block}\n")
+    registry = default_registry()
+    result = load_script(text, lookup=registry.spec, check=registry.check_params)
+    assert result.script is not None, result.errors
+    events: list[tuple[str, dict[str, Any]]] = []
+    outcome = create_run(result.script, registry, lambda t, p: events.append((t, p)),
+                         RunOptions(mode="dry", display_scale=display_scale)).run()
+    assert outcome.status == "completed", outcome
+    (search,) = [p for t, p in events if t == "image_search"]
+    assert search["found"] is found, search
+    if found:
+        assert search["scale"] == pytest.approx(1.5, abs=1e-3)
+        assert search["bbox"] == [WINDOW.x, WINDOW.y, WINDOW.width, WINDOW.height]
+
+
 def test_toolkit_end_to_end(painted_window: Any, tmp_path: Path) -> None:
     path = tmp_path / "window.png"
     save_png(Frame(pattern()), path)

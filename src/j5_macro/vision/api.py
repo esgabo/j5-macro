@@ -26,7 +26,8 @@ from j5_macro.backends.base import Rect
 DEFAULT_THRESHOLD = 0.9
 """Minimum match score of image searches when a step gives no ``threshold``."""
 DEFAULT_SCALE = 1.0
-"""Template scale of image searches when a step gives no ``scale``."""
+"""Template scale of image searches when a step gives no ``scale`` (the display scale
+ratio applies on top)."""
 DEFAULT_INTERVAL = 0.25
 """Seconds between attempts of a wait."""
 
@@ -50,6 +51,7 @@ class Template:
     count, from a PNG's alpha channel; None means every pixel counts."""
 
     path: Path
+    """The image file; for an image embedded in the script, ``#name``."""
     pixels: Any
     mask: Any | None = None
 
@@ -69,6 +71,12 @@ class Match:
     bbox: Rect | None
     """Desktop rectangle of the best location (None if the template cannot fit)."""
     elapsed_ms: float = 0.0
+    frame: Rect | None = None
+    """Client area of the window searched in, when the search had a ``window``, as it
+    was for this attempt (set by ``StepVision``, not by the locator)."""
+    display_ratio: float = 1.0
+    """The display scale / capture scale ratio the template was resized by, besides the
+    step's ``scale`` (set by ``StepVision``); pixel offsets from the match use it."""
 
 
 class Capturer(Protocol):
@@ -82,6 +90,10 @@ class Capturer(Protocol):
 TemplateLoader = Callable[[Path], Template]
 """Loads (and may cache) a template; raises ``FileNotFoundError`` when missing and
 ``ValueError`` when the file is not a readable image."""
+
+TemplateDecoder = Callable[[bytes, str], Template]
+"""``decode(data, label)``: a template from an encoded image embedded in a script
+(``label`` is ``#name``, for messages); raises ``ValueError`` when it is not readable."""
 
 Locator = Callable[[Template, Frame, float, float], Match]
 """``locate(template, frame, threshold, scale) -> Match``: best location of the
@@ -97,6 +109,8 @@ class VisionToolkit:
     load_template: TemplateLoader
     locate: Locator
     save_image: ImageSaver
+    decode_template: TemplateDecoder | None = None
+    """Loads embedded images; None for a toolkit that only reads files."""
 
 
 ToolkitFactory = Callable[[], VisionToolkit]
@@ -109,16 +123,19 @@ class StepVision(Protocol):
     """What step executors and conditions see as ``ctx.vision``."""
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
-        directory; ``region`` is ``[x, y, w, h]``, relative to ``window`` when given.
+        directory, or ``#name`` for an image embedded in the script; ``region`` is
+        ``[x, y, w, h]``, relative to ``window`` when given, or ``{at, offset?, size?}``
+        next to a stored image result. The match's ``frame`` is the client area of
+        ``window``, when given.
         Raises StepError: ``template_missing``, ``window_not_found``,
         ``capability_missing`` (no vision)."""
         ...
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
-             scale: float = DEFAULT_SCALE, region: list[int] | None = None,
+             scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
              interval: float = DEFAULT_INTERVAL) -> Match:
         """Search until found or ``timeout`` seconds pass (interruptible like any wait;

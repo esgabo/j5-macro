@@ -11,7 +11,7 @@ source this page is checked against:
 ```console
 $ j5 steps
 click  Click on an image or at x/y.
-  image: string  Template image, relative to the script file.
+  image: string  Template image: a path relative to the script file, or "#name" of an image embedded in the script.
   x: integer  Horizontal position in physical pixels.
 ...
 ```
@@ -25,9 +25,11 @@ A script is a UTF-8 YAML file with these top-level keys:
 | `version` | no | Format version. Only `1` exists; it is the default |
 | `name` | no | Name shown in the output and the run history; defaults to the file name without extension |
 | `input` | no | The script's [input profile](#input-profiles): `{mouse: {...}, keyboard: {...}}` |
+| `capture_scale` | no | The display scale the script's templates and pixel offsets were taken at, `1` (100 %) by default; see [Display scale](#display-scale) |
 | `params` | no | Values the script takes from outside; see [Params and secrets](#params-and-secrets) |
 | `vars` | no | Variables and their starting values (any YAML value: numbers, text, lists, mappings) |
 | `steps` | yes | The list of steps |
+| `images` | no | Template images carried inside the script; see [Embedded images](#embedded-images) |
 
 Any other top-level key is ignored with a warning.
 
@@ -91,9 +93,10 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 | --- | --- | --- | --- |
 | `id` | string | generated | Stable id: letters, digits, `_` and `-`, starting with a letter or `_`; unique in the script |
 | `break` | boolean | `false` | A breakpoint written in the script: the run pauses before this step (see [debugging.md](debugging.md)) |
-| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Other steps ignore it |
+| `timeout` | duration | none | For image searches: replaces `wait_image`'s `timeout`, and makes `click`, `move` and `drag` wait up to this long for their image targets. Also replaces `exec`'s `timeout`. Other steps ignore it |
 | `on_error` | `stop`, `continue`, `retry`, `pause` | `stop` | What to do when the step fails (see below) |
 | `input` | mapping | none | Input profile overrides for this step: `{mouse: {...}, keyboard: {...}}` |
+| `as` | name or mapping | none | Keep the step's result in a variable: `as: label`, or `as: {name: token, secret: true}` (see [Keeping a result](#keeping-a-result-as)) |
 
 `on_error`:
 
@@ -107,6 +110,48 @@ A step is a mapping with exactly one step-type key and, optionally, common field
 
 On an `if` or a `loop`, `on_error` applies to evaluating its condition or list, not to
 the steps inside it.
+
+### Keeping a result: `as`
+
+Every step reports a result when it finishes (shown after `✓` in `j5 run`; see
+[Step results](#step-results)). `as` keeps it in a variable, so later steps can use it:
+
+```yaml
+- id: find_label
+  wait_image: {image: img/email_label.png, window: {title: Login}, timeout: 10s}
+  as: label                     # label = {found, score, bbox, center, window, window_bbox}
+- id: click_email_field
+  click: {at: "${label}", offset: [0, 1.5h]}    # 1.5 label heights below its centre
+- id: show
+  log: "label found with score ${label.score}"
+```
+
+- The name follows the rules of variable names: letters, digits and `_`, not starting
+  with a digit. It may replace an existing variable.
+- The variable is written when the step succeeds, right after its result. A step that
+  fails (also with `on_error: continue`) or is skipped writes nothing, so a later
+  `${label}` fails with `expression_error` (unknown variable). An `if` or a `loop` writes
+  its result (`{branch}`, `{iterations}`) after the steps inside it.
+- In a dry run the dry result is kept (`dry_run: true`, a `description` and, when an
+  image was searched, `found`, `bbox` and the rest), so the steps after it still check.
+- Read items of a kept result with `.` or `[...]`: `label.bbox`, `label.center[0]`,
+  `token["stdout"]`.
+
+**Secret results.** `as: {name: token, secret: true}` treats the result as a secret of
+the run from the moment the step finishes, its own result included: every string in it
+(and the same string without leading and trailing spaces or line breaks) shows as `***`
+in the output, the run history and the debugger, like a [secret param](#params-and-secrets).
+Numbers, booleans and empty strings are not masked. Use the value as it is
+(`type: "${token.stdout}"`), or with `strip(...)` when the trailing line break matters:
+any other transformation (`upper(token.stdout)`) is not recognised and would show.
+
+```yaml
+- id: get_token
+  exec: {command: [curl, -s, "https://vault.example/token"], wait: true}
+  as: {name: token, secret: true}          # token = {exit_code, stdout, stderr}
+- id: type_token
+  type: "${strip(token.stdout)}"
+```
 
 ### Stable ids
 
@@ -134,6 +179,7 @@ Some step types take one value instead of a mapping, for their main parameter:
 | `sleep: 2s` | `sleep: {duration: 2s}` |
 | `log: Done` | `log: {message: Done}` |
 | `pause: Check the form` | `pause: {message: Check the form}` |
+| `exec: mousepad notes.txt` | `exec: {command: mousepad notes.txt}` |
 
 `pause:` with nothing after it is valid too. The other types (`click`, `move`, `drag`,
 `scroll`, `if`, `loop`, `set`) need a mapping.
@@ -146,19 +192,21 @@ parameter is optional and has no default value. Any string parameter can contain
 
 ### click
 
-Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
+Clicks on an image, on a kept image result or at `x`/`y`. Give one of `image`, `at`, or
+both `x` and `y`.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image to click on, relative to the script file |
+| `image` | string | - | Template image to click on: a path relative to the script file, or `"#name"` of an [embedded image](#embedded-images) |
 | `x`, `y` | integer | - | Position in physical pixels (relative to `window` when given) |
-| `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text |
+| `at` | kept result | - | An image result kept with `as`, usually `"${label}"`: click on its area, where it is now (see [Targets](#targets-and-coordinates)) |
+| `window` | mapping | - | `{title: ...}`: work in the first visible window whose title contains this text (not with `at`) |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 | `clicks` | integer | `1` | Number of clicks (2 for a double click) |
-| `offset` | `[dx, dy]` | - | Added to the target point, in pixels |
+| `offset` | `[dx, dy]` | - | Added to the target point: pixels, or with `image` and `at` multiples of the target's size such as `0.5w` (see [Offsets](#offsets)) |
 | `threshold` | number | `0.9` | Minimum image match score, from 0 to 1 |
-| `scale` | number | `1` | Scale applied to the template before searching (image targets only) |
-| `region` | `[x, y, width, height]` | - | Area to search in (image targets only; relative to `window` when given) |
+| `scale` | number | `1` | Extra factor the template is resized by, on top of the [display scale](#display-scale) (image targets only) |
+| `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only; relative to `window` when given), or [next to a kept result](#images) |
 
 ```yaml
 - id: open_file_menu
@@ -169,24 +217,25 @@ Clicks on an image or at `x`/`y`. Give either `image` or both `x` and `y`.
 
 ### move
 
-Moves the pointer to an image or to `x`/`y`, without clicking.
+Moves the pointer to an image, a kept image result or `x`/`y`, without clicking.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | - | Template image |
+| `image` | string | - | Template image (a path, or `"#name"`) |
 | `x`, `y` | integer | - | Position in physical pixels |
-| `window` | mapping | - | `{title: ...}`; coordinates become relative to it |
+| `at` | kept result | - | An image result kept with `as` |
+| `window` | mapping | - | `{title: ...}`; coordinates become relative to it (not with `at`) |
+| `offset` | `[dx, dy]` | - | Added to the target point (see [Offsets](#offsets)) |
 | `threshold` | number | `0.9` | Minimum image match score |
-| `scale` | number | `1` | Template scale (image targets only) |
-| `region` | `[x, y, width, height]` | - | Area to search in (image targets only) |
+| `scale` | number | `1` | Extra template scale (image targets only) |
+| `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only) |
 
 ```yaml
 - id: hover_tooltip
   move: {image: img/help_icon.png}
 ```
 
-`move` has no `offset`. Unlike `click`, a `move` always moves, even if the pointer is
-already over the target.
+Unlike `click`, a `move` always moves, even if the pointer is already over the target.
 
 ### drag
 
@@ -194,7 +243,7 @@ Presses a button at one point, moves to another and releases it.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `from` | mapping | required | Start point: `{x, y, window?}` or `{image, threshold?, scale?, region?, window?}` |
+| `from` | mapping | required | Start point: `{x, y, window?}`, `{image, threshold?, scale?, region?, window?}` or `{at}`, each with an optional `offset` |
 | `to` | mapping | required | End point, same forms as `from` |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 
@@ -273,15 +322,16 @@ Waits until an image is on screen, checking every 0.25 s.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `image` | string | required | Template image |
+| `image` | string | required | Template image (a path, or `"#name"`) |
 | `timeout` | duration | `10s` | Give up with `image_not_found` after this long; the step's common `timeout` replaces it |
 | `threshold` | number | `0.9` | Minimum image match score |
 | `region` | `[x, y, width, height]` | - | Area to search in (relative to `window` when given) |
 | `window` | mapping | - | `{title: ...}`: search only in that window |
-| `scale` | number | `1` | Template scale |
+| `scale` | number | `1` | Extra template scale, on top of the [display scale](#display-scale) |
 
-The result is `{found, score, bbox}`, with `bbox` as `[x, y, width, height]` on the
-desktop.
+The result is `{found, score, bbox, center}` and, with a `window`, `window` (its title)
+and `window_bbox` (the match inside the window); keep it with `as` to act on the match
+later (`click: {at: "${dialog}"}`).
 
 ```yaml
 - id: wait_dialog
@@ -406,6 +456,89 @@ Enter resumes it; without one, the run resumes on its own and says so.
   pause: Check the totals before saving
 ```
 
+### exec
+
+Runs a program: starts it and goes on, for example to launch an application, or waits for
+it and keeps its output. Running programs is off unless the run allows it: pass
+`j5 run --allow-exec` (`"allowExec": true` in VS Code). Without it an `exec` step fails
+with `capability_missing`, so a script you did not write cannot start programs behind
+your back.
+
+| Parameter | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `command` | list or string | required | The program and its arguments. A list runs the program directly, without a shell; numbers in it are written as text. A string is split like a command line (quotes group words) and is also run without a shell |
+| `shell` | boolean | `false` | Run the `command` string through the system shell (`/bin/sh -c` on Linux, `cmd /c` on Windows), for pipes, redirections and `&&` |
+| `wait` | boolean | `false` | `false`: start the program detached and go on at once; it keeps running after the run ends. `true`: wait until it exits |
+| `timeout` | duration | - | With `wait`: kill the program (and its children) after this long, failing the step with `exec_failed` |
+| `cwd` | string | the script's directory | Working directory, relative to the script's directory |
+| `env` | mapping | - | Extra environment variables, added to j5's own |
+| `check` | boolean | `true` | With `wait`: fail the step with `exec_failed` when the program exits with a code other than 0 |
+
+Without `wait` the result is `{pid}`. With `wait` it is `{exit_code, stdout, stderr}`:
+the program's output and errors as text, each cut at 64 KiB (the result then adds
+`truncated: true`). Output is kept as written, final line break included, so use
+`strip()` when you need the bare value. The program never gets any input.
+
+```yaml
+- id: open_editor
+  exec: {command: [mousepad, notes.txt]}        # starts it and moves on
+- id: today
+  exec: {command: [date, +%F], wait: true}
+- id: count_lines
+  exec: {command: "wc -l < data.csv", shell: true, wait: true, timeout: 10s}
+- id: upload
+  exec:
+    command: [./upload.sh, report.pdf]
+    wait: true
+    env: {API_TOKEN: "${token}"}                # a secret param: pass it in env
+```
+
+To open a file or a URL with its default application, run the system's opener:
+`exec: {command: [xdg-open, report.pdf]}` on Linux, or
+`exec: {command: [cmd, /c, start, "", report.pdf]}` on Windows (`start` reads its first
+quoted argument as a window title, hence the `""`).
+
+- A program that does not exist or cannot be started fails with `exec_failed`
+  (`details.reason: start`); a non-zero exit with `check` with `exec_failed`
+  (`details.reason: exit_code`, plus the exit code, output and errors); a `timeout` with
+  `exec_failed` (`details.reason: timeout`).
+- Stopping the run kills a program it is waiting for, with its children. Pausing does not
+  pause the program: the step goes on waiting and the run pauses after it. A program
+  started without `wait` is never killed by j5.
+- A dry run starts nothing: the step says what it would run, where, and whether it would
+  wait, and warns when the run does not have `--allow-exec`.
+- Secrets in `command`, `env` or the output show as `***` in the output and the run
+  history, like everywhere else, but the program gets the real values. Pass secrets
+  through `env` rather than in `command`: other users of the machine can see a program's
+  arguments, not its environment.
+
+## Step results
+
+What each step reports when it finishes, and so what `as` keeps. `bbox`, `window_bbox`
+and `window_area` are `[x, y, width, height]`; points and `center` are `[x, y]`, all in
+physical pixels.
+
+| Step | Result |
+| --- | --- |
+| `click` | `x`, `y` (the point clicked), `button`, `clicks`; an image or `at` target adds `bbox`, `center` and, in a window, `window` (the title) and `window_bbox`; an image target adds `image` and `score`; an `x`/`y` target in a window adds `window` and `window_area` (the window's content area used) |
+| `move` | `x`, `y` and the same target fields as `click` |
+| `drag` | `from`, `to`, `button`, and each point's target fields prefixed with `from_` or `to_` |
+| `scroll` | `dx`, `dy` |
+| `type` | `chars` (never the text) |
+| `key` | `press`, and `hold` (seconds) when given |
+| `wait_image` | `found`, `score`, `bbox`, `center`, and `window`, `window_bbox` with a window |
+| `sleep` | `seconds` |
+| `if` | `branch` (`then` or `else`) |
+| `loop` | `iterations` |
+| `set` | `name`, `value` |
+| `log` | `level`, `message` |
+| `pause` | `message` |
+| `exec` | `exit_code`, `stdout`, `stderr` (and `truncated`) with `wait`; `pid` without |
+
+In a dry run, input steps and `exec` report `dry_run: true` and a `description` instead, plus the
+image fields when an image was searched (or the kept area, for `at`). `j5 schema`
+describes these fields too (`$defs/<type>_result`).
+
 ## Targets and coordinates
 
 - **Coordinates.** `x` and `y` are physical pixels on the virtual desktop, which spans
@@ -414,18 +547,92 @@ Enter resumes it; without one, the run resumes on its own and says so.
   top-left corner of the window's content area (inside its title bar and borders), looked
   up when the step runs. The first visible window whose title contains the text is used
   (case-sensitive). No match fails the step with `window_not_found`.
-- **Offset.** `offset: [dx, dy]` (on `click`) is added to the final point.
+- **Offset.** `offset: [dx, dy]` (on `click`, `move` and each point of `drag`) is added
+  to the final point; see [Offsets](#offsets) for its units.
 - **Image targets.** `click`, `move` and the points of `drag` can take an `image`. It is
   searched once (or until the step's common `timeout`), and a miss fails the step with
   `image_not_found`. The action aims at the centre of the match. Without an `offset`, the
   `human` strategy lands somewhere natural inside the matched area, and a `human` click
   whose pointer is already inside it clicks without moving; with an `offset`, the pointer
   goes to the exact point.
+- **Kept results (`at`).** Instead of searching again, `click`, `move` and the points of
+  `drag` can take `at: "${label}"`, an image result kept with [`as`](#keeping-a-result-as)
+  (from `wait_image`, or from an image or `at` target of `click` or `move`). It is aimed
+  at like an image target's match, with the same `offset` rules. A result found in a
+  `window` remembers the window's title and where the match was inside it: the window is
+  looked up again when the step runs, so the action follows it if it moved, and
+  `window_not_found` if it closed. `at` cannot be combined with `image`, `x`/`y` or
+  `window`. A result that was not found, or is not an image result, fails with
+  `validation_failed`.
+- **Coordinates from a result.** `label.center[0]` and `label.bbox` are desktop
+  coordinates from when the result was kept: use them without `window`, and prefer `at`
+  when the window may move.
+
+### Offsets
+
+Each item of an `offset` is either a number of pixels or a multiple of the target's size:
+a number followed by `w` (its width) or `h` (its height), written without spaces.
+
+```yaml
+- click: {image: img/email_label.png, offset: [0, 1.5h]}   # 1.5 label heights below its centre
+- click: {at: "${label}", offset: [1w, 0]}                 # one label width to the right
+- click: {at: "${label}", offset: [-0.5w, 10]}             # its left edge, 10 px lower
+```
+
+- The size is that of the match for an `image` target, and of the kept area for `at`.
+  Either unit works on either axis: `[1h, 0]` moves right by one height.
+- `x`/`y` targets have no size, so `w` and `h` there are an error (`validation_failed`,
+  `param: offset`).
+- Sizes follow the screen: if the application draws the label larger, `1.5h` is still
+  one and a half label heights. Pixel offsets of `image` and `at` targets are scaled by
+  the [display scale](#display-scale) too; the offsets of `x`/`y` targets never are,
+  since those are positions.
+
+### Display scale
+
+The same application draws everything 1.5 times larger at 150 % than at 100 %, so a
+template captured at 100 % no longer matches, and an `offset: [0, 20]` measured there
+falls short. j5 compensates with two scales (1 means 100 %, 1.5 means 150 %):
+
+- The **display scale** is that of the screen the run works on. j5 detects it: on
+  Windows per monitor (the monitor the searched area or the target is on), on X11 from
+  `Xft.dpi` (what `xrdb -query` shows; 144 is 150 %), else the `GDK_SCALE` environment
+  variable, else 1. `j5 run --display-scale 1.5` sets it for the whole run instead.
+- The **capture scale** is the display scale the templates and pixel offsets were
+  taken at. The script's top-level `capture_scale` sets it (1 by default); an [embedded
+  image](#embedded-images)'s `scale` sets it for that image only.
+
+Every image search resizes its template by `display scale / capture scale` (times the
+step's own `scale`, which still works on top of it), and pixel offsets of `image` and
+`at` targets, and of [regions next to a kept result](#images), are multiplied by the
+same ratio. `x`/`y` positions, their offsets and `region: [x, y, width, height]` are
+never changed. `j5 run` shows the display and capture scales when they are not 1, and
+each `image_search` event reports the effective `scale`, `display_scale` and
+`capture_scale`.
+
+```yaml
+version: 1
+name: Log in
+capture_scale: 1.5          # the templates were captured on a 150 % screen
+steps:
+  - id: find_label
+    wait_image: img/email_label.png
+    as: label
+  - click: {at: "${label}", offset: [0, 1.5h]}
+```
+
+On a 100 % screen the templates are searched at 2/3 of their size; on a 150 % one, as
+they are. A script written before display scales were applied, with templates captured
+at another scale, needs `capture_scale` (and should drop a step `scale` set by hand for
+one machine). `--display-scale 1` with the default `capture_scale` turns the adjustment
+off.
 
 ## Images
 
 - **Paths** are relative to the script file's directory. A missing or unreadable file
-  fails with `template_missing` when the step runs (`j5 validate` does not open images).
+  fails with `template_missing` when the step runs (`j5 validate` does not open image
+  files). A value written `"#name"` is not a path but an [embedded
+  image](#embedded-images), checked when the script loads.
 - **Matching** uses normalized cross-correlation: a score from 0 to 1, and a match when
   the score is at least `threshold` (0.9 by default).
 - **Transparency.** Pixels of a PNG with alpha below 128 are ignored, so a cut-out icon
@@ -435,13 +642,79 @@ Enter resumes it; without one, the run resumes on its own and says so.
 - **Region.** `region: [x, y, width, height]` limits the search. Without it j5 searches
   the `window`, else the whole desktop. A region is clipped to the desktop; a region
   entirely outside it fails with `validation_failed`.
-- **Scale.** `scale` (greater than 0; 1 by default) resizes the template before
-  searching, to use a template captured at another display scaling. On an `x`/`y`
+- **Region next to a kept result.** `region: {at: "${label}", offset: [dx, dy], size:
+  [width, height]}` searches an area the size of the kept result (or `size`), centred on
+  its centre plus `offset`. It follows the result's window like an `at` target and is
+  never relative to the step's `window`. `offset` and `size` take pixels or
+  [multiples of the result's size](#offsets); pixels follow the [display
+  scale](#display-scale). For example, the field to the right of a label: `region: {at:
+  "${label}", offset: [2.5w, 0], size: [4w, 1.5h]}`.
+- **Scale.** j5 resizes templates by the [display scale](#display-scale) ratio itself.
+  `scale` (greater than 0; 1 by default) is an extra factor on top of it. On an `x`/`y`
   target any `scale` other than 1 is an error.
 - **Captures.** When a search fails, the run saves a capture of the searched area with
   the best candidate outlined in red, in the run's `captures/` directory.
 - Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
   fail with `capability_missing`.
+
+### Embedded images
+
+A script that searches the screen normally needs its image files next to it, so sharing
+it means sharing a folder. The `images` section carries the templates inside the script
+instead, and any `image` parameter refers to one with `"#name"`:
+
+```yaml
+version: 1
+name: Click the pattern
+steps:
+  - id: click_pattern
+    click: {image: "#pattern"}
+  - id: check
+    if:
+      when: {image_visible: "#pattern"}
+      then:
+        - id: seen
+          log: still there
+  - id: dialog
+    wait_image: img/dialog.png        # files keep working
+images:
+  pattern:
+    png: |
+      iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAIAAADYYG7QAAAAkUlEQVR42u3XoQ2FQBBF0a0Ai0SC
+      oC9KQNIEBVAEFlr47rcDDcwVKwgJczdPbmaOetkt/34Icy1NHDjdvIdZpyNMoSNIkKB0oPb8haEF
+      T98XJEhQPtC4jWGot6joaAEVKRWvIEGC8oFq30k0CIuucr4gQYLygajoaDEVKYHoI1pqm1eQIEGf
+      BdGgtyJIkKB0oBvc2aEmmX2YaQAAAABJRU5ErkJggg==
+```
+
+- **Entries.** Each name (letters, digits, `_` and `-`, not starting with a digit or `-`)
+  maps to `{png: ..., scale: ...}`. `png` is the base64 of the PNG file itself, so it is
+  lossless and its transparency still works as a mask. Line breaks and spaces in it are
+  ignored; j5 writes it as a literal block (`|`) wrapped at 76 columns.
+- **Quote the reference.** Write `image: "#pattern"` with quotes: in YAML a bare `#`
+  starts a comment. Anything that does not start with `#` is a path, as before.
+- **Checked on load.** Every entry must be valid base64 of a PNG file, at most 1 MiB
+  (1,048,576 bytes) once decoded, and all of a script's images together at most 8 MiB.
+  With the `vision` extra installed j5 decodes each image as a search would; without it,
+  it checks the PNG signature and the size in its header. A `"#name"` that is not in
+  `images` is an error with the step and the parameter (`click: {image: "#nope"}`), not
+  a failure in the middle of a run. A reference built with `${...}` is resolved when the
+  step runs; an unknown name then fails with `template_missing`.
+- **`scale`** is the display scale the image was captured at (a positive number, `1.5`
+  for 150 %): its capture scale, which replaces the script's `capture_scale` for this
+  image (see [Display scale](#display-scale)).
+- **In the output.** Events and errors show the reference as written (`#pattern`) and
+  never the image data, which is not copied to captures or the run history either.
+- **No working directory.** A script whose templates are all embedded does not depend on
+  where it is stored or where j5 runs from, so it can be pasted into a chat or loaded from
+  text.
+
+`j5 pack` embeds the image files a script uses, and `j5 unpack` writes them back to files
+(see [the CLI reference](cli.md#j5-pack)):
+
+```console
+$ j5 pack save_report.yaml -o save_report.bundle.yaml
+j5: embedded 2 images (#save_button, #dialog), 3 image parameters rewritten; wrote save_report.bundle.yaml
+```
 
 ## Durations
 
@@ -488,6 +761,7 @@ Expressions appear in `set`'s `expr`, in `when` and `while`, in `for_each`, and 
 | Literals | `3`, `2.5`, `"text"`, `'text'`, `true`, `false`, `null`, `[1, 2]`, `{"k": 1}` |
 | Variables | `attempts`, `customer` (an unknown name is an `expression_error`) |
 | Indexing | `rows[0]`, `rows[-1]`, `data["name"]` (no slices) |
+| Keys as attributes | `label.bbox`, `token.stdout` (only for mappings: `data.name` is `data["name"]`) |
 | Arithmetic | `+ - * / // %` (`+` also joins text and lists; `"ab" * 3` repeats) |
 | Comparison | `== != < <= > >=`, chainable (`1 < n <= 10`), `in`, `not in` |
 | Logic | `and`, `or`, `not`, `a if condition else b` |
@@ -507,8 +781,8 @@ Expressions appear in `set`'s `expr`, in `when` and `while`, in `for_each`, and 
 | `contains(x, item)` | Whether a text, list or mapping contains `item` |
 | `startswith(t, prefix)`, `endswith(t, suffix)` | Text tests |
 
-Attribute access (`name.upper()`), `**`, lambdas, comprehensions and slices are
-rejected. Expressions are limited to 2000 characters, and the values they build to
+Methods (`name.upper()`; use `upper(name)`), attributes of anything but a mapping, `**`,
+lambdas, comprehensions and slices are rejected. Expressions are limited to 2000 characters, and the values they build to
 100,000 items or characters.
 
 In YAML, quote expressions that contain `:`, `#`, quotes or start with `{` or `[`:
@@ -639,7 +913,9 @@ with `j5 run --param`, `--param-file`, `--param-env` or `--params-file` (see
 - An undeclared param fails too: `the script declares no param 'x'`.
 
 **Secrets.** Every occurrence of a secret's value is replaced with `***` in the events,
-the output and the run history, whatever step or variable carries it. Only the exact text
+the output and the run history, whatever step or variable carries it. Results kept with
+`as: {name: ..., secret: true}` are secrets too (see
+[Keeping a result](#keeping-a-result-as)). Only the exact text
 is masked: a value transformed by an expression (`upper(password)`) is not recognised, so
 use secrets as they are. `type` reports only the number of characters it typed. Pass
 secrets with `--param-env`, `--param-file` or the prompt: a `--param` value stays in your
@@ -688,6 +964,11 @@ Other messages you may see:
 | `step has several type keys (...); use one per step` | Two step types in one step, often a missing `-` |
 | `warning: generated id 'log_1', add an explicit id ...` | A step without `id` (see [Stable ids](#stable-ids)) |
 | `warning: unknown top-level key 'extra' is ignored` | A top-level key that is not part of the format |
+| `image: no embedded image named 'save'; the script has ...` | A `"#save"` reference with no `save` entry under `images` (the parameter is named, e.g. `from.image` or `when.image_visible`) |
+| `image 'save': 'png' is not valid base64 (...)` | An `images` entry whose data was cut or altered; the line is the entry's |
+| `image 'save': not a PNG file (wrong signature)` | Base64 of another format (JPEG, WebP...): convert it to PNG first |
+| `image 'save': ... bytes once decoded, over the limit of 1,048,576 bytes (1 MiB) per image` | An image too large to embed; crop it, or keep it as a file |
+| `the embedded images add up to ... bytes once decoded, over the limit ... per script` | All the images together are over 8 MiB; keep some of them as files |
 
 Warnings are listed only when the script has no errors. `j5 validate --json` gives the
 same report as JSON, with `code`, `message`, `step_id`, `line` and `details` for each

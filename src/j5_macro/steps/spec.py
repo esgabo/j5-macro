@@ -3,9 +3,10 @@
 This module is the seam between the loader, the step registry, the built-in steps and
 the interpreter. It has no dependencies on any of them.
 
-- A step type is a :class:`StepSpec`: its parameters (:class:`ParamSpec`), the names of
-  its child block slots, and an optional shorthand parameter for the scalar YAML form
-  (``sleep: 2s`` means ``sleep: {duration: 2s}``).
+- A step type is a :class:`StepSpec`: its parameters (:class:`ParamSpec`), the fields of
+  its result (:class:`ResultField`), the names of its child block slots, and an optional
+  shorthand parameter for the scalar YAML form (``sleep: 2s`` means
+  ``sleep: {duration: 2s}``).
 - :func:`validate_params` checks a parameter mapping against a spec at load time.
 - Action steps are run by an :data:`Executor`, which talks to the interpreter only
   through :class:`StepContext`. Control steps (``if``, ``loop``) have no executor; the
@@ -18,6 +19,7 @@ import random
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from j5_macro.protocol.errors import ErrorCode
@@ -51,6 +53,18 @@ class ParamSpec:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ResultField:
+    """One field of a step's ``step_finished`` result (what ``as`` stores)."""
+
+    name: str
+    type: ParamType
+    doc: str = ""
+    optional: bool = False
+    """True when the field is only present in some cases (``window`` of an image
+    result, every field of a dry run but ``dry_run`` and ``description``...)."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class StepSpec:
     name: str
     doc: str
@@ -61,6 +75,8 @@ class StepSpec:
     """Parameter that receives the value of the scalar form (``sleep: 2s``)."""
     kind: StepKind = "action"
     required_blocks: tuple[str, ...] = ()
+    result: tuple[ResultField, ...] = ()
+    """The fields of the step's result; empty when the step type does not declare them."""
 
     def param(self, name: str) -> ParamSpec | None:
         return next((p for p in self.params if p.name == name), None)
@@ -258,6 +274,27 @@ class StepContext(Protocol):
     def check_stop(self) -> None:
         """Raise the interpreter's stop exception if the run must stop now. Long
         executors call it between units of work; never catch what it raises."""
+        ...
+
+    @property
+    def timeout(self) -> float | None:
+        """The step's common ``timeout`` field in seconds; None when not set."""
+        ...
+
+    @property
+    def script_dir(self) -> Path:
+        """The directory relative paths resolve against: the script file's, or the
+        engine's current directory for a script loaded from ``source``."""
+        ...
+
+    @property
+    def allow_exec(self) -> bool:
+        """True when the run allows starting programs (``run``'s ``allow_exec``)."""
+        ...
+
+    def display_ratio(self, point: tuple[int, int]) -> float:
+        """The display scale at a desktop point divided by the script's capture scale:
+        what pixel offsets measured when the script was written are multiplied by."""
         ...
 
     @property

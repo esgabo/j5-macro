@@ -141,6 +141,12 @@ class LoadOutcome:
     """The script's declared params, as ``load`` reports them."""
     steps: list[StepInfo] = field(default_factory=list)
     """The step tree of ``load``, flattened in document order."""
+    images: list[dict[str, Any]] = field(default_factory=list)
+    """The script's embedded images, as ``load`` reports them."""
+
+
+def _mappings(raw: Any) -> list[dict[str, Any]]:
+    return [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
 
 
 def _warnings(raw: Any) -> list[dict[str, Any]]:
@@ -168,11 +174,9 @@ async def load(client: EngineClient, script: str) -> LoadOutcome:
     script_id = result.get("script_id")
     if not isinstance(script_id, str):
         raise CliError("the engine answered load without a script_id")
-    params = result.get("params")
     return LoadOutcome(script_id, [], _warnings(result.get("warnings")),
-                       [p for p in params if isinstance(p, dict)]
-                       if isinstance(params, list) else [],
-                       flatten_steps(result.get("steps")))
+                       _mappings(result.get("params")), flatten_steps(result.get("steps")),
+                       _mappings(result.get("images")))
 
 
 # -- validate -----------------------------------------------------------------------------
@@ -189,6 +193,7 @@ async def validate(cmd: Sequence[str], script: str, *, as_json: bool, io: Output
             "errors": [error.to_json() for error in outcome.errors],
             "warnings": outcome.warnings,
             "params": outcome.params,
+            "images": outcome.images,
         }, indent=2, ensure_ascii=False))
     else:
         for error in outcome.errors:
@@ -197,6 +202,8 @@ async def validate(cmd: Sequence[str], script: str, *, as_json: bool, io: Output
             io.line(format_warning(script, warning, io.style))
         for param in outcome.params:
             io.line(describe_param(param))
+        for image in outcome.images:
+            io.line(describe_image(image))
         io.line(validate_summary(script, len(outcome.errors), len(outcome.warnings), io.style))
     return ExitCode.FAILED if outcome.errors else ExitCode.OK
 
@@ -238,6 +245,18 @@ def describe_param(param: Mapping[str, Any]) -> str:
     return f"{text}: {description}" if description else text
 
 
+def describe_image(image: Mapping[str, Any]) -> str:
+    """``image #save_button (png, 48x48, 1,234 bytes, captured at scale 1.5)``."""
+    traits = [str(image.get("format", "png")),
+              f"{image.get('width')}x{image.get('height')}"]
+    size = image.get("bytes")
+    if isinstance(size, int):
+        traits.append(f"{size:,} bytes")
+    if image.get("scale") is not None:
+        traits.append(f"captured at scale {image['scale']:g}")
+    return f"image #{image.get('name')} ({', '.join(traits)})"
+
+
 Ask = Callable[[str, bool], str]
 """``ask(prompt, secret) -> text``: reads a param from the user (no echo for secrets)."""
 
@@ -255,6 +274,10 @@ class RunOptions:
     input_profile: dict[str, Any] | None = None
     captures: str | None = None
     """``on_failure`` or ``all`` (``--captures``); None leaves the engine's default."""
+    allow_exec: bool = False
+    """Let ``exec`` steps run programs (``--allow-exec``)."""
+    display_scale: float | None = None
+    """The display scale of the whole run (``--display-scale``); None detects it."""
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
@@ -279,6 +302,10 @@ class RunOptions:
             payload["input_profile"] = self.input_profile
         if self.captures is not None:
             payload["captures"] = self.captures
+        if self.allow_exec:
+            payload["allow_exec"] = True
+        if self.display_scale is not None:
+            payload["display_scale"] = self.display_scale
         return payload
 
 

@@ -58,6 +58,12 @@ class RunStartedEvent(Payload):
     seed: int
     backend: str
     input_profile: dict[str, Any] = field(default_factory=dict)
+    display_scale: float | None = None
+    """The run's display scale: ``run``'s ``display_scale``, else the primary monitor's
+    detected scale, else 1 (optional for engines that predate it)."""
+    display_scale_source: Literal["run", "detected", "default"] | None = None
+    capture_scale: float | None = None
+    """The script's ``capture_scale`` (1 by default)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -134,6 +140,10 @@ class ImageSearchEvent(Payload):
     best_score: float
     bbox: list[int] | None = None
     region: list[int]
+    scale: float | None = None
+    """The effective template scale: the step's ``scale`` times display / capture."""
+    display_scale: float | None = None
+    capture_scale: float | None = None
     attempt: int
     elapsed_ms: int
     screenshot: str | None = None

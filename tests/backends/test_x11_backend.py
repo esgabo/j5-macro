@@ -35,6 +35,33 @@ def test_screen_bounds_is_the_root_window(x11_backend: Backend, observer: Observ
     assert x11_backend.screen_bounds() == Rect(0, 0, geometry.width, geometry.height)
 
 
+def test_display_scale_reads_xft_dpi(x11_backend: Backend, observer: Observer,
+                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    from Xlib import Xatom
+
+    monkeypatch.delenv("GDK_SCALE", raising=False)
+    root = observer.display.screen(0).root
+    saved = root.get_full_property(Xatom.RESOURCE_MANAGER, Xatom.STRING)
+    try:
+        root.change_property(Xatom.RESOURCE_MANAGER, Xatom.STRING, 8,
+                             b"Xcursor.size:\t24\nXft.dpi:\t144\n")
+        observer.display.sync()
+        assert x11_backend.display_scale(10, 10) == 1.5
+        bounds = x11_backend.screen_bounds()
+        assert x11_backend.display_scales() == [(bounds, 1.5)]
+        root.delete_property(Xatom.RESOURCE_MANAGER)
+        observer.display.sync()
+        assert x11_backend.display_scale(10, 10) == 1.0
+        monkeypatch.setenv("GDK_SCALE", "2")
+        assert x11_backend.display_scale(10, 10) == 2.0
+    finally:
+        if saved is not None:
+            root.change_property(Xatom.RESOURCE_MANAGER, Xatom.STRING, 8, saved.value)
+        else:
+            root.delete_property(Xatom.RESOURCE_MANAGER)
+        observer.display.sync()
+
+
 def test_move_abs_and_rel(x11_backend: Backend) -> None:
     x11_backend.move_abs(300, 200)
     assert x11_backend.pointer_position() == (300, 200)

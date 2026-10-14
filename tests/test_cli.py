@@ -327,6 +327,31 @@ def test_run_fast_and_dry(engine, script, record):
     assert run["input_profile"] == {"mouse": {"strategy": "direct"},
                                     "keyboard": {"strategy": "direct"}}
     assert "seed" not in run
+    assert "allow_exec" not in run
+
+
+def test_run_allow_exec(engine, script, record):
+    engine("valid")
+    assert main(["run", script, "--allow-exec"]) == 0
+    (run,) = sent(record, "run")
+    assert run["allow_exec"] is True
+    assert "display_scale" not in run
+
+
+@pytest.mark.parametrize(("value", "scale"), [("1.5", 1.5), ("150%", 1.5), ("2", 2.0)])
+def test_run_display_scale(engine, script, record, value, scale):
+    engine("valid")
+    assert main(["run", script, "--display-scale", value]) == 0
+    (run,) = sent(record, "run")
+    assert run["display_scale"] == scale
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "big", "nan", "inf", "%"])
+def test_bad_display_scale_is_a_usage_error(capsys, value):
+    with pytest.raises(SystemExit) as exc:
+        main(["run", "script.yaml", "--display-scale", value])
+    assert exc.value.code == 2
+    assert "positive number" in capsys.readouterr().err
 
 
 def test_run_json(engine, script, capsys):

@@ -20,6 +20,7 @@ from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.messages import PROTOCOL_VERSION, Command, JsonObject
 from j5_macro.protocol.payloads import HelloPayload
 from j5_macro.runtime.api import RunFactory
+from j5_macro.runtime.display import monitor_scales
 from j5_macro.steps.registry import StepRegistry
 
 SUPPORTED_VERSIONS = frozenset({PROTOCOL_VERSION})
@@ -51,12 +52,14 @@ def vision_installed() -> bool:
 def capabilities(registry: StepRegistry | None = None,
                  backend: EngineBackend | None = None) -> JsonObject:
     """What this engine offers: the active backend (None without one), its input
-    strategies, the registered step types and whether vision is installed."""
+    strategies, the registered step types, whether vision is installed and the display
+    scale of each monitor the backend reports."""
     step_types = registry.names() if registry is not None else []
     return {"backend": None if backend is None else backend.name,
             "input_strategies": [] if backend is None else backend.input_strategies,
             "step_types": step_types,
-            "vision": vision_installed()}
+            "vision": vision_installed(),
+            "display_scales": monitor_scales(None if backend is None else backend.backend)}
 
 
 def ready_payload(registry: StepRegistry | None = None,

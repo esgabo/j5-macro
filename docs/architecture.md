@@ -44,8 +44,9 @@ JSON list in `J5_ENGINE_CMD`) and talks to it over its stdin and stdout. The eng
 exactly one client and ends when its stdin closes. Clients:
 
 - **CLI** (`j5`, [cli/](../src/j5_macro/cli)): `run` (with `--dry-run`, `--step`,
-  `--break`, `--fast`), `validate`, `steps`, `runs`, `schema` and `dap`. Every command
-  except `schema` and `dap` starts an engine; even the run history is read through it.
+  `--break`, `--fast`), `validate`, `steps`, `runs`, `schema`, `pack`, `unpack` and
+  `dap`. Every command except `schema`, `pack`, `unpack` and `dap` starts an engine; even
+  the run history is read through it.
   See [cli.md](cli.md).
 - **DAP adapter** (`j5 dap`, [dap/](../src/j5_macro/dap)): a Debug Adapter Protocol server
   on stdio that starts an engine and translates DAP requests into engine commands. The
@@ -182,14 +183,15 @@ the interpreter.
 | [`protocol`](../src/j5_macro/protocol) | Wire format shared by engine and clients | `messages.py` (envelope), `errors.py` (codes), `payloads/` (typed commands, results, events; `codec.py`) |
 | [`engine`](../src/j5_macro/engine) | The engine process: commands, scripts, runs, history | `app.py` (entry point), `server.py`, `dispatch.py`, `commands.py`, `scripts.py`, `editing.py`, `runs.py`, `persistence.py`, `history.py`, `events.py`, `backend.py`, `transport.py` |
 | [`client`](../src/j5_macro/client) | Asyncio client that launches the engine and speaks the protocol | `engine_client.py` (`EngineClient`), `sequencer.py` (gap detection), `stderr.py` |
-| [`script`](../src/j5_macro/script) | Script model, YAML loader, params and secrets, structured editor | `model.py`, `loader.py`, `params.py`, `editor.py` |
-| [`steps`](../src/j5_macro/steps) | Step specs, registry, built-in steps, editor schema | `spec.py`, `registry.py`, `builtins.py`, `input_steps.py`, `basic.py`, `control.py`, `images.py`, `conditions.py`, `schema.py` |
+| [`script`](../src/j5_macro/script) | Script model, YAML loader, params and secrets, embedded images, structured editor | `model.py`, `loader.py`, `params.py`, `images.py`, `editor.py` |
+| [`steps`](../src/j5_macro/steps) | Step specs, registry, built-in steps, editor schema | `spec.py`, `registry.py`, `builtins.py`, `input_steps.py`, `basic.py`, `programs.py`, `control.py`, `images.py`, `conditions.py`, `schema.py` |
 | [`expr`](../src/j5_macro/expr) | Safe expression evaluator and `${}` interpolation | `evaluator.py`, `interpolation.py`, `functions.py` |
 | [`runtime`](../src/j5_macro/runtime) | The interpreter | `api.py`, `interpreter.py`, `machine.py`, `frames.py`, `control.py`, `context.py`, `seeding.py`, `input.py`, `vision.py`, `emitter.py`, `resolve.py` |
 | [`input`](../src/j5_macro/input) | Mouse and keyboard masters | `api.py` (profiles, plans, protocols), `planning.py`, `human_mouse.py`, `human_keys.py`, `session.py`, `keys.py` (combinations) |
+| [`processes`](../src/j5_macro/processes.py) | Starting, detaching and killing the programs of `exec` steps, per platform | `processes.py` (one module) |
 | [`backends`](../src/j5_macro/backends) | Platform primitives and backend selection | `base.py` (`Backend`, `Capabilities`), `select.py`, `fake.py`, `x11/` |
 | [`vision`](../src/j5_macro/vision) | Screen capture and template matching | `api.py`, `toolkit.py`, `capture.py`, `matching.py`, `templates.py`, `drawing.py` |
-| [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
+| [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `bundle.py` (`pack`, `unpack`), `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
 | [`dap`](../src/j5_macro/dap) | Debug Adapter Protocol server | `server.py`, `session.py`, `script_map.py`, `framing.py` |
 
 The optional dependencies follow the layers: `ruamel.yaml` is the only hard dependency;
@@ -259,7 +261,9 @@ logs an engine warning; the run carries on.
 before it is stamped, so the client and `events.jsonl` see the same masked event.
 `get_state`, `evaluate` and control-command error messages are masked in the command
 handlers, and `run.json` gets the masked `run_finished` payload. The interpreter itself
-works with the real values. Details and limits are in
+works with the real values; when a step keeps its result with `as: {secret: true}`, it
+registers the result's strings with the engine (`RunOptions.add_secrets`) before
+emitting the step's `step_finished`. Details and limits are in
 [technical-design.md, "Secret masking"](technical-design.md#secret-masking).
 
 ## Threads and concurrency

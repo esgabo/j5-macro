@@ -140,7 +140,7 @@ Then run it for real and keep your hands off the mouse:
 $ j5 run --seed 42 type_note.yaml
 run r-20261012-214809-ef70  Type a note  (mode normal, seed 42, backend x11)
   0.001s  ▶ focus_editor  click  {"x": 200, "y": 150, "window": {"title": "Mousepad"}, "button": "left", "clic...
-  0.638s  ✓ focus_editor  637ms  {"x": 300, "y": 230, "button": "left", "clicks": 1, "window": [100, 80, 640, ...
+  0.638s  ✓ focus_editor  637ms  {"x": 300, "y": 230, "button": "left", "clicks": 1, "window": "Mousepad", "wi...
   0.639s  ▶ type_greeting  type  {"text": "Dear team,\nthe report is ready.\n"}
   7.679s  ✓ type_greeting  7040ms  {"chars": 32}
   7.679s  ▶ save  key  {"press": "ctrl+s"}
@@ -148,8 +148,8 @@ run r-20261012-214809-ef70  Type a note  (mode normal, seed 42, backend x11)
 ✓ completed in 7.861s  (seed 42)
 ```
 
-The result of the click shows the absolute point it used (`300, 230`) and the window's
-area (`[x, y, width, height]`). The pointer took 0.6 s to get there along a curved path,
+The result of the click shows the absolute point it used (`300, 230`), the window and
+its area (`window_area`, `[x, y, width, height]`). The pointer took 0.6 s to get there along a curved path,
 and the text took 7 s: by default j5 moves and types like a person.
 
 ### Input profiles
@@ -267,8 +267,10 @@ run r-20261012-215611-a8b5  Save with the button  (mode normal, seed 7, backend 
   if the button looks slightly different each time (anti-aliasing, a hover glow).
 - `region: [x, y, width, height]` searches only part of the screen, which is faster and
   avoids look-alikes. With `window`, the region is relative to that window.
-- `scale` compensates a template captured at another display scaling (`scale: 0.5` for
-  a template taken at 200% used on a 100% screen).
+- Templates follow the display scale on their own: j5 detects the screen's scale and
+  resizes them from the scale they were captured at (the script's `capture_scale`, 1 by
+  default; see [Display scale](scripts.md#display-scale)). `scale` is an extra factor
+  on top, rarely needed.
 - A `click`, `move` or `drag` on an image searches only once. Add the common field
   `timeout: 5s` to the step to let it wait for the image first.
 

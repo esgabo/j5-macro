@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -9,7 +11,15 @@ from typing import Any
 import pytest
 from runtime_helpers import load
 from runtime_input_helpers import backend
-from runtime_vision_helpers import FakeToolkit, VisionRun, hit, miss, with_images
+from runtime_vision_helpers import (
+    FakeToolkit,
+    VisionRun,
+    hit,
+    miss,
+    png_header,
+    with_embedded,
+    with_images,
+)
 
 from j5_macro.backends.base import Button, Capabilities, Rect
 from j5_macro.backends.fake import FakeBackend
@@ -44,9 +54,11 @@ def test_wait_image_found_on_the_third_attempt(tmp_path: Path) -> None:
     assert [s["found"] for s in searches] == [False, False, True]
     assert searches[2] == {"template": "img/x.png", "threshold": 0.9, "found": True,
                            "best_score": 0.97, "bbox": [300, 400, 40, 20],
-                           "region": [0, 0, 1920, 1080], "attempt": 3, "elapsed_ms": 0}
+                           "region": [0, 0, 1920, 1080], "scale": 1.0,
+                           "display_scale": 1.0, "capture_scale": 1.0, "attempt": 3,
+                           "elapsed_ms": 0}
     assert run.recorder.of("step_finished")[0]["result"] == {
-        "found": True, "score": 0.97, "bbox": [300, 400, 40, 20]}
+        "found": True, "score": 0.97, "bbox": [300, 400, 40, 20], "center": [320, 410]}
     assert run.clock.t == pytest.approx(0.5)  # two intervals of 0.25 s
     assert not (tmp_path / "captures").exists()  # on_failure: nothing failed
     assert run.toolkit.templates == [tmp_path / "img" / "x.png"]
@@ -115,7 +127,7 @@ def test_dry_run_searches_once_and_continues(tmp_path: Path) -> None:
     assert len(run.searches()) == 1
     result = run.recorder.of("step_finished", step_id="w")[0]["result"]
     assert result == {"dry_run": True, "found": False, "score": 0.3, "bbox": [5, 5, 10, 10],
-                      "description": "would wait up to 10s for image img/x.png "
+                      "center": [10, 10], "description": "would wait up to 10s for image img/x.png "
                                      "(not found, best score 0.300)"}
     assert run.recorder.of("step_finished", step_id="after")
     assert not (tmp_path / "captures").exists()
@@ -246,7 +258,7 @@ def test_click_on_an_image(tmp_path: Path) -> None:
     assert run.toolkit.searches[0][2:] == (0.7, 1.25)
     assert run.recorder.of("step_finished")[0]["result"] == {
         "x": 320, "y": 410, "button": "right", "clicks": 1, "image": "img/x.png",
-        "score": 0.91, "bbox": [300, 400, 40, 20]}
+        "score": 0.91, "bbox": [300, 400, 40, 20], "center": [320, 410]}
 
 
 def test_click_on_an_image_with_an_offset_aims_at_the_point(tmp_path: Path) -> None:
@@ -389,3 +401,90 @@ def test_region_outside_the_screen_is_a_validation_error(tmp_path: Path) -> None
     outcome = VisionRun(script, toolkit).join()
     assert outcome.error is not None and outcome.error.code == "validation_failed"
     assert outcome.error.details is not None and outcome.error.details["param"] == "region"
+
+
+# --- embedded images --------------------------------------------------------------------
+
+
+def test_embedded_images_are_decoded_once_per_run_and_reported_as_written(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = png_header(tail=b"pixels")
+    script = with_embedded(
+        "  - id: w\n    wait_image: \"#box\"\n"
+        "  - id: c\n    click: {image: \"#box\"}\n"
+        "  - id: d\n    drag: {from: {image: \"#box\"}, to: {image: img/x.png}}\n"
+        "  - id: i\n    if:\n      when: {image_visible: {image: \"#box\"}}\n"
+        "      then: []\n",
+        monkeypatch, box=data)
+    script = with_images(script, tmp_path, "img/x.png")
+    toolkit = FakeToolkit([hit(0.97, BOX)])
+    run = VisionRun(script, toolkit, backend=backend(), run_dir=tmp_path, captures="all")
+    assert run.join().status == "completed"
+    assert toolkit.decoded == [(data, "#box")]  # decoded once, then kept for the run
+    assert toolkit.templates == [tmp_path / "img" / "x.png"]
+    assert [s["template"] for s in run.searches()] == [
+        "#box", "#box", "#box", "img/x.png", "#box"]
+    assert [path for path, *_ in toolkit.searches] == [
+        Path("#box"), Path("#box"), Path("#box"), tmp_path / "img" / "x.png", Path("#box")]
+    # The image data is never copied to the events or the run's directory.
+    assert len(toolkit.saved) == 5
+    encoded = json.dumps(run.recorder.events)
+    assert script.images["box"].format == "png"
+    assert "iVBOR" not in encoded and "pixels" not in encoded
+
+
+def test_an_interpolated_reference_is_resolved_when_the_step_runs(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    script = with_embedded("  - id: w\n    wait_image: \"${icon}\"\n", monkeypatch,
+                           ok=png_header())
+    script = dataclasses.replace(script, vars={"icon": "#ok"})
+    run = VisionRun(script, FakeToolkit([hit(0.99, BOX)]))
+    assert run.join().status == "completed"
+    assert run.searches()[0]["template"] == "#ok"
+
+
+@pytest.mark.parametrize("mode", ["normal", "dry"])
+def test_an_unknown_embedded_name_at_run_time_is_template_missing(
+        monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    script = with_embedded("  - id: w\n    wait_image: \"${icon}\"\n", monkeypatch,
+                           ok=png_header())
+    script = dataclasses.replace(script, vars={"icon": "#gone"})
+    toolkit = FakeToolkit([hit(0.99, BOX)])
+    toolkit.error = ImportError("no vision")  # checked before the toolkit is needed
+    outcome = VisionRun(script, toolkit, mode=mode).join()
+    assert outcome.error is not None and outcome.error.code == "template_missing"
+    assert outcome.error.details == {"template": "#gone", "attempt": 1}  # no path
+    assert "no embedded image named 'gone'" in outcome.error.message
+    assert toolkit.created == 0
+
+
+def test_an_unreadable_embedded_image_is_template_missing(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    script = with_embedded("  - id: w\n    wait_image: \"#bad\"\n", monkeypatch,
+                           bad=png_header())
+    bad = dataclasses.replace(script.images["bad"], data=b"GIF89a")
+    script = dataclasses.replace(script, images={"bad": bad})
+    outcome = VisionRun(script, FakeToolkit()).join()
+    assert outcome.error is not None and outcome.error.code == "template_missing"
+    assert outcome.error.details == {"template": "#bad", "attempt": 1}
+    assert "#bad is not a readable image" in outcome.error.message
+
+
+def test_a_toolkit_without_a_decoder_cannot_load_embedded_images(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    script = with_embedded("  - id: w\n    wait_image: \"#ok\"\n", monkeypatch,
+                           ok=png_header())
+    toolkit = FakeToolkit([hit(0.99, BOX)])
+    toolkit.embedding = False
+    outcome = VisionRun(script, toolkit).join()
+    assert outcome.error is not None and outcome.error.code == "capability_missing"
+
+
+def test_embedded_images_do_not_depend_on_the_working_directory(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)  # an empty directory: the image lives in the script
+    script = with_embedded("  - id: w\n    wait_image: \"#ok\"\n", monkeypatch,
+                           ok=png_header())
+    assert script.source_path is None
+    run = VisionRun(script, FakeToolkit([hit(0.99, BOX)]))
+    assert run.join().status == "completed"

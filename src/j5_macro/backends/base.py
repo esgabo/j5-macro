@@ -71,6 +71,25 @@ class Capabilities:
     """``find_window`` works (window-relative coordinates)."""
     hotkey: bool = False
     """``watch_hotkey`` works (global emergency stop key)."""
+    display_scale: bool = False
+    """``display_scale`` and ``display_scales`` report the display scale of monitors."""
+
+
+MonitorScale = tuple[Rect, float]
+"""A monitor's rectangle on the desktop and its display scale (1.0 = 100 %)."""
+
+
+def scale_at(monitors: list[MonitorScale], x: int, y: int) -> float | None:
+    """The display scale of the monitor containing (x, y), else of the nearest one;
+    None without monitors."""
+    best: tuple[int, float] | None = None
+    for rect, scale in monitors:
+        dx = max(rect.x - x, 0, x - (rect.x + rect.width - 1))
+        dy = max(rect.y - y, 0, y - (rect.y + rect.height - 1))
+        distance = dx * dx + dy * dy
+        if best is None or distance < best[0]:
+            best = (distance, scale)
+    return None if best is None else best[1]
 
 
 class Backend(Protocol):
@@ -114,6 +133,15 @@ class Backend(Protocol):
         ...
 
     def char_up(self, char: str) -> None: ...
+
+    def display_scale(self, x: int, y: int) -> float | None:
+        """The display scale (1.0 = 100 %) of the monitor at (x, y), or of the nearest
+        one; None when the backend cannot tell (capability ``display_scale``)."""
+        ...
+
+    def display_scales(self) -> list[MonitorScale]:
+        """Every monitor with its display scale; empty when the backend cannot tell."""
+        ...
 
     def find_window(self, title: str) -> Rect | None:
         """Client area (the content, without the window manager's title bar and borders),

@@ -55,6 +55,45 @@ class ScriptParam:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class StoreAs:
+    """The common ``as`` field: the variable that keeps a step's result."""
+
+    name: str
+    secret: bool = False
+    """The result's strings become secrets of the run (masked) when it is stored."""
+
+    def to_json(self) -> dict[str, Any]:
+        return {"name": self.name, "secret": self.secret}
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EmbeddedImage:
+    """A template carried in the script (the ``images`` section), already decoded from
+    base64 and checked; steps refer to it as ``#name``."""
+
+    name: str
+    format: str
+    """The key it was written under: ``png``."""
+    data: bytes = field(repr=False)
+    """The image file's bytes."""
+    width: int
+    height: int
+    scale: float | None = None
+    """The display scale it was captured at, when given: its capture scale, replacing
+    the script's ``capture_scale``."""
+    line: int | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        """The ``load`` and ``get_script`` description: never the data itself."""
+        info: dict[str, Any] = {"name": self.name, "format": self.format,
+                                "bytes": len(self.data), "width": self.width,
+                                "height": self.height}
+        if self.scale is not None:
+            info["scale"] = self.scale
+        return info
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Step:
     """One step. ``params`` are type-specific and already defaulted by the loader."""
 
@@ -69,6 +108,8 @@ class Step:
     """Seconds, already parsed from the YAML duration."""
     input: dict[str, Any] | None = None
     """Per-step input profile override (``mouse`` / ``keyboard`` keys)."""
+    store_as: StoreAs | None = None
+    """The common ``as`` field; None when the result is not kept."""
     blocks: dict[str, list[Step]] = field(default_factory=dict)
     """Child step lists of block steps, keyed by slot name (``then``, ``else``, ``do``)."""
 
@@ -92,6 +133,11 @@ class Script:
     params: dict[str, ScriptParam] = field(default_factory=dict)
     """Declared params, in declaration order."""
     vars: dict[str, Any] = field(default_factory=dict)
+    images: dict[str, EmbeddedImage] = field(default_factory=dict)
+    """Embedded templates, by name, in declaration order."""
+    capture_scale: float | None = None
+    """The display scale the templates and pixel offsets were taken at (the top-level
+    ``capture_scale``); None when not given, which means 1."""
     source_path: str | None = None
     text: str = ""
     warnings: list[ErrorInfo] = field(default_factory=list)

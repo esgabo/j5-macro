@@ -10,6 +10,9 @@ about executing the script. They meet here:
   from the protocol thread.
 - The interpreter reports what happens through a :data:`RunEventSink`, passing the
   event type and its payload; the engine stamps and publishes it.
+- The engine masks secrets in what it publishes. Secret params are known when the run
+  starts; results stored as secrets during the run reach it through
+  :attr:`RunOptions.add_secrets` (a :data:`SecretSink`).
 """
 
 from __future__ import annotations
@@ -33,6 +36,11 @@ RunEventSink = Callable[[str, dict[str, Any]], None]
 
 Payloads follow ``j5_macro.protocol.payloads.events``. Thread-safe on the engine side."""
 
+SecretSink = Callable[[list[str]], None]
+"""Register values as secrets of the run from now on: the engine masks them in every
+event emitted after the call and in every answer (``get_state``, ``evaluate``, the
+error in ``run.json``). Called on the worker thread; thread-safe on the engine side."""
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RunOptions:
@@ -53,6 +61,15 @@ class RunOptions:
     (dry runs never touch it)."""
     backend_reason: str | None = None
     """Why there is no backend (as the engine reported it), for capability_missing."""
+    add_secrets: SecretSink | None = None
+    """Where the interpreter registers the strings of a result stored with
+    ``as: {secret: true}``, before emitting its ``step_finished``. None (no engine, e.g.
+    in tests) masks nothing."""
+    allow_exec: bool = False
+    """Whether ``exec`` steps may start programs (the ``run`` command's ``allow_exec``)."""
+    display_scale: float | None = None
+    """The run's display scale (the ``run`` command's ``display_scale``); None detects
+    it with the backend, per monitor (``j5_macro.runtime.display``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

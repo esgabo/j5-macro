@@ -15,8 +15,15 @@ from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from typing import Any, get_args
 
-from j5_macro.protocol.payloads.commands import ParamInfo, StepTypeInfo
-from j5_macro.steps.spec import ParamProblem, ParamSpec, ParamType, StepSpec, StepType
+from j5_macro.protocol.payloads.commands import ParamInfo, ResultFieldInfo, StepTypeInfo
+from j5_macro.steps.spec import (
+    ParamProblem,
+    ParamSpec,
+    ParamType,
+    ResultField,
+    StepSpec,
+    StepType,
+)
 
 ParamCheck = Callable[[Mapping[str, Any]], list[ParamProblem]]
 """A cross-field rule over a step's parameters, as written in the script."""
@@ -26,7 +33,7 @@ ENTRY_POINT_GROUP = "j5_macro.steps"
 PLUGIN_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 """What a plugin step type's name must look like (it is a YAML key and an id prefix)."""
 
-_RESERVED_NAMES = frozenset({"id", "break", "timeout", "on_error", "input"})
+_RESERVED_NAMES = frozenset({"id", "break", "timeout", "on_error", "input", "as"})
 """The common step fields, which a step type cannot be named after."""
 
 
@@ -110,7 +117,8 @@ class StepRegistry:
         Each entry point must resolve to a callable taking this registry, which registers
         the plugin's step types with :meth:`register`. Plugin steps must be action steps
         with an executor, named like ``PLUGIN_NAME_PATTERN`` and not after a common step
-        field, and their spec must describe itself (``list_step_types``, JSON Schema).
+        field (``as`` included), and their spec must describe itself (``list_step_types``,
+        JSON Schema), result fields included.
 
         A plugin that cannot be imported, is not callable, raises, or registers a step
         that breaks those rules is skipped as a whole: whatever it registered is removed
@@ -159,7 +167,9 @@ def _info(spec: StepSpec) -> StepTypeInfo:
                   doc=p.doc)
         for p in spec.params
     ]
-    return StepTypeInfo(name=spec.name, params=params, doc=spec.doc,
+    result = [ResultFieldInfo(name=f.name, type=f.type, optional=f.optional, doc=f.doc)
+              for f in spec.result]
+    return StepTypeInfo(name=spec.name, params=params, doc=spec.doc, result=result,
                         json_schema=step_value_schema(spec))
 
 
@@ -192,6 +202,9 @@ def _check_plugin_type(step_type: StepType) -> None:
     for param in spec.params:
         if not isinstance(param, ParamSpec) or param.type not in _PARAM_TYPES:
             raise ValueError(f"step type {name!r}: invalid parameter {param!r}")
+    for result in spec.result:
+        if not isinstance(result, ResultField) or result.type not in _PARAM_TYPES:
+            raise ValueError(f"step type {name!r}: invalid result field {result!r}")
     if spec.shorthand is not None and spec.param(spec.shorthand) is None:
         raise ValueError(f"step type {name!r}: shorthand {spec.shorthand!r} is not a "
                          "parameter")

@@ -11,6 +11,7 @@ from j5_macro.steps.spec import (
     LogLevel,
     ParamProblem,
     ParamSpec,
+    ResultField,
     StepContext,
     StepError,
     StepSpec,
@@ -69,6 +70,8 @@ SLEEP = StepType(StepSpec(
     shorthand="duration",
     params=(ParamSpec(name="duration", type="duration", required=True,
                       doc="How long to wait, e.g. 2s, 500ms or 2s±20%."),),
+    result=(ResultField(name="seconds", type="number",
+                        doc="The duration waited, variance applied."),),
 ), run_sleep)
 
 SET = StepType(StepSpec(
@@ -78,6 +81,10 @@ SET = StepType(StepSpec(
         ParamSpec(name="name", type="string", required=True, doc="Variable name."),
         ParamSpec(name="value", type="any", doc="Literal value (interpolated)."),
         ParamSpec(name="expr", type="expression", doc="Expression whose result is stored."),
+    ),
+    result=(
+        ResultField(name="name", type="string", doc="The variable set."),
+        ResultField(name="value", type="any", doc="The value it was set to."),
     ),
 ), run_set)
 
@@ -91,6 +98,10 @@ LOG = StepType(StepSpec(
         ParamSpec(name="level", type="string", default="info", choices=LOG_LEVELS,
                   doc="Log level."),
     ),
+    result=(
+        ResultField(name="level", type="string", doc="The log level."),
+        ResultField(name="message", type="string", doc="The message logged."),
+    ),
 ), run_log)
 
 PAUSE = StepType(StepSpec(
@@ -99,4 +110,6 @@ PAUSE = StepType(StepSpec(
     shorthand="message",
     params=(ParamSpec(name="message", type="string",
                       doc="Optional reason shown while paused."),),
+    result=(ResultField(name="message", type="string", optional=True,
+                        doc="The reason given, if any."),),
 ), run_pause)
