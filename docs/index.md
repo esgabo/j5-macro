@@ -11,6 +11,7 @@ works and how it is built.
 | --- | --- |
 | [Installing and packaging](install.md) | Install j5 (from GitHub, pipx or a clone), check it works, build a wheel |
 | [Tutorial](tutorial.md) | Go from an empty file to a working macro: clicking, typing, waiting for images, logic, params, debugging |
+| [Desktop application](gui.md) | Open, run and follow scripts in a window (`j5 gui`) |
 
 ## Using j5
 

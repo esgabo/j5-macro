@@ -13,6 +13,7 @@ from j5_macro.steps import default_registry
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = sorted([ROOT / "README.md", ROOT / "editors" / "vscode" / "README.md",
+               ROOT / "src" / "j5_macro" / "gui" / "README.md",
                *(ROOT / "docs").glob("*.md")])
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE = re.compile(r"^(```|~~~)")

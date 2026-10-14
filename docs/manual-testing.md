@@ -10,9 +10,9 @@ It takes about 20 minutes per platform.
 
 ## Setup
 
-1. Install j5 from the commit under test, with the backend and vision extras:
-   `pip install -e ".[x11,vision]"` on Linux, `pip install -e ".[windows,vision]"` on
-   Windows (see [install.md](install.md)).
+1. Install j5 from the commit under test, with the backend, vision and gui extras:
+   `pip install -e ".[x11,vision,gui]"` on Linux, `pip install -e ".[windows,vision,gui]"`
+   on Windows (see [install.md](install.md)).
 2. Make sure tkinter is available for the target window and the authoring overlay: it
    ships with the python.org installers on Windows; on Debian and Ubuntu install
    `python3-tk`.
@@ -84,6 +84,25 @@ when the overlay opens (click the target first): Escape must still reach the ove
 | Transparent | `j5 capture -o /tmp/t.png --transparent` around the pattern with a few pixels of window background around it | The PNG has a transparent border (open it in an image viewer); `j5 find /tmp/t.png` finds it with a score near 1 |
 | Scaled display | At 150 % (see "Display scale"), `target.py --scale 1.5`, then `j5 capture --embed /tmp/s.yaml --name big -f` around the pattern, and `j5 capture -o /tmp/big.png` | The overlay is sharp and covers the whole screen (no blurry, scaled-up window on Windows); the PNG is 72x72; the embedded entry has `scale: 1.5`; the file capture prints the `capture_scale: 1.5` hint |
 | Mixed monitors (Windows) | Two monitors at different scales: `j5 pick` on each monitor | The overlay covers both without gaps, the magnifier's coordinates match the reported `x`, `y`, and the picked point is where the pointer was |
+
+## Desktop application
+
+`j5 gui` ([gui.md](gui.md)) on the real desktop, with `target.py` open. The automated
+tests drive the window offscreen against the fake backend; these checks cover what they
+cannot: a real window manager, real input and the look of the window.
+
+| Check | How | Expected |
+| --- | --- | --- |
+| Start | `j5 gui examples/smoke` | The window opens with the smoke scripts listed on the left. The status bar shows `backend: x11` (Linux) or `backend: windows`, `vision` and `stop key: ctrl+alt+shift+q`; the run panel shows the same stop key |
+| Open | Double-click `Smoke - pointer` | The step tree shows every step with its type, `if` blocks with `then` and `else` rows; the YAML on the right is the file, comments included. Selecting a step shows its parameters and highlights its line in the YAML |
+| External change | Edit `examples/smoke/flow.yaml` in a text editor while it is open in the GUI and save | Within a second the tree and the YAML show the change; an invalid edit shows its problems in red above the tree, and fixing it clears them |
+| Dry run | Open `pointer.yaml`, Dry run | The log streams the events (`▶ step`, `would click ...`, image searches) and ends with `run completed`; nothing moves |
+| Run | Run `pointer.yaml` | The mouse moves as with `j5 run`, the target logs the same clicks, the step being run is highlighted in the tree, and the run ends with `run completed`. The History tab lists the run |
+| Stop | Run `keyboard.yaml`, press Stop while it types | The run ends with `run stopped`; no key stays held |
+| Emergency stop key | Run `keyboard.yaml` and press the stop key shown | As Stop, with the engine's warning in the log |
+| Engine crash | While the GUI is open, kill the engine process (`python -m j5_macro.engine`) | A red banner says the engine stopped, with its exit code; Restart engine brings it back and reopens the script |
+| Without PySide6 | In an environment without the `gui` extra, `j5 gui` | `j5: the GUI needs PySide6, which is not installed: pip install "j5-macro[gui]"`, exit code 2 |
+| Display scale | At 150 % (see "Display scale") | The window and its fonts are sharp and scaled, not blurry |
 
 ## Safety checks
 

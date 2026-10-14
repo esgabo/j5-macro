@@ -10,7 +10,7 @@ Exit codes (every command):
   image was not found; the authoring commands: the engine refused (e.g. no vision, an
   existing file); any command: the engine could not be started or died.
 - 2: usage error; ``run``: the script could not be loaded or the run could not start;
-  ``runs show``/``runs delete``: a malformed run id.
+  ``runs show``/``runs delete``: a malformed run id; ``gui``: PySide6 is not installed.
 - 3: ``run``: the run was stopped (by the engine, e.g. user interference);
   ``capture``/``pick``/``find --show``: cancelled with Escape.
 - 130: interrupted with Ctrl+C.
@@ -401,6 +401,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     _authoring_parsers(sub)
 
+    gui = sub.add_parser(
+        "gui", help="open the desktop application", parents=[runs_dir],
+        description="Open the desktop application on a folder of scripts or on a script "
+                    "(default: the current directory). It needs the gui extra: "
+                    'pip install "j5-macro[gui]".',
+        epilog="exit codes: 0 closed, 2 usage error or PySide6 not installed")
+    gui.add_argument("target", nargs="?", metavar="SCRIPT_OR_DIR",
+                     help="a folder to list the scripts of, or a script to open")
+    gui.add_argument("--stop-key", metavar="COMBO", type=_stop_key,
+                     help=f"global emergency stop key of the GUI's engine (default: "
+                          f"${STOP_KEY_ENV}, else {DEFAULT_STOP_KEY})")
+
     sub.add_parser("dap", help="serve the Debug Adapter Protocol on stdio (for VS Code)",
                    description="Debug Adapter Protocol server on standard input and output, "
                                "started by an editor such as VS Code (see editors/vscode).")
@@ -507,6 +519,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         cmd += ["--stop-key", stop_key]
     io = Output(out=sys.stdout, err=sys.stderr, style=_style(sys.stdout),
                 err_style=_style(sys.stderr))
+    if args.command == "gui":
+        return _gui(args.target, cmd)
     if args.command == "runs":
         return _runs(args, cmd, str(resolve_runs_dir(runs_dir)), io)
     if args.command == "validate":
@@ -545,6 +559,19 @@ def _dispatch(args: argparse.Namespace) -> int:
         interactive=interactive,
     )
     return commands.run_sync(commands.run(cmd, args.script, options, io=io))
+
+
+def _gui(target: str | None, cmd: list[str]) -> int:
+    from j5_macro.gui import qt_missing
+
+    problem = qt_missing()
+    if problem is not None:
+        raise CliError(problem, ExitCode.USAGE)
+    if target is not None and not os.path.exists(target):
+        raise CliError(f"{target}: no such file or directory", ExitCode.USAGE)
+    from j5_macro.gui.app import run_gui
+
+    return run_gui(target, cmd)
 
 
 AUTHORING_COMMANDS = ("windows", "screenshot", "capture", "pick", "find")

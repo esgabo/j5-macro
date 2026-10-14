@@ -22,7 +22,7 @@ Scope of v1: Windows, and Linux with an X11 session (tested on XFCE). Wayland co
 flowchart TB
   subgraph Clients
     CLI["CLI<br/>run, validate, --dry-run"]
-    GUI["Future GUI<br/>editor, runs, debugging"]
+    GUI["GUI (j5 gui)<br/>editor, runs, debugging"]
     DAP["DAP debugger<br/>VS Code on the YAML"]
   end
   C{{"Contract: commands to the engine, events to the clients"}}
@@ -78,7 +78,7 @@ Rules:
 
 - **Command and response.** The client sends a command with an `id`; the engine answers with `kind: response`, the same `id`, and either `ok: true` with `result` or `ok: false` with `error` (see the codes at the end). Responses come in the order of the commands, except an interactive authoring command's (see "Authoring tools"), which comes when the user finishes.
 - **Events are not acknowledged.** The engine emits them in order. If a client sees a gap in `seq`, it fetches the missing ones with `get_events`.
-- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types, `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`) and `display_scales` (each monitor the backend reports, as `{bbox, scale}` with `bbox` `[x, y, w, h]` on the desktop and the monitor's current display scale; empty without a backend or when it cannot tell; see "Display scale"). Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key, and then a `warning` for each step plugin it skipped (see "Step plugins" below). Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
+- **Handshake.** The engine emits `ready` when it starts. The client then sends `hello` with the range of versions it understands, and the engine answers with the chosen version and its capabilities: active backend (its name, or `null` without one), available input strategies (`direct`, `linear` and `human` with a backend, none without), registered step types, `vision` (`true` when the vision toolkit and its `vision` extra are installed; capturing the screen may still fail at run time, with `capability_missing`), `display_scales` (each monitor the backend reports, as `{bbox, scale}` with `bbox` `[x, y, w, h]` on the desktop and the monitor's current display scale; empty without a backend or when it cannot tell; see "Display scale") and, in `hello` only (the key is watched right after `ready`), `stop_key`: the emergency stop key the engine watches, in key names joined with `+` (`ctrl+alt+shift+q`), or `null` when it watches none, so a client can show it. Right after `ready`, the engine logs which emergency stop key it watches, or a `warning` with the reason when there is no backend or no stop key, and then a `warning` for each step plugin it skipped (see "Step plugins" below). Any other command before `hello` gets `invalid_state` with `details.reason: hello_required`.
 - **No binaries in messages.** Screenshots and crops are saved under the run's directory and events carry the relative path.
 - **Compatibility.** Unknown fields are ignored; a client must never fail on a new event or field. Optional fields whose value is `null` are omitted when serializing, so omitted and `null` mean the same.
 - **Invalid lines.** A line that is not a valid command cannot be answered (it has no trustworthy `id`): the engine emits an engine `log` event at level `error` and carries on.
@@ -92,7 +92,7 @@ There are 16 execution and debugging commands; script management commands and th
 
 | Command | Payload | Result and notes |
 | --- | --- | --- |
-| `hello` | `v_min`, `v_max`, `client` | Chosen `v` and capabilities (backend, input strategies, registered steps, vision, display scales) |
+| `hello` | `v_min`, `v_max`, `client` | Chosen `v` and capabilities (backend, input strategies, registered steps, vision, display scales, stop key) |
 | `list_step_types` | — | The step registry: name, parameters, types, defaults, documentation, JSON Schema and the fields of the step's `result` (see "Step results") |
 | `load` | `path` or `source` | `script_id` (`s1`, `s2`, ...), the step tree with its ids and common fields (`as` reported as `{name, secret}`), the declared `params` (name, `type`, `description`, `secret`, `required` and, unless secret, `default`), the embedded `images` (`name`, `format`, `bytes`, `width`, `height` and `scale` when given; never the data), the script's `capture_scale` when given, and `warnings`. On failure, the error code is the first problem's code and `details` holds `errors` (all of them) and `warnings` |
 | `validate` | `script_id` | `ok`, `errors` and `warnings`. Re-reads a script loaded from a path, so it reports the file as it is now; never replaces the loaded script |

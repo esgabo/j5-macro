@@ -1,8 +1,9 @@
 # Command-line reference
 
 `j5` is the command-line client of the j5 engine. Every command except `schema`, `pack`,
-`unpack` and `dap` starts the engine as a child process, sends it commands and shows what comes back (see
-[how-it-works.md](how-it-works.md)).
+`unpack` and `dap` starts the engine as a child process, sends it commands and shows what
+comes back (see [how-it-works.md](how-it-works.md)); `gui` opens the desktop application,
+which does the same.
 
 ```console
 $ j5 --help
@@ -24,6 +25,7 @@ positional arguments:
     capture     capture a template: drag a rectangle on the screen
     pick        pick a point on the screen and print a click step
     find        search the screen for a template, as a step would
+    gui         open the desktop application
     dap         serve the Debug Adapter Protocol on stdio (for VS Code)
 
 options:
@@ -50,6 +52,7 @@ j5-macro 0.0.1
 | [`j5 capture`](#j5-capture) | Capture a template, into a file or a script |
 | [`j5 pick`](#j5-pick) | Pick a point and print a click step for it |
 | [`j5 find`](#j5-find) | Test a template: one search, as a step would make it |
+| [`j5 gui`](#j5-gui) | Open the desktop application (needs the `gui` extra) |
 | [`j5 dap`](#j5-dap) | Serve the Debug Adapter Protocol (started by VS Code) |
 
 ## `j5 run`
@@ -546,6 +549,21 @@ Exit codes: 0 done, 1 no saved run with that id (or the engine died), 2 usage er
 malformed run id. `j5 runs delete` with several ids deletes every one it can and exits
 with the worst code.
 
+## `j5 gui`
+
+```text
+j5 gui [-h] [--runs-dir DIR] [--stop-key COMBO] [SCRIPT_OR_DIR]
+```
+
+Opens the desktop application on a folder of scripts, or on a script and its folder (by
+default the current directory). It needs the `gui` extra (`pip install "j5-macro[gui]"`);
+without it, `j5 gui` says so and exits with 2. `--runs-dir` and `--stop-key` are passed to
+the GUI's engine, as with `j5 run`. `python -m j5_macro.gui` is the same command. See
+[gui.md](gui.md).
+
+Exit codes: 0 when the window is closed, 2 usage error (a path that does not exist) or
+PySide6 not installed.
+
 ## `j5 dap`
 
 ```text
@@ -563,7 +581,7 @@ with the extension in `editors/vscode`. `python -m j5_macro.dap` is the same ser
 | --- | --- | --- | --- | --- | --- | --- |
 | 0 | Completed | Valid (warnings allowed) | Done | Done | Done (`find`: found) | |
 | 1 | The run failed, or a paused step kept failing with no terminal to ask | Invalid or unreadable | No saved run with that id | Invalid script, an image that cannot be embedded, nothing to unpack or a file in the way | The engine refused (no vision, a file in the way...); `find`: not found | The engine could not be started or died |
-| 2 | The script could not be loaded or the run could not start | | Malformed run id | | | Usage error (bad options) |
+| 2 | The script could not be loaded or the run could not start | | Malformed run id | | | Usage error (bad options); `gui`: PySide6 is not installed |
 | 3 | The run was stopped (emergency stop, corner failsafe, interference set to `stop`, `q` in the debugger) | | | | Cancelled with Escape | |
 | 130 | Interrupted with Ctrl+C | | | | | Interrupted with Ctrl+C |
 
@@ -574,7 +592,7 @@ with the extension in `editors/vscode`. `python -m j5_macro.dap` is the same ser
 | `J5_BACKEND` | Engine | Input backend: `auto` (default), `x11`, `windows`, `fake` (records input, touches nothing) or `none`. See [how-it-works.md](how-it-works.md#platforms-and-backends) |
 | `J5_RUNS_DIR` | Engine, `j5 runs` | Runs directory, when `--runs-dir` is not given |
 | `J5_STOP_KEY` | Engine | Emergency stop key when `j5 run --stop-key` (the engine's `--stop-key`) is not given, e.g. `ctrl+alt+f12` (default `ctrl+alt+shift+q`): modifiers and one key joined with `+` |
-| `J5_ENGINE_CMD` | `j5`, `j5 dap` | The command that starts the engine, as a JSON list of strings, e.g. `["/opt/venv/bin/python", "-m", "j5_macro.engine"]`. Default: the current Python with `-m j5_macro.engine`. Used by the tests |
+| `J5_ENGINE_CMD` | `j5`, `j5 dap`, `j5 gui` | The command that starts the engine, as a JSON list of strings, e.g. `["/opt/venv/bin/python", "-m", "j5_macro.engine"]`. Default: the current Python with `-m j5_macro.engine`. Used by the tests |
 | `NO_COLOR` | `j5` | Any non-empty value turns colours off |
 | `DISPLAY`, `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY` | Engine | Used by `J5_BACKEND=auto` to detect an X11 or Wayland session |
 | `XDG_STATE_HOME` (Linux), `LOCALAPPDATA` (Windows) | Engine | Base of the default runs directory |

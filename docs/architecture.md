@@ -30,13 +30,13 @@ contract's own list.
 flowchart LR
   CLI["j5 CLI<br/>run, validate, runs, steps"]
   DAP["j5 dap<br/>Debug Adapter Protocol"]
-  GUI["Future GUI"]
+  GUI["j5 gui<br/>desktop application"]
   VS["VS Code"]
   E["Engine process<br/>python -m j5_macro.engine"]
   VS <-->|DAP over stdio| DAP
   CLI <-->|JSON lines over stdio| E
   DAP <-->|JSON lines over stdio| E
-  GUI -.->|same protocol| E
+  GUI <-->|JSON lines over stdio| E
 ```
 
 Every client starts its own engine as a subprocess (`python -m j5_macro.engine`, or the
@@ -53,7 +53,11 @@ exactly one client and ends when its stdin closes. Clients:
   on stdio that starts an engine and translates DAP requests into engine commands. The
   VS Code extension in [editors/vscode](../editors/vscode) registers it as the `j5`
   debugger. See [debugging.md](debugging.md).
-- **Future GUI**: will be one more client of the same protocol.
+- **GUI** (`j5 gui`, [gui/](../src/j5_macro/gui)): a PySide6 desktop application (the
+  optional `gui` extra) that starts an engine like the CLI and shows scripts, their steps
+  and YAML, and runs with their events. Its client runs on an asyncio loop in a thread of
+  its own and hands results and events to the Qt thread through signals; see
+  [gui/README.md](../src/j5_macro/gui/README.md) and [gui.md](gui.md).
 
 ### The message envelope
 
@@ -194,11 +198,13 @@ the interpreter.
 | [`vision`](../src/j5_macro/vision) | Screen capture and template matching | `api.py`, `toolkit.py`, `capture.py`, `matching.py`, `templates.py`, `drawing.py`, `snapshots.py` (captures as templates) |
 | [`cli`](../src/j5_macro/cli) | The `j5` command | `main.py`, `commands.py`, `bundle.py` (`pack`, `unpack`), `authoring.py` (`windows`, `screenshot`, `capture`, `pick`, `find`), `debugger.py`, `render.py`, `interrupt.py`, `release.py`, `options.py` |
 | [`dap`](../src/j5_macro/dap) | Debug Adapter Protocol server | `server.py`, `session.py`, `script_map.py`, `framing.py` |
+| [`gui`](../src/j5_macro/gui) | The desktop application (`j5 gui`, optional `gui` extra) | `engine_thread.py` (the client on its own thread), `bridge.py` (Qt signals), `models/` (view models, no Qt), `controllers/` (open script, active run), `screen_tools.py`, `views/` (one module per area of the window), `app.py`; see its [README](../src/j5_macro/gui/README.md) |
 
 The optional dependencies follow the layers: `ruamel.yaml` is the only hard dependency;
 the `x11` extra adds python-xlib (and mss), the `vision` extra adds OpenCV, numpy and
-mss. The vision package and the X11 backend import their extras lazily, so the engine
-starts without them and reports what is missing.
+mss, and the `gui` extra adds PySide6. The vision package and the X11 backend import
+their extras lazily, so the engine starts without them and reports what is missing; the
+CLI checks for PySide6 before importing the GUI.
 
 ## Data flow of a run
 
@@ -311,7 +317,10 @@ On the client side, `EngineClient` ([client/engine_client.py](../src/j5_macro/cl
 runs a reader task for stdout, a task that drains stderr and a monitor that notices the
 process exiting; `events()` fills `seq` gaps with `get_events`. The CLI debugger and the
 DAP server read their own stdin on a thread and hand lines to the event loop, because
-asyncio cannot read a console or an anonymous pipe portably.
+asyncio cannot read a console or an anonymous pipe portably. The GUI runs the client's
+event loop on a thread of its own (`j5-gui-engine`), so the Qt event loop never waits on
+the engine: results and events reach the Qt thread through queued signals
+([gui/README.md](../src/j5_macro/gui/README.md#the-bridge-and-the-threading-rules)).
 
 ## Extension points
 

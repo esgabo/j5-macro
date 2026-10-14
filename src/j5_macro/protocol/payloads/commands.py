@@ -61,6 +61,9 @@ class Capabilities(Payload):
     display_scales: list[dict[str, Any]] | None = None
     """Each monitor the backend reports, ``{bbox: [x, y, w, h], scale}``; empty when it
     cannot tell. Omitted by engines that predate it."""
+    stop_key: str | None = None
+    """``hello`` only: the emergency stop key the engine watches, in backend key names
+    joined with ``+`` (``ctrl+alt+shift+q``); None when it watches none."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

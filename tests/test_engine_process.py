@@ -90,6 +90,7 @@ def test_engine_process_handshake_and_clean_exit() -> None:
     ready, hello, events = handshake("none")
     assert ready["payload"]["backend"] is None
     assert hello["result"]["capabilities"]["input_strategies"] == []
+    assert hello["result"]["capabilities"]["stop_key"] is None
     warnings = [e["payload"]["message"] for e in events
                 if e["type"] == "log" and e["payload"]["level"] == "warning"]
     assert len(warnings) == 1
@@ -102,6 +103,7 @@ def test_engine_process_reports_its_backend_and_stop_key() -> None:
     capabilities = hello["result"]["capabilities"]
     assert capabilities["backend"] == "fake"
     assert capabilities["input_strategies"] == ["direct", "linear", "human"]
+    assert capabilities["stop_key"] == "ctrl+f12"
     logs = [e["payload"] for e in events if e["type"] == "log"]
     assert logs == [{"level": "info", "message": "emergency stop key: ctrl+f12"}]
 

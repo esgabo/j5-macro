@@ -68,7 +68,7 @@ def test_hello_success() -> None:
     resp = responses(out)["h"]
     assert resp["ok"] is True
     assert resp["type"] == "hello"
-    assert resp["result"] == {"v": 1, "capabilities": CAPABILITIES}
+    assert resp["result"] == {"v": 1, "capabilities": {**CAPABILITIES, "stop_key": None}}
 
 
 def test_hello_version_mismatch() -> None:
