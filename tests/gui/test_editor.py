@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import os
 import struct
+import time
 import zlib
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,13 @@ def top_ids(window: Any) -> list[str]:
 
 
 def disk(window: Any) -> str:
+    # Windows refuses to open a file for a moment while the engine's os.replace swaps
+    # it in: read again.
+    for _ in range(50):
+        try:
+            return str(window.editor_path.read_text(encoding="utf-8"))
+        except PermissionError:
+            time.sleep(0.02)
     return str(window.editor_path.read_text(encoding="utf-8"))
 
 
