@@ -211,6 +211,8 @@ class StepFormPanel(QWidget):
         names = tuple(image_names(state.images)) if state is not None else ()
         key = (step.id, step.type, names, state.path if state else None, id(self._registry))
         if key != self._key:
+            if self._dirty:
+                self.flush()  # what was typed is sent before the form is rebuilt
             self._build(step, state)
             self._key = key
         elif state is None or state.valid:

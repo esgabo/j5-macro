@@ -409,7 +409,7 @@ class ImageEdit(QWidget):
         self.combo = QComboBox()
         self.combo.setEditable(True)
         self.combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.combo.setMinimumContentsLength(18)
+        self.combo.setMinimumContentsLength(10)
         self.combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         line = self.combo.lineEdit()
@@ -491,13 +491,13 @@ class WindowEdit(QWidget):
 
     def __init__(self, param: str, env: FieldEnv) -> None:
         super().__init__()
-        self.edit = _line_edit("any window (the whole desktop)")
+        self.edit = _line_edit("title contains… (empty: the whole desktop)")
         self.edit.setToolTip("Coordinates and regions become relative to the first visible "
                              "window whose title contains this text")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(_labelled("title contains", self.edit), 1)
+        layout.addWidget(self.edit, 1)
         for widget in _tools("window", param, env, self.value, self.set_and_send):
             layout.addWidget(widget)
         self.edit.textEdited.connect(lambda _: self.changed.emit(False))

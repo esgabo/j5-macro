@@ -104,6 +104,8 @@ class EditorPanel(QWidget):
         middle.addWidget(self.tabs)
         middle.setStretchFactor(0, 2)
         middle.setStretchFactor(1, 3)
+        middle.setSizes([240, 360])
+        self.middle = middle
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.step_palette)
         self.splitter.addWidget(middle)
@@ -111,7 +113,7 @@ class EditorPanel(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 3)
         self.splitter.setStretchFactor(2, 2)
-        self.splitter.setSizes([150, 560, 380])
+        self.splitter.setSizes([140, 560, 360])
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)

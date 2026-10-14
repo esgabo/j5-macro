@@ -36,10 +36,10 @@ flowchart TB
 
 | Module | Holds | Qt |
 | --- | --- | --- |
-| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog` and `format_event` (`run_log.py`), `RunSummary` (`runs.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
+| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog` and `format_event` (`run_log.py`), `RunSummary` (`runs.py`); for the editor, the step registry and the palette (`registry.py`), field kinds and value parsing (`fields.py`), the edits behind every editor action (`edits.py`) and the header's values (`header.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
 | `engine_thread.py` | `EngineThread`: the existing asyncio `EngineClient` on an event loop in a daemon thread (`j5-gui-engine`). `call()` returns a `concurrent.futures.Future`; events and the engine's death reach callbacks **on that thread**. Releases held keys when the engine dies (`cli.release`) | None |
 | `bridge.py` | `EngineBridge`: owns the `EngineThread` and turns its futures and callbacks into callbacks and signals **on the GUI thread** | QtCore |
-| `controllers/` | Shared state, as QObjects without widgets: `ScriptDocument` (the open script) and `RunController` (the active run, the breakpoints) | QtCore |
+| `controllers/` | Shared state, as QObjects without widgets: `ScriptDocument` (the open script), `RunController` (the active run, the breakpoints) and `EditQueue` (the editor's edits, one at a time) | QtCore |
 | `screen_tools.py` | `ScreenTools`: `capture_region`, `pick_point`, `find_image`, `screenshot`, `list_windows` | QtCore |
 | `context.py` | `AppContext`: the bridge, the document, the run controller and the screen tools, handed to every panel | QtCore |
 | `views/` | The widgets (below) | QtWidgets |
@@ -117,25 +117,91 @@ and shows messages in the status bar. Each area is its own module and gets the
 | Area | Module | Class | Today |
 | --- | --- | --- | --- |
 | Left | `views/script_list.py` | `ScriptListPanel` | `list_scripts` of a folder, open, `create_script` |
-| Center | `views/editor.py` | `EditorPanel` | Title, problems, and three parts: |
-| | `views/step_tree.py` | `StepTreeView` | Read-only tree (ids, types, `then`/`else` rows), breakpoint gutter (column 0), current step highlight |
-| | `views/step_form.py` | `StepFormPanel` | The selected step's parameters, read-only |
-| | `views/yaml_view.py` | `YamlView` | `get_script`'s `source`, read-only; highlights the selected step's line |
+| Center | `views/editor.py` | `EditorPanel` | Title, problems, the toolbar (delete, duplicate, up, down), pack and unpack, and: |
+| | `views/palette.py` | `StepPalette` | The step types of `list_step_types` by group; inserts or drags a type |
+| | `views/step_tree.py` | `StepTreeView` | The steps, a row per block slot (`then`, `else`, `do`), drag and drop (emits `step_dropped`/`type_dropped` with a `Target`), problem marks, breakpoint gutter (column 0), current step highlight |
+| | `views/step_form.py` | `StepFormPanel` | The selected step's form, generated from the registry; debounced `update` edits |
+| | `views/fields.py` | `Field` and friends | The field widgets, and the field tools hook (below) |
+| | `views/header_form.py` | `ScriptHeaderPanel` | The Script tab: name, capture scale, params, vars, images, input profile (`set_meta` and the image edits) |
+| | `views/yaml_view.py` | `YamlView` | `get_script`'s `source`, read-only; highlights the selected step's line, `line_clicked` selects a step |
 | Bottom tab | `views/run_panel.py` | `RunPanel` | Run, Dry run (+ Strict), Stop, state, stop key, log of events |
 | Bottom tab | `views/history_panel.py` | `HistoryPanel` | `list_runs` of the open script |
 | Top | `views/engine_banner.py` | `EngineBanner` | Engine failed or died, Restart |
 | Status bar | `views/main_window.py` | `MainWindow.engine_label` | Backend, vision, stop key (`hello`) |
 
+## The script editor
+
+The editor never changes what it shows by itself: every action builds `edit_script`
+edits with the pure functions of `models/edits.py` (positions, `move_up`, `drop_edit`,
+`duplicate_edit`...) and sends them through `EditorPanel.queue`, an `EditQueue`. The
+queue sends one `edit_script` at a time and waits until the document shows the version
+it produced before sending the next, so edits made in a row never conflict; a
+`conflict` (the file changed meanwhile) waits for the reload. The views refresh on
+`state_changed`, and the editor reselects what it inserted, moved or renamed.
+
+- **Registry.** `EditorPanel.registry` (`models/registry.py`) comes from
+  `list_step_types` when the engine starts. It gives the palette, the block slots of the
+  tree, the forms, and `new_step(type)`, the parameters of a new step (chosen so the
+  script stays valid).
+- **Forms.** `StepFormPanel` builds a `Field` per parameter, chosen by
+  `models.fields.field_kind`, plus a `TargetField` for the `image`/`x`/`y`/`at` target of
+  `click` and `move`. A field edits one or more parameters (`keys`); `load(params)`,
+  `values()` (a `Parsed`: the values or the problem), `changes()` (only what differs
+  from what was loaded) and `edited(now)`. Values are checked as typed; changes go out
+  `DEBOUNCE_MS` after typing stops, at once for choices. While the script is invalid the
+  engine reports its last valid version, so the form keeps what was typed and only shows
+  the problems (`get_script`'s `errors`, by `step_id` and `details.param`/`field`).
+- **Packing.** "Save as self-contained file" and "Unpack images to files" call
+  `j5_macro.script.bundle` (the code behind `j5 pack` and `j5 unpack`) in the GUI
+  process, after the pending edits are saved (`EditQueue.when_idle`).
+
+### Field tools
+
+Image, point, region and window fields have a hook for screen tools (Capture, Pick,
+Test...): `views/fields.py` calls every factory registered with
+`register_field_tools(factory)` when it builds such a field, and puts the widgets the
+factory returns next to the field. Nothing is registered by default. A factory gets a
+`FieldContext`:
+
+| Member | Meaning |
+| --- | --- |
+| `kind` | `image`, `point`, `region` or `window` |
+| `param` | The parameter as the engine names it: `image`, `x/y`, `region`, `window`, `from.image`, `to.x/y`, `when.image_visible`... |
+| `get_value()` | The field's value: a path or `#name`; `{"x", "y"}`; `[x, y, w, h]` or `{at, offset?, size?}`; `{"title"}` or None |
+| `set_value(value)` | Show a value in the field and save it, as if the user typed it |
+| `ctx` | The `AppContext` (`ctx.screen` for `capture_region`, `pick_point`, `find_image`; `ctx.document` for the script) |
+| `step_id`, `step_type` | The step being edited |
+| `window()` | The window the field is relative to (the step's or the target's `window`), or None |
+| `step_params()` | The step's parameters as the form shows them now (`threshold`, `region`, `scale`...) |
+
+```python
+from j5_macro.gui.views.fields import FieldContext, register_field_tools
+
+def pick_tools(context: FieldContext) -> list[QWidget]:
+    if context.kind != "point":
+        return []
+    button = QPushButton("Pick")
+    title = (context.window() or {}).get("title")
+    button.clicked.connect(lambda: context.ctx.screen.pick_point(
+        window=title,       # relative to the step's window: use r["window_point"]
+        on_result=lambda r: context.set_value({"x": r["x"], "y": r["y"]})))
+    return [button]
+
+unregister = register_field_tools(pick_tools)   # once, when the application starts
+```
+
+Register before the editor builds its forms (forms are rebuilt for every selected step,
+so a factory registered later shows from the next selection on).
+
 ## Extension points
 
 Work on the next features stays inside these modules, so it can go on in parallel:
 
-- **Script editor**: `views/editor.py`, `views/step_tree.py`, `views/step_form.py`
-  (and new modules under `views/`, e.g. a step palette or a header form), plus
-  `ScriptDocument.edit` and new models under `models/` (e.g. the step registry from
-  `list_step_types`). Every change goes through `edit_script`; the view refreshes on
-  `state_changed`, never by itself. Saving as a single file (`j5 pack`'s logic,
-  `cli/bundle.py`) belongs here too.
+- **Script editor**: `views/editor.py`, `views/palette.py`, `views/step_tree.py`,
+  `views/step_form.py`, `views/fields.py`, `views/header_form.py`,
+  `controllers/edit_queue.py` and `models/registry.py`, `fields.py`, `edits.py`,
+  `header.py` (see "The script editor" above). Every change goes through
+  `edit_script`; the view refreshes on `state_changed`, never by itself.
 - **Run and debugging**: `controllers/run.py` (pause, resume, `step_*`,
   `set_breakpoints` when `breakpoints_changed`, `get_state`, `set_variable`,
   `evaluate`, the params prompt) and `views/run_panel.py` (controls, variables, the
@@ -143,7 +209,8 @@ Work on the next features stays inside these modules, so it can go on in paralle
   breakpoints and the current step from the controller's signals.
 - **History and screen tools**: `views/history_panel.py` (`get_run`, captures,
   `delete_run`; `selected_run_id()`, `run_selected`), `screen_tools.py` (previews,
-  "Test" over a screenshot) and the image and coordinate fields that use it.
+  "Test" over a screenshot) and the image and coordinate fields that use it, through
+  the field tools hook of `views/fields.py`.
 
 Shared files (`context.py`, `views/main_window.py`, `controllers/document.py`) should
 only get small, additive changes: a new service in `AppContext`, a menu entry, a signal.
