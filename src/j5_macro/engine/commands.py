@@ -33,8 +33,8 @@ CONTRACT_COMMANDS = (
     "step_into", "step_out", "stop", "set_breakpoints", "get_state", "set_variable",
     "evaluate", "get_events",
     # docs/contract.md, "Script management"
-    "list_scripts", "create_script", "get_script", "edit_script", "list_runs", "get_run",
-    "delete_run",
+    "list_scripts", "create_script", "get_script", "get_image", "edit_script", "list_runs",
+    "get_run", "delete_run",
     # docs/contract.md, "Authoring tools"
     "list_windows", "screenshot", "capture_region", "pick_point", "find_image",
 )
@@ -108,8 +108,10 @@ def install(
                 {"engine_versions": supported},
             )
         server.negotiated_version = max(overlap)
-        return {"v": server.negotiated_version,
-                "capabilities": capabilities(registry, backend)}
+        caps = capabilities(registry, backend)
+        # Only in hello: the stop key is watched right after ready.
+        caps["stop_key"] = None if backend is None else backend.watched_stop_key
+        return {"v": server.negotiated_version, "capabilities": caps}
 
     def not_implemented(command: Command) -> JsonObject:
         raise CommandError(ErrorCode.INVALID_STATE,

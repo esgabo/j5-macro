@@ -15,11 +15,15 @@ capture the screen run inside a virtual X server, so install Xvfb too.
 git clone https://github.com/esgabo/j5-macro.git
 cd j5-macro
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,x11,vision]"
+pip install -e ".[dev,gui-test,x11,vision]"
 sudo apt install xvfb            # Debian and Ubuntu; provides xvfb-run
 ```
 
-On Windows, install `".[dev,windows,vision]"`. The X11 tests are skipped there; the
+The `gui-test` extra (PySide6 and pytest-qt) is only needed for the GUI's tests; without
+it they are skipped. The GUI's own architecture, for contributors, is in
+[src/j5_macro/gui/README.md](../src/j5_macro/gui/README.md).
+
+On Windows, install `".[dev,gui-test,windows,vision]"`. The X11 tests are skipped there; the
 Windows backend is tested against a simulated Win32 layer on every platform and against
 the real system on Windows. Before a release, also run the
 [manual test plan](manual-testing.md) on both platforms.
@@ -29,7 +33,9 @@ the real system on Windows. Before a release, also run the
 | `x11` | `python-xlib`, `mss` | The X11 input backend and screen capture on Linux |
 | `vision` | `opencv-python-headless`, `numpy`, `mss` | Image search |
 | `windows` | `mss` | Screen capture on Windows |
+| `gui` | `PySide6-Essentials` | The desktop GUI (`j5 gui`) |
 | `dev` | `pytest`, `ruff`, `mypy`, `jsonschema`, `types-python-xlib` | Tests, lint and types |
+| `gui-test` | `PySide6-Essentials`, `pytest-qt` | The GUI's tests (pytest-qt stops pytest from starting without a Qt binding, so it is not in `dev`) |
 
 ## Checks
 
@@ -79,6 +85,7 @@ extra is not installed.
 | `tests/test_cli*.py` | The CLI: rendering, params, `j5 runs`, `j5 pack` and `j5 unpack`, releasing keys after an engine crash, and the debugger; some against a scripted fake engine (`tests/fakes/fake_cli_engine.py`, started through `J5_ENGINE_CMD`), others against the real engine on the fake backend |
 | `tests/test_engine_process.py`, `test_engine_server.py`, `test_integration.py` | The real engine process, and the real client against it with every payload checked against the typed payloads |
 | `tests/test_e2e_cli.py`, `test_e2e_debugger.py` | The real `j5` CLI, engine and interpreter, with no fakes but the input backend; debugger commands piped through standard input |
+| `tests/gui/` | The desktop GUI: its view models without Qt (`test_models.py`), the engine thread (`test_engine_thread.py`), the Qt bridge and the main window against the real engine on the fake backend, on Qt's `offscreen` platform (fixtures in `conftest.py`, helpers and test scripts in `gui_support.py`); the Qt tests need the `gui-test` extra and are skipped without it |
 | `tests/test_dap_*.py` | The DAP adapter: framing, line to step mapping, the session against a fake engine, and end to end over framed stdio against the real engine (`J5_BACKEND=fake`) |
 
 The fake backend (`J5_BACKEND=fake`) records input and touches nothing, so most of the
@@ -92,8 +99,8 @@ supersedes.
 
 | OS | Python | Installs | Runs |
 | --- | --- | --- | --- |
-| `ubuntu-latest` | 3.11, 3.12, 3.13 | `xvfb`, `".[dev,x11,vision]"` | `scripts/check.sh` (X11 tests required) |
-| `windows-latest` | 3.11, 3.12, 3.13 | `".[dev,windows,vision]"` | `scripts/check.sh` in bash (X11 tests skipped) |
+| `ubuntu-latest` | 3.11, 3.12, 3.13 | `xvfb` and the libraries Qt needs (`libegl1`, `libgl1`, `libxkbcommon0`, `libfontconfig1`, `libdbus-1-3`), `".[dev,gui-test,x11,vision]"` | `scripts/check.sh` (X11 tests required) |
+| `windows-latest` | 3.11, 3.12, 3.13 | `".[dev,gui-test,windows,vision]"` | `scripts/check.sh` in bash (X11 tests skipped) |
 
 Merge only when every job is green.
 

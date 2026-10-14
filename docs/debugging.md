@@ -1,9 +1,10 @@
 # Debugging scripts
 
 j5 scripts can be debugged like programs: pause before a step, run one step at a time,
-look at and change variables, evaluate expressions, and set breakpoints. There are two
-debuggers on top of the same engine commands: one in the terminal (`j5 run --step`) and
-one in VS Code (`j5 dap` with the extension in `editors/vscode`). When you only need to
+look at and change variables, evaluate expressions, and set breakpoints. There are three
+debuggers on top of the same engine commands: one in the terminal (`j5 run --step`), one
+in VS Code (`j5 dap` with the extension in `editors/vscode`) and the desktop application
+(`j5 gui`, see [gui.md](gui.md#debugging)). When you only need to
 see what happened, the [run history](#debugging-without-the-debugger) and dry runs are
 often enough.
 

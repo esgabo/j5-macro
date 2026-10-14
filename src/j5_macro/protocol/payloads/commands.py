@@ -61,6 +61,9 @@ class Capabilities(Payload):
     display_scales: list[dict[str, Any]] | None = None
     """Each monitor the backend reports, ``{bbox: [x, y, w, h], scale}``; empty when it
     cannot tell. Omitted by engines that predate it."""
+    stop_key: str | None = None
+    """``hello`` only: the emergency stop key the engine watches, in backend key names
+    joined with ``+`` (``ctrl+alt+shift+q``); None when it watches none."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -117,6 +120,9 @@ class ParamInfo(Payload):
     required: bool
     default: Any = None
     doc: str = ""
+    choices: list[Any] | None = None
+    """The only values allowed (``button``: ``left``, ``right``, ``middle``), when the
+    parameter has a fixed set; omitted otherwise."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -137,6 +143,14 @@ class StepTypeInfo(Payload):
     doc: str = ""
     result: list[ResultFieldInfo] = field(default_factory=list)
     json_schema: dict[str, Any] = field(default_factory=dict, metadata=wire_name("schema"))
+    kind: Literal["action", "control"] = "action"
+    """``control`` for the block steps the interpreter runs itself (``if``, ``loop``)."""
+    blocks: list[str] = field(default_factory=list)
+    """The block slots holding steps, in path order (``if``: ``then``, ``else``)."""
+    required_blocks: list[str] = field(default_factory=list)
+    """The block slots a step of this type always has (``if``: ``then``)."""
+    shorthand: str | None = None
+    """The parameter the scalar form sets (``sleep: 2s`` is ``duration``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -325,6 +339,28 @@ class GetScriptResult(Result):
     capture_scale: float | None = None
     valid: bool = True
     errors: list[ErrorInfo] = field(default_factory=list)
+    vars: dict[str, Any] = field(default_factory=dict)
+    """The script's ``vars``, as values."""
+    input: dict[str, Any] = field(default_factory=dict)
+    """The script's ``input`` profile (``mouse``, ``keyboard``), as written."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetImagePayload(Payload):
+    script_id: str
+    name: str
+    """The entry of the script's ``images`` (without the ``#``)."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetImageResult(Result):
+    name: str
+    format: str
+    data: str
+    """The image file as base64, on one line."""
+    width: int
+    height: int
+    scale: float | None = None
 
 
 Block = Literal["then", "else", "do"]
@@ -366,7 +402,7 @@ class InsertEdit(Payload):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UpdateEdit(Payload):
     """Replace the given ``params`` (``None`` removes one) and ``common`` fields
-    (``break``, ``timeout``, ``on_error``, ``input``, ``as``)."""
+    (``break``, ``timeout``, ``on_error``, ``input``, ``as``; ``id`` renames the step)."""
 
     op: Literal["update"] = "update"
     step_id: str
@@ -405,7 +441,44 @@ class SetMetaEdit(Payload):
             raise PayloadError(f"{path}.capture_scale: must be a positive number")
 
 
-Edit =InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AddImageEdit(Payload):
+    """Add the entry ``name`` to the script's ``images`` (``png``: base64 of a PNG file;
+    ``scale``: its capture scale); an existing entry is replaced only with
+    ``overwrite``."""
+
+    op: Literal["add_image"] = "add_image"
+    name: str
+    png: str
+    scale: float | None = None
+    overwrite: bool = False
+
+    def check(self, path: str) -> None:
+        scale = self.scale
+        if scale is not None and not 0 < scale < float("inf"):
+            raise PayloadError(f"{path}.scale: must be a positive number")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RenameImageEdit(Payload):
+    """Rename the entry ``name`` of ``images`` to ``new_name``, and every literal
+    ``"#name"`` reference of the steps with it."""
+
+    op: Literal["rename_image"] = "rename_image"
+    name: str
+    new_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeleteImageEdit(Payload):
+    """Remove the entry ``name`` of ``images`` (the section goes with its last entry)."""
+
+    op: Literal["delete_image"] = "delete_image"
+    name: str
+
+
+Edit = (InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit | AddImageEdit
+        | RenameImageEdit | DeleteImageEdit)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -439,6 +512,8 @@ class RunInfo(Payload):
     script_name: str | None = None
     script_path: str | None = None
     mode: str | None = None
+    warnings: int | None = None
+    """Warning ``log`` events of a finished run; None while it runs or when unknown."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -457,6 +532,8 @@ class GetRunResult(Result):
     run_id: str
     run: dict[str, Any]
     """The run's ``run.json``."""
+    dir: str | None = None
+    """The run's directory, absolute."""
     events: list[dict[str, Any]]
     captures: list[str] = field(default_factory=list)
     """Paths relative to ``runs/<run_id>/``."""
@@ -628,6 +705,7 @@ COMMAND_PAYLOADS: dict[str, type[Payload]] = {
     "list_scripts": ListScriptsPayload,
     "create_script": CreateScriptPayload,
     "get_script": ScriptRef,
+    "get_image": GetImagePayload,
     "edit_script": EditScriptPayload,
     "list_runs": ListRunsPayload,
     "get_run": GetRunPayload,
@@ -659,6 +737,7 @@ COMMAND_RESULTS: dict[str, type[Payload]] = {
     "list_scripts": ListScriptsResult,
     "create_script": CreateScriptResult,
     "get_script": GetScriptResult,
+    "get_image": GetImageResult,
     "edit_script": EditScriptResult,
     "list_runs": ListRunsResult,
     "get_run": GetRunResult,

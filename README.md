@@ -77,6 +77,10 @@ Or `pip install` the same into a virtual environment, or from a clone with
 `pip install -e ".[x11,vision]"`. Details, extras and packaging (wheels, containers):
 [docs/install.md](docs/install.md).
 
+A desktop application is on its way: with the `gui` extra, `j5 gui` opens a window that
+lists your scripts, shows their steps and YAML, and runs them with a live log
+([docs/gui.md](docs/gui.md)).
+
 ## Quick start
 
 ```console
@@ -113,6 +117,7 @@ See [docs/automation.md](docs/automation.md#for-ai-agents).
 | [Installing and packaging](docs/install.md) | Install options, requirements, wheels |
 | [Script reference](docs/scripts.md) | Every step, parameter, expression and setting |
 | [Command-line reference](docs/cli.md) | Every command, option and exit code |
+| [Desktop application](docs/gui.md) | `j5 gui`: scripts, steps and runs in a window |
 | [Debugging](docs/debugging.md) | The terminal debugger and VS Code |
 | [Running from scripts, CI and agents](docs/automation.md) | Unattended runs, JSON output, params |
 | [How it works](docs/how-it-works.md) | Runs, human-like input, image search, safety |

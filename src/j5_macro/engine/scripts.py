@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import io
@@ -30,6 +31,8 @@ from j5_macro.protocol.payloads import (
     CreateScriptPayload,
     CreateScriptResult,
     Diagnostic,
+    GetImagePayload,
+    GetImageResult,
     GetScriptResult,
     ListScriptsPayload,
     ListScriptsResult,
@@ -487,8 +490,8 @@ def install(server: EngineServer, store: ScriptStore, *,
     def get_script(command: Command) -> JsonObject:
         entry = store.get(ScriptRef.from_json(command.payload).script_id)
         script, text, version, errors = store.view(entry)
-        # While the current text is invalid, name, steps, params, images and capture_scale
-        # are those of the last valid version, kept until the text is fixed.
+        # While the current text is invalid, name, steps, params, vars, input, images and
+        # capture_scale are those of the last valid version, kept until the text is fixed.
         return GetScriptResult(
             script_id=entry.script_id,
             version=version,
@@ -501,7 +504,24 @@ def install(server: EngineServer, store: ScriptStore, *,
             capture_scale=script.capture_scale,
             valid=not errors,
             errors=errors,
+            vars=script.vars,
+            input=script.input,
         ).to_json()
+
+    def get_image(command: Command) -> JsonObject:
+        payload = GetImagePayload.from_json(command.payload)
+        entry = store.get(payload.script_id)
+        script = store.view(entry)[0]
+        image = script.images.get(payload.name)
+        if image is None:
+            template = f"#{payload.name}"
+            raise CommandError(ErrorCode.TEMPLATE_MISSING,
+                               f"the script has no embedded image {template!r}",
+                               {"template": template})
+        return GetImageResult(name=image.name, format=image.format,
+                              data=base64.b64encode(image.data).decode("ascii"),
+                              width=image.width, height=image.height,
+                              scale=image.scale).to_json()
 
     server.register("list_step_types", list_step_types)
     server.register("load", load)
@@ -509,6 +529,7 @@ def install(server: EngineServer, store: ScriptStore, *,
     server.register("list_scripts", list_scripts_command)
     server.register("create_script", create_script)
     server.register("get_script", get_script)
+    server.register("get_image", get_image)
     server.on_ready(watcher.start)
     server.on_shutdown(watcher.stop)
     return watcher

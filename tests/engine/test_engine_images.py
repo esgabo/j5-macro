@@ -60,6 +60,19 @@ def test_load_and_get_script_describe_the_images_without_their_data(engine: Engi
     assert script.source == SCRIPT  # the section itself is in the text
 
 
+def test_get_image_answers_an_entry_with_its_data(engine: Engine) -> None:
+    script_id = engine.ok("load", {"source": SCRIPT})["script_id"]
+    image = engine.ok("get_image", {"script_id": script_id, "name": "icon"})
+    assert image == {"name": "icon", "format": "png", "data": DATA, "width": 32,
+                     "height": 16, "scale": 1.5}
+    assert base64.b64decode(image["data"]) == HEADER
+    error = engine.error("get_image", {"script_id": script_id, "name": "nope"})
+    assert error["code"] == "template_missing"
+    assert error["details"] == {"template": "#nope"}
+    assert engine.error("get_image", {"script_id": "s99", "name": "icon"})["code"] \
+        == "script_not_found"
+
+
 def test_load_and_get_script_report_the_capture_scale(engine: Engine) -> None:
     loaded = engine.ok("load", {"source": SCRIPT})
     assert "capture_scale" not in loaded

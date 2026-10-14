@@ -11,8 +11,9 @@ details are in the [contract](contract.md), and the internals in
 `j5 run script.yaml` does not run the script itself. It starts the **engine**, a separate
 Python process (`python -m j5_macro.engine`), and talks to it with JSON messages: the CLI
 sends commands (`load`, `run`, `stop`...) and the engine answers with events
-(`step_started`, `step_finished`, `run_finished`...). The VS Code debugger and a future GUI
-are clients of the same engine, so a script behaves the same whichever one starts it.
+(`step_started`, `step_finished`, `run_finished`...). The VS Code debugger and the desktop
+application ([gui.md](gui.md)) are clients of the same engine, so a script behaves the
+same whichever one starts it.
 
 A run goes through these phases:
 

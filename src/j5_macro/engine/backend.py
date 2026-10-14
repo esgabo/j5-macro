@@ -45,6 +45,9 @@ class EngineBackend:
     def __init__(self, choice: BackendChoice, stop_key: str = DEFAULT_STOP_KEY) -> None:
         self.choice = choice
         self.stop_key = stop_key
+        self.watched_stop_key: str | None = None
+        """The stop key being watched, in backend key names joined with ``+``; None
+        while none is (before ``ready``, without hotkeys, after a failure or close)."""
         self._unwatch: Callable[[], None] | None = None
 
     @property
@@ -79,12 +82,14 @@ class EngineBackend:
             self._unwatch = backend.watch_hotkey(keys, on_press)
         except Exception as exc:
             return f"no emergency stop key: cannot watch {self.stop_key!r}: {exc}"
-        return f"emergency stop key: {'+'.join(keys)}"
+        self.watched_stop_key = "+".join(keys)
+        return f"emergency stop key: {self.watched_stop_key}"
 
     def close(self) -> list[str]:
         """Stop watching and close the backend; returns problems to log."""
         problems: list[str] = []
         unwatch, self._unwatch = self._unwatch, None
+        self.watched_stop_key = None
         if unwatch is not None:
             try:
                 unwatch()

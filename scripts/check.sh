@@ -6,7 +6,9 @@
 # instead of being skipped when no X server is available. Elsewhere they are skipped.
 #
 # Usage: scripts/check.sh            (from the repository root, inside the venv)
-# Needs: pip install -e ".[dev,x11,vision]" and, on Linux, the xvfb package.
+# Needs: pip install -e ".[dev,x11,vision]" and, on Linux, the xvfb package. Add the
+# gui-test extra (".[dev,gui-test,x11,vision]", as CI does) to run the GUI tests too;
+# without it they are skipped.
 set -euo pipefail
 
 ruff check .

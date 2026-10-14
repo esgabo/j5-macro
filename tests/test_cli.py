@@ -524,3 +524,33 @@ def test_run_rejects_a_bad_stop_key(engine, script, record, capsys, combo):
     assert exc.value.code == 2
     assert "--stop-key" in capsys.readouterr().err
     assert not record.exists()
+
+
+def test_gui_without_pyside6_says_how_to_install_it(monkeypatch, capsys):
+    import j5_macro.gui
+
+    monkeypatch.setattr(j5_macro.gui, "qt_missing", lambda: "the GUI needs PySide6, which "
+                        'is not installed: pip install "j5-macro[gui]"')
+    assert main(["gui"]) == 2
+    err = capsys.readouterr().err
+    assert err == ('j5: the GUI needs PySide6, which is not installed: '
+                   'pip install "j5-macro[gui]"\n')
+
+
+def test_gui_starts_the_app_with_the_engine_command(tmp_path, monkeypatch, capsys):
+    import types
+
+    import j5_macro.gui
+
+    calls = []
+    fake_app = types.ModuleType("j5_macro.gui.app")
+    fake_app.run_gui = lambda target, cmd: calls.append((target, cmd)) or 0
+    monkeypatch.setitem(sys.modules, "j5_macro.gui.app", fake_app)
+    monkeypatch.setattr(j5_macro.gui, "qt_missing", lambda: None)
+    monkeypatch.setenv(ENGINE_CMD_ENV, json.dumps(["engine"]))
+    assert main(["gui", str(tmp_path), "--stop-key", "ctrl+f12",
+                 "--runs-dir", str(tmp_path / "runs")]) == 0
+    assert calls == [(str(tmp_path), ["engine", "--runs-dir", str(tmp_path / "runs"),
+                                      "--stop-key", "ctrl+f12"])]
+    assert main(["gui", str(tmp_path / "missing.yaml")]) == 2
+    assert "missing.yaml: no such file or directory" in capsys.readouterr().err

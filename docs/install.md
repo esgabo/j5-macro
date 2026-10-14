@@ -19,7 +19,9 @@ Extras:
 | `x11` | `python-xlib`, `mss` | Mouse and keyboard input on X11 |
 | `vision` | `opencv-python-headless`, `numpy`, `mss` | `wait_image_in`, image targets, `image_visible`, and the authoring tools (`j5 capture`, `pick`, `find`, `screenshot`) |
 | `windows` | `mss` | Screen capture on Windows (the input backend itself needs nothing beyond Python) |
+| `gui` | `PySide6-Essentials` | The desktop application, `j5 gui` ([gui.md](gui.md)) |
 | `dev` | `pytest`, `ruff`, `mypy`, ... | Working on j5 itself ([development.md](development.md)) |
+| `gui-test` | `PySide6-Essentials`, `pytest-qt` | Running the GUI's tests (with `dev`) |
 
 Without any extra, j5 still loads, validates, dry-runs and edits scripts.
 
@@ -56,6 +58,9 @@ environment's commands are under `Scripts\`):
 > ~\.venvs\j5\Scripts\j5 --version
 j5-macro 0.0.1
 ```
+
+Add the `gui` extra for the desktop application (`"j5-macro[x11,vision,gui] @ ..."`), then
+start it with `j5 gui`; see [gui.md](gui.md).
 
 Pin a version by appending a tag or commit: `git+https://github.com/esgabo/j5-macro@<ref>`.
 

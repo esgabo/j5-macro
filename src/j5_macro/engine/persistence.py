@@ -4,7 +4,7 @@ Every run gets ``<runs_dir>/<run_id>/`` with:
 
 - ``events.jsonl``: every event of the run, one JSON line each, appended as emitted;
 - ``run.json``: metadata (script, mode, seed, start time) and, once the run ends, its
-  ``status``, ``reason``, ``duration_ms`` and ``error``.
+  ``status``, ``reason``, ``duration_ms``, ``error`` and ``warnings``.
 
 Only the newest :data:`RUNS_KEPT` run directories are kept. Every method raises
 :class:`OSError` on failure; the caller decides how to report it (the engine logs it

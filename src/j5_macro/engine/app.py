@@ -23,6 +23,7 @@ from j5_macro.engine.server import EngineServer
 from j5_macro.engine.transport import LineTransport, stdio_transport
 from j5_macro.runtime.api import RunFactory
 from j5_macro.steps import StepRegistry, registry_with_plugins
+from j5_macro.vision import toolkit
 
 
 def create_server(
@@ -98,6 +99,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     # Before any window, pointer or capture call, so Windows never scales coordinates.
     declare_dpi_awareness()
+    if sys.platform == "win32":
+        # Before reading stdin: native libraries loaded later by a run's thread would
+        # hang on the pipe read (see toolkit.preload).
+        toolkit.preload()
     backend = EngineBackend(select_backend(), stop_key_from(args.stop_key))
     try:
         return run(stdio_transport(), runs_dir=resolve_runs_dir(args.runs_dir),
