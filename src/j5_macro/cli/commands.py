@@ -278,6 +278,8 @@ class RunOptions:
     """Let ``exec`` steps run programs (``--allow-exec``)."""
     display_scale: float | None = None
     """The display scale of the whole run (``--display-scale``); None detects it."""
+    strict: bool = False
+    """Fail where a dry run would only warn (``--strict``, with ``--dry-run``)."""
     as_json: bool = False
     interactive: bool = False
     """Offer "press Enter to resume" when the run pauses (stdin is a terminal)."""
@@ -306,6 +308,8 @@ class RunOptions:
             payload["allow_exec"] = True
         if self.display_scale is not None:
             payload["display_scale"] = self.display_scale
+        if self.strict:
+            payload["strict"] = True
         return payload
 
 

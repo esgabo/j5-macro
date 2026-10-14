@@ -56,6 +56,7 @@ class Interpreter:
         self._vision = RunVision(factory=vision_factory, backend=options.backend,
                                  backend_reason=options.backend_reason,
                                  dry_run=options.mode == "dry", captures=options.captures,
+                                 strict=options.mode == "dry" and options.strict,
                                  run_dir=options.run_dir, script_path=script.source_path,
                                  emit=emit, clock=clock, images=script.images,
                                  display=DisplayScale(override=options.display_scale,

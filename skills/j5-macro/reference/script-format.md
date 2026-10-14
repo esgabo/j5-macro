@@ -55,8 +55,9 @@ Short forms: `type: "text"`, `key: ctrl+s`, `wait_image: img/ok.png`, `sleep: 2s
 | `exec` | `command` (list, or string split without a shell), `shell` (false), `wait` (false), `timeout`, `cwd` (script dir), `env`, `check` (true). **Needs `j5 run --allow-exec`** | with `wait`: `exit_code`, `stdout`, `stderr`, `truncated?`; without: `pid` |
 
 In a dry run, input steps and `exec` report `dry_run: true` and a `description`, plus
-`found`, `score`, `bbox`, `center` when an image was searched. A dry `exec` result has no
-`stdout`.
+`found`, `score`, `bbox`, `center` when an image was searched. A dry `exec` result has
+`exit_code: 0` and empty `stdout` and `stderr` with `wait` (`pid: null` without), so
+later steps that use them still check.
 
 ## Targets, windows, offsets
 

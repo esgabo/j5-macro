@@ -201,6 +201,7 @@ class RunRenderer:
     style: Style = PLAIN
     seed: int | None = None
     run_id: str | None = None
+    mode: str | None = None
     _depths: dict[str, int] = field(default_factory=dict)
 
     def render(self, event: Event) -> list[str]:
@@ -242,6 +243,7 @@ class RunRenderer:
         Engines that predate ``script_name`` get the ``script_id`` instead."""
         seed = p.get("seed")
         self.seed = seed if isinstance(seed, int) else self.seed
+        self.mode = _text(p.get("mode")) or None
         parts = [f"mode {_text(p.get('mode')) or '?'}"]
         if self.seed is not None:
             parts.append(f"seed {self.seed}")
@@ -261,11 +263,16 @@ class RunRenderer:
         status = _text(p.get("status")) or "finished"
         took = seconds(p.get("duration_ms"))
         seed = f"  (seed {self.seed})" if self.seed is not None else ""
+        count = p.get("warnings")
+        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            took += self.style.paint(f" with {count} warning{'s' if count != 1 else ''}",
+                                     "yellow")
+        what = "dry run " if self.mode == "dry" else ""
         if status == "completed":
-            head = self.style.paint(f"{sym.ok} completed", "green", "bold")
+            head = self.style.paint(f"{sym.ok} {what}completed", "green", "bold")
             return [f"{head} in {took}{seed}"]
         if status == "failed":
-            head = self.style.paint(f"{sym.fail} failed", "red", "bold")
+            head = self.style.paint(f"{sym.fail} {what}failed", "red", "bold")
             line = f"{head} after {took}{seed}"
             if p.get("error") is not None:
                 line += f": {self._error(p.get('error'))}"

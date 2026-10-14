@@ -31,8 +31,11 @@ command, file edit or API call can do: GUI automation is the slow, fragile last 
 1. **j5 sends real input to the user's desktop.** Before any `j5 run` without
    `--dry-run`, tell the user what the script will do and get their go-ahead, unless they
    already asked you to run it. Whatever has the focus receives the keys.
-2. **Dry run first.** `j5 run --dry-run` sends no input, searches each image once and
-   checks params, expressions and windows. Fix everything it reports before a real run.
+2. **Dry run first, strictly.** `j5 run --dry-run --strict` sends no input, searches
+   each image once and checks params, expressions and windows; with `--strict` an image
+   that is not found or a missing window fails the run (exit 1). A plain `--dry-run`
+   exits 0 even then, so never take its exit code as "ready". Fix everything it reports
+   before a real run.
 3. **Never put secrets in the script or the command line.** Declare a param with
    `secret: true` and pass it with `--param-env NAME=VAR` or `--param-file`. Results of
    steps that carry secrets get `as: {name: ..., secret: true}`. Secrets show as `***`
@@ -61,7 +64,7 @@ $ j5 capture --bbox 14,50,48,22 --window "practice form" \
 $ j5 find '#email_label' --script form.yaml --window "practice form"   # 4. test it
 j5: #email_label found at [14, 50, 48, 22] ([14, 50, 48, 22] in 'j5 practice form'), score 1.000; ...
 $ j5 validate form.yaml                                     # 5. after writing steps
-$ j5 run --dry-run form.yaml < /dev/null                    # 6. no input sent
+$ j5 run --dry-run --strict form.yaml < /dev/null           # 6. no input sent
 $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
 ```
 
@@ -89,8 +92,13 @@ $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
    with `window` or `region`.
 5. **Write the steps** (see below and `reference/script-format.md`), then
    `j5 validate SCRIPT` (or `--json`: errors with `code`, `message`, `line`, `step_id`).
-6. **Dry run.** `j5 run --dry-run SCRIPT < /dev/null` with the same params. Read each
-   image search (found? score?) and every warning.
+6. **Dry run.** `j5 run --dry-run --strict SCRIPT < /dev/null` with the same params.
+   Exit 0 means every image was found and every window was there; on exit 1 read the
+   `step_failed` event (`image_not_found` with the best score, `window_not_found`...).
+   Also read each image search (score close to the threshold?) and the warnings the
+   summary line counts (`with 2 warnings`; `run_finished.warnings` in `--json`). A strict
+   dry run of a script with `exec` steps needs `--allow-exec` too: it starts nothing in a
+   dry run, but the real run still needs the user's consent for it.
 7. **Run** after the user agrees: `j5 run --json SCRIPT < /dev/null > events.jsonl`.
    Read the exit code first, then the `step_failed` and `run_finished` events. Then
    verify the outcome yourself (a fresh `j5 screenshot`, the application's output) rather
@@ -173,9 +181,9 @@ Other rules:
   `${row.name}`.
 - **Running programs** (`exec`, needs `--allow-exec`): `exec: {command: [mousepad]}`
   starts a program and goes on; `wait: true` + `as: out` keeps `{exit_code, stdout,
-  stderr}`. In a dry run nothing starts and the kept result has no `stdout`, so a later
-  `${out.stdout}` fails there; guard it (`"strip(out.stdout) if 'stdout' in out else
-  'x'"`). Pass secrets to programs through `env`, not `command`.
+  stderr}`. In a dry run nothing starts and the kept result has an empty `stdout` and
+  `stderr` and `exit_code: 0`, so later steps that use them still check. Pass secrets to
+  programs through `env`, not `command`.
 
 Full cheat sheet of keys, steps, results, expressions and conditions:
 **`reference/script-format.md`**. Commands, flags, exit codes and JSON outputs:

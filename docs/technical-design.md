@@ -158,6 +158,12 @@ refuses to create a session in a dry run. Image searches make exactly one attemp
 report it, since without input the screen never changes and a wait would always fail.
 Searches that cannot be made (no vision, no window) become warnings, and image
 conditions are then false. A `while` loop is capped at 1000 iterations with a warning.
+In a strict dry run (`run`'s `strict`, `ctx.strict`) those warnings that mean the real run
+would fail are raised instead: `RunVision.wait` raises `image_not_found` when its single
+attempt misses (saving the capture as a real run's last attempt does),
+`steps.images.dry_run_skips` lets nothing through, and `exec` raises `capability_missing`
+without `allow_exec`. The engine counts each run's warning `log` events for
+`run_finished.warnings`.
 
 ## Expressions
 

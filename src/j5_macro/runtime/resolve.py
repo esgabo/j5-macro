@@ -76,7 +76,7 @@ def check_condition(condition: Any, ctx: StepContext,
     """Evaluate an expression string or a one-key predefined condition mapping.
 
     An unknown predefined condition fails with ``expression_error``; in dry-run it is
-    false and logs a warning instead.
+    false and logs a warning instead (strict dry runs fail).
     """
     if isinstance(condition, str):
         return bool(evaluated(condition, ctx.variables))
@@ -87,7 +87,7 @@ def check_condition(condition: Any, ctx: StepContext,
     function = conditions.get(name)
     if function is None:
         message = unavailable_condition(name)
-        if ctx.dry_run:
+        if ctx.dry_run and not ctx.strict:
             ctx.log("warning", f"{message}; treated as false in dry-run")
             return False
         raise StepError(ErrorCode.EXPRESSION_ERROR, message, {"condition": name})

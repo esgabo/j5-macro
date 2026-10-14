@@ -199,12 +199,28 @@ def test_run_header_and_summaries():
                                  mode="dry", seed=42, backend="x11")) == [
         "run r-1  Save report  (mode dry, seed 42, backend x11)"]
     assert renderer.render(event("run_finished", status="completed", duration_ms=1234)) == [
-        "✓ completed in 1.234s  (seed 42)"]
+        "✓ dry run completed in 1.234s  (seed 42)"]
     assert renderer.render(event("run_finished", status="failed", duration_ms=10,
                                  error={"code": "c", "message": "m"})) == [
-        "✗ failed after 0.010s  (seed 42): [c] m"]
+        "✗ dry run failed after 0.010s  (seed 42): [c] m"]
     assert renderer.render(event("run_finished", status="stopped", reason="user",
                                  duration_ms=5)) == ["■ stopped (user) after 0.005s  (seed 42)"]
+
+
+def test_run_summaries_count_the_warnings():
+    renderer = RunRenderer()
+    renderer.render(event("run_started", script_name="X", mode="normal", seed=3))
+    assert renderer.render(event("run_finished", status="completed", duration_ms=1234,
+                                 warnings=3)) == ["✓ completed in 1.234s with 3 warnings  (seed 3)"]
+    assert renderer.render(event("run_finished", status="failed", duration_ms=10,
+                                 warnings=1, error={"code": "c", "message": "m"})) == [
+        "✗ failed after 0.010s with 1 warning  (seed 3): [c] m"]
+    assert renderer.render(event("run_finished", status="completed", duration_ms=0,
+                                 warnings=0)) == ["✓ completed in 0.000s  (seed 3)"]
+    colored = RunRenderer(style=Style(color=True))
+    colored.render(event("run_started", script_name="X", mode="dry", seed=3))
+    assert "\x1b[33m with 2 warnings\x1b[0m" in colored.render(
+        event("run_finished", status="completed", duration_ms=0, warnings=2))[0]
 
 
 def test_run_header_shows_scales_other_than_1():

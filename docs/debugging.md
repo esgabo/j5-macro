@@ -261,6 +261,7 @@ in the active editor and stops before its first step. An example `.vscode/launch
 | `cwd` | Directory a relative `program` is resolved against (default: the adapter's directory, the workspace folder) |
 | `stopOnEntry` | Pause before the first step (the engine's step mode) |
 | `dryRun` | Send no input: input steps describe what they would do, image searches run once. With `stopOnEntry` it stops at the first step too |
+| `strict` | With `dryRun`: fail the step where a dry run would only warn that the real run fails, such as an image that is not found (`j5 run --dry-run --strict`) |
 | `fast` | Use the `direct` strategy for mouse and keyboard instead of human-like movement |
 | `allowExec` | Let the script's `exec` steps run programs (`j5 run --allow-exec`) |
 | `displayScale` | The display scale of the run, e.g. `1.5` (`j5 run --display-scale`); detected per monitor when not given |
@@ -350,7 +351,8 @@ When the run ends, the debug session ends with exit code 0 (completed), 1 (faile
 
 ## Debugging without the debugger
 
-- **Dry runs.** `j5 run --dry-run` runs the whole logic (variables, loops, branches, logs,
+- **Dry runs.** `j5 run --dry-run` (add `--strict` to fail where the real run would,
+  such as on an image that is not found) runs the whole logic (variables, loops, branches, logs,
   sleeps) without sending input. Input steps say what they would do
   (`[info] would click left at (120, 40)`, `would type 12 characters`) and image searches
   run once and report their score, so you can check templates against the current screen.

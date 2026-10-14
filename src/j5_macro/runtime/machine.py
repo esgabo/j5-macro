@@ -66,6 +66,7 @@ class Machine:
         self._seed = options.seed
         self._dry_run = options.mode == "dry"
         self._allow_exec = options.allow_exec
+        self._strict = self._dry_run and options.strict
         self._script_dir = Path(script.source_path).parent if script.source_path else None
         self._conditions = conditions
         self._add_secrets = options.add_secrets
@@ -300,7 +301,7 @@ class Machine:
         return RunContext(self, step_id=step.id, iterations=its, attempt=attempt, depth=depth,
                           dry_run=self._dry_run, seed=self._seed, input_overrides=step.input,
                           timeout=step.timeout, script_dir=self._script_dir,
-                          allow_exec=self._allow_exec)
+                          allow_exec=self._allow_exec, strict=self._strict)
 
     def _elapsed_ms(self, started: float, paused_before: float) -> int:
         active = self._clock.now() - started - (self._paused - paused_before)

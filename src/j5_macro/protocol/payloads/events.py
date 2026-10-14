@@ -78,6 +78,8 @@ class RunFinishedEvent(Payload):
     reason: FinishReason | None = None
     duration_ms: int
     error: ErrorInfo | None = None
+    warnings: int = 0
+    """How many ``log`` events of the run had level ``warning``."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

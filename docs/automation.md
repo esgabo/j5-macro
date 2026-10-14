@@ -83,7 +83,10 @@ the events later, with screen captures of failed image searches in the run's fol
 - `--seed N` makes the human-like randomness repeatable: the same seed, script and screen
   give the same input.
 - `--dry-run` checks a script, its params and its image searches without sending input;
-  it needs no backend.
+  it needs no backend. Add `--strict` in CI and agent loops: then an image that is not
+  found, a missing window, a search that cannot be made or an `exec` step without
+  `--allow-exec` fails the run (exit code 1) instead of being a warning. Without it, the
+  summary line and `run_finished.warnings` count the warnings.
 - `j5 validate script.yaml` (exit code 1 when invalid) and `j5 validate --json` check a
   script before running it.
 
@@ -112,9 +115,12 @@ An agent can drive j5 like any shell user:
    step type and parameter; `j5 schema` gives the JSON Schema.
 2. Run it with `--json`, params from `--params-file` or `--param-env`, and standard input
    closed (`< /dev/null`).
-3. Read the exit code and, on failure, the `step_failed` and `run_finished` events: they
+3. Check it first with `j5 run --dry-run --strict`: a plain dry run exits with 0 even
+   when its images are not found, while a strict one fails where the real run would.
+4. Read the exit code and, on failure, the `step_failed` and `run_finished` events: they
    name the step, the line and the error code (`image_not_found` with the best score,
-   `window_not_found`, `expression_error`...).
+   `window_not_found`, `expression_error`...). `run_finished.warnings` counts the
+   run's warnings.
 
 To write the parts of a script that need the screen, an agent uses the authoring tools
 without their overlay ([cli.md](cli.md#authoring-tools)); each one sends no input:
@@ -125,7 +131,7 @@ $ j5 screenshot --window Notes               # prints the PNG's path: look at it
 $ j5 capture --bbox 812,12,24,24 --window Notes --embed script.yaml --name save_button
 $ j5 find '#save_button' --script script.yaml --window Notes --json
 $ j5 validate script.yaml
-$ j5 run --dry-run script.yaml
+$ j5 run --dry-run --strict script.yaml
 $ j5 run script.yaml
 ```
 

@@ -133,7 +133,8 @@ Every step reports a result when it finishes (shown after `✓` in `j5 run`; see
   `${label}` fails with `expression_error` (unknown variable). An `if` or a `loop` writes
   its result (`{branch}`, `{iterations}`) after the steps inside it.
 - In a dry run the dry result is kept (`dry_run: true`, a `description` and, when an
-  image was searched, `found`, `bbox` and the rest), so the steps after it still check.
+  image was searched, `found`, `bbox` and the rest; for `exec`, an empty `stdout` and
+  `stderr` and `exit_code: 0`), so the steps after it still check.
 - Read items of a kept result with `.` or `[...]`: `label.bbox`, `label.center[0]`,
   `token["stdout"]`.
 
@@ -506,7 +507,10 @@ quoted argument as a window title, hence the `""`).
   pause the program: the step goes on waiting and the run pauses after it. A program
   started without `wait` is never killed by j5.
 - A dry run starts nothing: the step says what it would run, where, and whether it would
-  wait, and warns when the run does not have `--allow-exec`.
+  wait, and warns when the run does not have `--allow-exec` (`--strict` makes that a
+  failure, as in the real run). Its result stands in for the program's: `exit_code: 0`
+  and an empty `stdout` and `stderr` with `wait`, `pid: null` without, so steps that
+  use `${out.stdout}` still check.
 - Secrets in `command`, `env` or the output show as `***` in the output and the run
   history, like everywhere else, but the program gets the real values. Pass secrets
   through `env` rather than in `command`: other users of the machine can see a program's
@@ -533,10 +537,11 @@ physical pixels.
 | `set` | `name`, `value` |
 | `log` | `level`, `message` |
 | `pause` | `message` |
-| `exec` | `exit_code`, `stdout`, `stderr` (and `truncated`) with `wait`; `pid` without |
+| `exec` | `exit_code`, `stdout`, `stderr` (and `truncated`) with `wait`; `pid` without (`null` in a dry run) |
 
 In a dry run, input steps and `exec` report `dry_run: true` and a `description` instead, plus the
-image fields when an image was searched (or the kept area, for `at`). `j5 schema`
+image fields when an image was searched (or the kept area, for `at`), and `exec` the
+stand-in output above. `j5 schema`
 describes these fields too (`$defs/<type>_result`).
 
 ## Targets and coordinates
@@ -981,4 +986,7 @@ screen or the system: a `${...}` that refers to an unknown variable (`expression
 a value of the wrong type after interpolation, an unknown key name, an invalid input
 profile, a missing image file (`template_missing`), a window that is not there
 (`window_not_found`). A dry run (`j5 run --dry-run`) finds most of them without sending
-any input.
+any input. On its own it only warns about images that are not found, missing windows
+and searches it cannot make, and completes; `j5 run --dry-run --strict` fails on them,
+so its exit code says whether the script is ready to run (see
+[cli.md](cli.md#checking-a-script-with-a-dry-run)).
