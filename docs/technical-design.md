@@ -237,6 +237,14 @@ window, pointer or capture call: per-monitor v2 (`SetProcessDpiAwarenessContext`
 per-monitor (`SetProcessDpiAwareness`, Windows 8.1), else system awareness. Every
 coordinate, window rectangle and mss capture is then in physical pixels.
 
+**Native libraries load on the main thread.** The engine reads commands from its stdin
+pipe on the main thread, and runs execute on another thread. On Windows, loading a
+native library's DLLs from that other thread (numpy and OpenCV, on a run's first image
+search) hangs while the main thread is blocked in the pipe read, so the search never
+returns. The engine therefore imports the vision libraries (`toolkit.preload()` in
+[toolkit.py](../src/j5_macro/vision/toolkit.py)) at startup on Windows, before it reads
+the first command; without the `vision` extra this does nothing.
+
 **Display scale.** Physical pixels make coordinates exact, but an application at 150 %
 still draws 1.5 times larger than at 100 %. The backend's `display_scale(x, y)` reads
 the effective DPI of the monitor at a point (`MonitorFromPoint` with

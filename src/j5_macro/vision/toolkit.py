@@ -13,6 +13,24 @@ from j5_macro.vision.api import VisionToolkit
 INSTALL_HINT = 'install the vision extra: pip install "j5-macro[vision]"'
 
 
+def preload() -> bool:
+    """Import OpenCV, numpy and mss now, if installed; True when they are.
+
+    On Windows the engine calls this on its main thread before it starts reading
+    commands: loading their DLLs later, from a run's thread, hangs while the main thread
+    is blocked reading the stdin pipe (synchronous I/O on a standard handle serializes
+    with the DLLs' start-up code), so the first image search of a run never returned.
+    """
+    try:
+        import j5_macro.vision.capture
+        import j5_macro.vision.drawing
+        import j5_macro.vision.matching
+        import j5_macro.vision.templates  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def create_toolkit() -> VisionToolkit:
     """Screen capture, cached template loading, matching and PNG saving.
 
