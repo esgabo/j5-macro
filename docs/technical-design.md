@@ -629,7 +629,8 @@ against a stale `base_version`.
 ### Structured editing
 
 Clients never rewrite YAML; they send `edit_script` with typed edits (`insert`,
-`update`, `move`, `delete`, `set_meta`) addressed by step id.
+`update`, `move`, `delete`, `set_meta`, and `add_image`, `rename_image` and
+`delete_image` for embedded images) addressed by step id or image name.
 [script/editor.py](../src/j5_macro/script/editor.py) applies them as a pure function of
 the text:
 

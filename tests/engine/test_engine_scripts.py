@@ -69,6 +69,15 @@ def test_list_step_types_matches_registry(engine: Engine) -> None:
     assert click.json_schema
     assert any(param.name == "button" for param in click.params)
     assert [field.name for field in click.result][:4] == ["x", "y", "button", "clicks"]
+    button = next(param for param in click.params if param.name == "button")
+    assert button.choices == ["left", "right", "middle"]
+    assert next(p for p in click.params if p.name == "x").choices is None
+    assert (click.kind, click.blocks, click.shorthand) == ("action", [], None)
+    by_name = {info.name: info for info in result.step_types}
+    assert (by_name["if"].kind, by_name["if"].blocks) == ("control", ["then", "else"])
+    assert by_name["if"].required_blocks == ["then"]
+    assert by_name["loop"].blocks == ["do"]
+    assert by_name["sleep"].shorthand == "duration"
 
 
 def test_load_from_path(engine: Engine, tmp_path: Path) -> None:

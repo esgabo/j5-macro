@@ -120,6 +120,9 @@ class ParamInfo(Payload):
     required: bool
     default: Any = None
     doc: str = ""
+    choices: list[Any] | None = None
+    """The only values allowed (``button``: ``left``, ``right``, ``middle``), when the
+    parameter has a fixed set; omitted otherwise."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -140,6 +143,14 @@ class StepTypeInfo(Payload):
     doc: str = ""
     result: list[ResultFieldInfo] = field(default_factory=list)
     json_schema: dict[str, Any] = field(default_factory=dict, metadata=wire_name("schema"))
+    kind: Literal["action", "control"] = "action"
+    """``control`` for the block steps the interpreter runs itself (``if``, ``loop``)."""
+    blocks: list[str] = field(default_factory=list)
+    """The block slots holding steps, in path order (``if``: ``then``, ``else``)."""
+    required_blocks: list[str] = field(default_factory=list)
+    """The block slots a step of this type always has (``if``: ``then``)."""
+    shorthand: str | None = None
+    """The parameter the scalar form sets (``sleep: 2s`` is ``duration``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -328,6 +339,10 @@ class GetScriptResult(Result):
     capture_scale: float | None = None
     valid: bool = True
     errors: list[ErrorInfo] = field(default_factory=list)
+    vars: dict[str, Any] = field(default_factory=dict)
+    """The script's ``vars``, as values."""
+    input: dict[str, Any] = field(default_factory=dict)
+    """The script's ``input`` profile (``mouse``, ``keyboard``), as written."""
 
 
 Block = Literal["then", "else", "do"]
@@ -408,7 +423,44 @@ class SetMetaEdit(Payload):
             raise PayloadError(f"{path}.capture_scale: must be a positive number")
 
 
-Edit =InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AddImageEdit(Payload):
+    """Add the entry ``name`` to the script's ``images`` (``png``: base64 of a PNG file;
+    ``scale``: its capture scale); an existing entry is replaced only with
+    ``overwrite``."""
+
+    op: Literal["add_image"] = "add_image"
+    name: str
+    png: str
+    scale: float | None = None
+    overwrite: bool = False
+
+    def check(self, path: str) -> None:
+        scale = self.scale
+        if scale is not None and not 0 < scale < float("inf"):
+            raise PayloadError(f"{path}.scale: must be a positive number")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RenameImageEdit(Payload):
+    """Rename the entry ``name`` of ``images`` to ``new_name``, and every literal
+    ``"#name"`` reference of the steps with it."""
+
+    op: Literal["rename_image"] = "rename_image"
+    name: str
+    new_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeleteImageEdit(Payload):
+    """Remove the entry ``name`` of ``images`` (the section goes with its last entry)."""
+
+    op: Literal["delete_image"] = "delete_image"
+    name: str
+
+
+Edit = (InsertEdit | UpdateEdit | MoveEdit | DeleteEdit | SetMetaEdit | AddImageEdit
+        | RenameImageEdit | DeleteImageEdit)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

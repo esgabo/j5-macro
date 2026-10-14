@@ -8,9 +8,15 @@ from typing import Any
 
 import pytest
 
-from j5_macro.protocol.payloads import SetMetaEdit, UpdateEdit
+from j5_macro.protocol.payloads import (
+    AddImageEdit,
+    DeleteImageEdit,
+    RenameImageEdit,
+    SetMetaEdit,
+    UpdateEdit,
+)
 from j5_macro.script import images as embedded
-from j5_macro.script.editor import apply_edits, rewrite_images
+from j5_macro.script.editor import EditError, apply_edits, rewrite_images
 from j5_macro.script.loader import LoadResult, load_script
 from j5_macro.steps import default_registry
 from j5_macro.steps.schema import script_json_schema
@@ -278,6 +284,67 @@ def test_updating_a_parameter_to_a_reference_quotes_it() -> None:
     result = load(text)
     assert result.ok and result.script is not None
     assert result.script.steps[0].params["image"] == "#icon"
+
+
+def test_add_image_adds_one_entry_and_keeps_the_others() -> None:
+    flat = f"{BASE}images:\n  icon: {{png: {b64(PNG)}}}   # flow, unwrapped\n"
+    text = apply_edits(flat, [AddImageEdit(name="new", png=b64(OTHER), scale=1.5)],
+                       lookup=REGISTRY.spec)
+    assert text.startswith(flat)
+    script = load(text).script
+    assert script is not None and list(script.images) == ["icon", "new"]
+    assert script.images["new"].data == OTHER and script.images["new"].scale == 1.5
+    fresh = apply_edits(BASE, [AddImageEdit(name="icon", png=b64(PNG))],
+                        lookup=REGISTRY.spec)
+    assert fresh.startswith(BASE) and "images:\n  icon:\n    png: |\n" in fresh
+
+
+@pytest.mark.parametrize(("edit_", "reason"), [
+    (AddImageEdit(name="icon", png=b64(OTHER)), "already has an image named 'icon'"),
+    (AddImageEdit(name="1st", png=b64(OTHER)), "invalid image name '1st'"),
+    (AddImageEdit(name="bad", png="not base64!"), "not valid base64"),
+    (AddImageEdit(name="gif", png=b64(b"GIF89a" + PNG)), "not a PNG file"),
+    (RenameImageEdit(name="nope", new_name="x"), "no embedded image named 'nope'"),
+    (RenameImageEdit(name="icon", new_name="other"), "already has an image named 'other'"),
+    (RenameImageEdit(name="icon", new_name="a b"), "invalid image name 'a b'"),
+    (DeleteImageEdit(name="nope"), "no embedded image named 'nope'"),
+])
+def test_image_edits_that_cannot_apply(edit_: Any, reason: str) -> None:
+    text = edit(BASE, images={"icon": {"png": b64(PNG)}, "other": {"png": b64(OTHER)}})
+    with pytest.raises(EditError) as info:
+        apply_edits(text, [edit_], lookup=REGISTRY.spec)
+    assert reason in info.value.message and info.value.index == 0
+
+
+def test_add_image_overwrites_only_when_asked() -> None:
+    text = edit(BASE, images={"icon": {"png": b64(PNG)}})
+    text = apply_edits(text, [AddImageEdit(name="icon", png=b64(OTHER), overwrite=True)],
+                       lookup=REGISTRY.spec)
+    assert load(text).script.images["icon"].data == OTHER  # type: ignore[union-attr]
+
+
+def test_rename_image_renames_the_entry_and_its_references() -> None:
+    packed = rewrite_images(
+        BASE, {"img/icon.png": "#icon", "img/other.png": "#other"}, lookup=REGISTRY.spec,
+        add={"icon": {"png": b64(PNG)}, "other": {"png": b64(OTHER)}})
+    text = apply_edits(packed, [RenameImageEdit(name="icon", new_name="button")],
+                       lookup=REGISTRY.spec)
+    assert '"#icon"' not in text and text.count('"#button"') == 2
+    assert "  button:\n    png: |\n" in text
+    script = load(text).script
+    assert script is not None and list(script.images) == ["button", "other"]
+    assert script.images["button"].data == PNG
+    assert script.find("c") is not None
+    assert script.find("c").params["image"] == "#button"  # type: ignore[union-attr]
+    assert "threshold: 0.8}" in text and "# keep me" in text
+
+
+def test_delete_image_removes_the_entry_and_then_the_section() -> None:
+    text = edit(BASE, images={"icon": {"png": b64(PNG)}, "other": {"png": b64(OTHER)}})
+    one = apply_edits(text, [DeleteImageEdit(name="icon")], lookup=REGISTRY.spec)
+    assert "  icon:" not in one and "  other:" in one
+    none = apply_edits(one, [DeleteImageEdit(name="other")], lookup=REGISTRY.spec)
+    assert "images" not in none and none.startswith(BASE.split("# the end")[0])
 
 
 def test_rewrite_images_packs_and_unpacks_without_touching_the_rest() -> None:

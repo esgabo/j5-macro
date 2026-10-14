@@ -6,8 +6,10 @@ from j5_macro.protocol import (
     COMMAND_PAYLOADS,
     COMMAND_RESULTS,
     EVENT_PAYLOADS,
+    AddImageEdit,
     Command,
     DeleteEdit,
+    DeleteImageEdit,
     EditScriptPayload,
     ErrorCode,
     HelloResult,
@@ -16,6 +18,7 @@ from j5_macro.protocol import (
     LogEvent,
     MoveEdit,
     PayloadError,
+    RenameImageEdit,
     RunPayload,
     SetMetaEdit,
     StepFailedEvent,
@@ -77,6 +80,10 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
                                              "index": 0}},
         {"op": "delete", "step_id": "b"},
         {"op": "set_meta", "vars": {"k": "v"}, "images": {"b": {"png": "iVBORw0K"}}},
+        {"op": "add_image", "name": "b", "png": "iVBORw0K", "scale": 1.5,
+         "overwrite": True},
+        {"op": "rename_image", "name": "b", "new_name": "c"},
+        {"op": "delete_image", "name": "c"},
     ]},
     "list_runs": {"limit": 5},
     "get_run": {"run_id": "r-1", "from_seq": 0},
@@ -97,7 +104,8 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_step_types": {"step_types": [{
         "name": "sleep", "doc": "Wait.", "schema": {"type": "object"},
         "params": [{"name": "duration", "type": "duration", "required": True, "default": None,
-                    "doc": ""}],
+                    "doc": "", "choices": ["1s", "2s"]}],
+        "kind": "action", "blocks": [], "required_blocks": [], "shorthand": "duration",
         "result": [{"name": "seconds", "type": "number", "optional": False,
                     "doc": "Slept."}]}]},
     "load": {"script_id": "s", "steps": [NODE],
@@ -121,7 +129,8 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "get_script": {"script_id": "s", "version": "v1", "source": "version: 1\n",
                    "name": "A", "steps": [NODE], "params": [], "images": [],
                    "valid": False, "errors": [{"code": "validation_failed",
-                                               "message": "bad", "line": 3}]},
+                                               "message": "bad", "line": 3}],
+                   "vars": {"n": 1}, "input": {"mouse": {"strategy": "direct"}}},
     "edit_script": {"version": "v2", "valid": True, "errors": []},
     "list_runs": {"runs": [{"run_id": "r-1", "status": "completed",
                             "started": "2026-10-12T10:00:00.000Z", "duration_ms": 900,
@@ -282,10 +291,12 @@ def test_result_errors_are_rooted_at_result():
 def test_edit_union_dispatches_on_op():
     parsed = EditScriptPayload.from_json(COMMAND_EXAMPLES["edit_script"])
     kinds = [type(edit) for edit in parsed.edits]
-    assert kinds == [InsertEdit, UpdateEdit, MoveEdit, DeleteEdit, SetMetaEdit]
+    assert kinds == [InsertEdit, UpdateEdit, MoveEdit, DeleteEdit, SetMetaEdit,
+                     AddImageEdit, RenameImageEdit, DeleteImageEdit]
     bad = {"script_id": "s", "base_version": "v", "edits": [{"op": "rename"}]}
     assert error_of(EditScriptPayload.from_json, bad) == \
-        "payload.edits[0].op: expected one of insert, update, move, delete, set_meta"
+        ("payload.edits[0].op: expected one of insert, update, move, delete, set_meta, "
+         "add_image, rename_image, delete_image")
     bad = {"script_id": "s", "base_version": "v", "edits": [{"step_id": "a"}]}
     assert error_of(EditScriptPayload.from_json, bad) == \
         "payload.edits[0].op: missing required field"

@@ -28,6 +28,11 @@ QUIET_S = 0.3
 
 GOOD = """\
 name: Demo
+input:
+  mouse: {strategy: direct}
+vars:
+  count: 3
+  names: [a, b]
 params:
   who: {default: world}
 steps:
@@ -209,10 +214,12 @@ def test_get_script_from_path_and_source(engine: Engine, tmp_path: Path) -> None
     assert (script.name, script.path, script.valid, script.errors) == (
         "Demo", str(path), True, [])
     greet, loop = script.steps
-    assert (greet.id, greet.type, greet.line) == ("greet", "log", 5)
+    assert (greet.id, greet.type, greet.line) == ("greet", "log", 10)
     assert greet.params["message"] == "hello"
     assert loop.blocks is not None and loop.blocks["do"][0].id == "nap"
     assert [p["name"] for p in script.params] == ["who"]
+    assert script.vars == {"count": 3, "names": ["a", "b"]}
+    assert script.input == {"mouse": {"strategy": "direct"}}
 
     from_source = engine.ok("get_script", {"script_id": engine.load_source(GOOD)})
     assert "path" not in from_source  # null is omitted
@@ -233,6 +240,7 @@ def test_get_script_with_invalid_current_text(engine: Engine, tmp_path: Path) ->
     assert [e.code for e in script.errors] == ["unknown_step_type"]
     # The structure is still that of the last valid version.
     assert script.name == "Demo"
+    assert script.vars == {"count": 3, "names": ["a", "b"]}
     assert [step.id for step in script.steps] == ["greet", "loop_1"]
 
 

@@ -165,13 +165,16 @@ def _info(spec: StepSpec) -> StepTypeInfo:
 
     params = [
         ParamInfo(name=p.name, type=p.type, required=p.required, default=p.default,
-                  doc=p.doc)
+                  doc=p.doc, choices=None if p.choices is None else list(p.choices))
         for p in spec.params
     ]
     result = [ResultFieldInfo(name=f.name, type=f.type, optional=f.optional, doc=f.doc)
               for f in spec.result]
     return StepTypeInfo(name=spec.name, params=params, doc=spec.doc, result=result,
-                        json_schema=step_value_schema(spec))
+                        json_schema=step_value_schema(spec), kind=spec.kind,
+                        blocks=list(spec.blocks),
+                        required_blocks=list(spec.required_blocks),
+                        shorthand=spec.shorthand)
 
 
 def _label(entry_point: Any) -> str:

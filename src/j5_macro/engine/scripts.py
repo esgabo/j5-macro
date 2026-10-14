@@ -487,8 +487,8 @@ def install(server: EngineServer, store: ScriptStore, *,
     def get_script(command: Command) -> JsonObject:
         entry = store.get(ScriptRef.from_json(command.payload).script_id)
         script, text, version, errors = store.view(entry)
-        # While the current text is invalid, name, steps, params, images and capture_scale
-        # are those of the last valid version, kept until the text is fixed.
+        # While the current text is invalid, name, steps, params, vars, input, images and
+        # capture_scale are those of the last valid version, kept until the text is fixed.
         return GetScriptResult(
             script_id=entry.script_id,
             version=version,
@@ -501,6 +501,8 @@ def install(server: EngineServer, store: ScriptStore, *,
             capture_scale=script.capture_scale,
             valid=not errors,
             errors=errors,
+            vars=script.vars,
+            input=script.input,
         ).to_json()
 
     server.register("list_step_types", list_step_types)

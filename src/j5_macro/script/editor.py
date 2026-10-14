@@ -56,16 +56,27 @@ from ruamel.yaml.tokens import CommentToken
 
 from j5_macro.protocol.errors import ErrorCode
 from j5_macro.protocol.payloads import (
+    AddImageEdit,
     DeleteEdit,
+    DeleteImageEdit,
     Edit,
     InsertEdit,
     MoveEdit,
     Position,
+    RenameImageEdit,
     SetMetaEdit,
     UpdateEdit,
 )
 from j5_macro.script.images import FORMATS as IMAGE_FORMATS
-from j5_macro.script.images import compact_base64, image_slots, wrap_base64
+from j5_macro.script.images import (
+    NAME_PATTERN,
+    REFERENCE_PREFIX,
+    check_png,
+    compact_base64,
+    decode_base64,
+    image_slots,
+    wrap_base64,
+)
 from j5_macro.script.loader import _TOP_LEVEL, ID_PATTERN, _parse_error, _plain
 from j5_macro.steps.spec import StepLookup, StepSpec, unknown_step_type
 
@@ -697,6 +708,12 @@ class _Tree:
             _seq_remove(ref.seq, ref.node)
         elif isinstance(edit, SetMetaEdit):
             self.set_meta(edit)
+        elif isinstance(edit, AddImageEdit):
+            self.add_image(edit)
+        elif isinstance(edit, RenameImageEdit):
+            self.rename_image(edit)
+        elif isinstance(edit, DeleteImageEdit):
+            self.delete_image(edit)
         else:  # pragma: no cover - the payload union is closed
             raise _Refused(f"unknown edit {edit!r}")
 
@@ -910,6 +927,57 @@ class _Tree:
                 current.fa.set_block_style()
                 _map_set(current, key, image_entry_node(entry))
 
+    def _images(self) -> CommentedMap | None:
+        existing = _key_in(self.data, "images")
+        current = None if existing is None else self.data[existing]
+        return current if isinstance(current, CommentedMap) else None
+
+    def _image_key(self, name: str) -> tuple[CommentedMap, Any]:
+        current = self._images()
+        key = None if current is None else _key_in(current, name)
+        if current is None or key is None:
+            raise _Refused(f"the script has no embedded image named {name!r}")
+        return current, key
+
+    def add_image(self, edit: AddImageEdit) -> None:
+        _check_image_name(edit.name)
+        try:
+            check_png(decode_base64(edit.png), f"{REFERENCE_PREFIX}{edit.name}")
+        except ValueError as exc:
+            raise _Refused(f"image {edit.name!r} cannot be embedded: {exc}") from None
+        current = self._images()
+        if (current is not None and _key_in(current, edit.name) is not None
+                and not edit.overwrite):
+            raise _Refused(f"the script already has an image named {edit.name!r}")
+        entry: dict[str, Any] = {"png": edit.png}
+        if edit.scale is not None:
+            entry["scale"] = edit.scale
+        self.set_images({edit.name: entry}, replace=False)
+
+    def rename_image(self, edit: RenameImageEdit) -> None:
+        current, key = self._image_key(edit.name)
+        _check_image_name(edit.new_name)
+        if edit.new_name == str(key):
+            return
+        if _key_in(current, edit.new_name) is not None:
+            raise _Refused(f"the script already has an image named {edit.new_name!r}")
+        position = list(current).index(key)
+        value = current[key]
+        comment = current.ca.items.pop(key, None)
+        del current[key]
+        current.insert(position, edit.new_name, value)
+        if comment is not None:
+            current.ca.items[edit.new_name] = comment
+        self.rewrite_references({f"{REFERENCE_PREFIX}{edit.name}":
+                                 f"{REFERENCE_PREFIX}{edit.new_name}"})
+
+    def delete_image(self, edit: DeleteImageEdit) -> None:
+        current, key = self._image_key(edit.name)
+        if len(current) == 1:
+            self.remove_header("images")
+        else:
+            _map_delete(current, key)
+
     def rewrite_references(self, references: Mapping[str, str]) -> int:
         """Replace every image parameter whose value (as written) is a key of
         ``references`` with its value; returns how many were replaced."""
@@ -930,6 +998,12 @@ class _Tree:
                 _map_set(ref.node, key, _image_value(new))
                 count += 1
         return count
+
+
+def _check_image_name(name: str) -> None:
+    if not NAME_PATTERN.match(name):
+        raise _Refused(f"invalid image name {name!r}: use letters, digits, '_' or '-', "
+                       "starting with a letter or '_'")
 
 
 def image_entry_node(entry: Any) -> Any:
