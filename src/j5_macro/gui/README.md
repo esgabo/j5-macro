@@ -36,11 +36,11 @@ flowchart TB
 
 | Module | Holds | Qt |
 | --- | --- | --- |
-| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog` and `format_event` (`run_log.py`), `RunSummary` (`runs.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
+| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog` and `format_event` (`run_log.py`), `RunSummary` (`runs.py`), `RunDetail`, `SearchFailure` and the history rows (`history.py`), the screen tools' targets, edits, names and error messages (`screen.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
 | `engine_thread.py` | `EngineThread`: the existing asyncio `EngineClient` on an event loop in a daemon thread (`j5-gui-engine`). `call()` returns a `concurrent.futures.Future`; events and the engine's death reach callbacks **on that thread**. Releases held keys when the engine dies (`cli.release`) | None |
 | `bridge.py` | `EngineBridge`: owns the `EngineThread` and turns its futures and callbacks into callbacks and signals **on the GUI thread** | QtCore |
 | `controllers/` | Shared state, as QObjects without widgets: `ScriptDocument` (the open script) and `RunController` (the active run, the breakpoints) | QtCore |
-| `screen_tools.py` | `ScreenTools`: `capture_region`, `pick_point`, `find_image`, `screenshot`, `list_windows` | QtCore |
+| `screen_tools.py` | `ScreenTools`: `capture_region`, `pick_point`, `find_image`, `screenshot`, `list_windows`, `get_image`; `while_hidden` and the `hider` that hides the windows during overlays | QtCore |
 | `context.py` | `AppContext`: the bridge, the document, the run controller and the screen tools, handed to every panel | QtCore |
 | `views/` | The widgets (below) | QtWidgets |
 | `app.py` | `run_gui(target, engine_cmd)`: the `QApplication`, the context, the main window | QtWidgets |
@@ -110,7 +110,7 @@ ctx.bridge.event_received.connect(self.on_event)  # every Event, GUI thread, in 
 
 ## The main window and its areas
 
-`views/main_window.py` only lays out the panels, builds the menus (File, Run, Engine)
+`views/main_window.py` only lays out the panels, builds the menus (File, Run, Tools, Engine)
 and shows messages in the status bar. Each area is its own module and gets the
 `AppContext`:
 
@@ -122,7 +122,10 @@ and shows messages in the status bar. Each area is its own module and gets the
 | | `views/step_form.py` | `StepFormPanel` | The selected step's parameters, read-only |
 | | `views/yaml_view.py` | `YamlView` | `get_script`'s `source`, read-only; highlights the selected step's line |
 | Bottom tab | `views/run_panel.py` | `RunPanel` | Run, Dry run (+ Strict), Stop, state, stop key, log of events |
-| Bottom tab | `views/history_panel.py` | `HistoryPanel` | `list_runs` of the open script |
+| Bottom tab | `views/history_panel.py` | `HistoryPanel` | `list_runs` of the open script; the selected run (`get_run`): events, captures, `FailureView` (the failing search's capture next to its template); `delete_run`, open folder |
+| Bottom tab | `views/step_tools.py` | `StepToolsPanel` | The field tools of the selected step (also the Tools menu), until the step forms use them |
+| Dialogs | `views/screen_dialogs.py` | `ImageFieldTools`, `PointFieldTools`, `CaptureDialog`, `TestResultDialog`, `WindowChooser`, `TopLevelHider` | The screen tools as reusable widgets (see "Field tools") |
+| | `views/template_preview.py` | `ImageView`, `TemplatePreview` | An image over a checkerboard with marks; a template from a file or `get_image` |
 | Top | `views/engine_banner.py` | `EngineBanner` | Engine failed or died, Restart |
 | Status bar | `views/main_window.py` | `MainWindow.engine_label` | Backend, vision, stop key (`hello`) |
 
@@ -141,12 +144,53 @@ Work on the next features stays inside these modules, so it can go on in paralle
   `evaluate`, the params prompt) and `views/run_panel.py` (controls, variables, the
   on-error and interference pauses with retry/skip). The step tree already shows the
   breakpoints and the current step from the controller's signals.
-- **History and screen tools**: `views/history_panel.py` (`get_run`, captures,
-  `delete_run`; `selected_run_id()`, `run_selected`), `screen_tools.py` (previews,
-  "Test" over a screenshot) and the image and coordinate fields that use it.
+- **History and screen tools**: `views/history_panel.py`, `views/screen_dialogs.py`,
+  `views/template_preview.py`, `views/step_tools.py`, `screen_tools.py`,
+  `models/history.py` and `models/screen.py`. Image and coordinate fields of the step
+  forms plug in the field tools below.
 
 Shared files (`context.py`, `views/main_window.py`, `controllers/document.py`) should
 only get small, additive changes: a new service in `AppContext`, a menu entry, a signal.
+
+## Field tools
+
+The screen tools are self-contained widgets (`views/screen_dialogs.py`) that any form
+embeds next to its field. They only need the `AppContext` and callables to read and
+write the field; they never edit the script themselves, so the form decides how a value
+is written (usually an `update` edit through `ctx.document.edit`).
+
+```python
+from j5_macro.gui.views.screen_dialogs import ImageFieldTools, PointFieldTools
+
+image_tools = ImageFieldTools(
+    ctx,
+    get_value=lambda: form.value("image"),          # "img/save.png", "#save" or None
+    set_value=lambda value: form.set("image", value),
+    get_search=lambda: form.values(),               # window: {title}, region, threshold, scale
+    step_id=lambda: form.step_id)                   # names new templates (str or callable)
+image_tools.refresh()                               # after the field's value changes
+
+point_tools = PointFieldTools(
+    ctx,
+    get_point=lambda: form.values(),                # x, y, window, image (as in the step)
+    set_point=lambda values: form.update(values))   # x, y, window ({title} or None),
+                                                    # image/at None when replaced
+```
+
+| Component | Contract |
+| --- | --- |
+| `ImageFieldTools(ctx, get_value, set_value, *, get_search=None, step_id=None, preview=True)` | **Capture…** opens a `CaptureDialog` (embed as `#name` or save a file next to the script; padding, transparent, replace) and calls `set_value("#name")` or `set_value("img/x.png")` (relative to the script) once the document shows the script's new version, so an edit made in `set_value` does not conflict. **Test** runs `find_image` with `get_value()` and `get_search()` (the step's other parameters, in the step's own shape) and opens a `TestResultDialog`; `tested(TestResult)` fires. `preview` is a `TemplatePreview`; call `refresh()` when the value changes. Whether a new image replaces the step's `x`/`y`/`at` is the form's choice: `models.screen.image_values(target, value)` gives those parameters |
+| `PointFieldTools(ctx, get_point, set_point)` | **Pick…** runs `pick_point` and calls `set_point(models.screen.pick_values(result, ...))`: `x`/`y` relative to the window the point is in plus `window: {title}` (or desktop coordinates with `window: None` when **Relative to its window** is cleared), `image: None` when the target had an image, `at: None`. **Window…** opens a `WindowChooser` (`list_windows`) and calls `set_point({"window": {"title": t}})`. `picked(values)` fires |
+| `TemplatePreview(ctx)` | `show_template(value)` shows a file (relative to the open script) or an embedded `#name` (`get_image`), with its size and scale; `script_id`, `script_path` and `use_document=False` for another script |
+| `ImageView` | `set_image(QImage)`, `set_marks([Mark(rect, color, label)])` in image pixels; scaled to fit, checkerboard behind |
+
+Both tool widgets show what happened (and errors, with install hints for a missing
+`vision` extra or tkinter) in their `message` label and emit `message_changed(str)`;
+Escape on the overlay is quiet, and `busy` (a run is active) says so. Their dialogs are
+modeless: `TopLevelHider` (installed by the main window as `ctx.screen.hider`) hides
+every top-level window while an overlay is open or a Test looks at the screen, and
+shows them again afterwards (after a short delay for the window manager; none on the
+`offscreen` platform). Without a hider (a bare `AppContext`), nothing is hidden.
 
 ## Tests
 

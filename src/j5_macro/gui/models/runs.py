@@ -17,6 +17,8 @@ class RunSummary:
     """None while the run is active or when it never finished."""
     started: str = ""
     duration_ms: int | None = None
+    warnings: int | None = None
+    """Warning ``log`` events of a finished run; None while it runs or when unknown."""
 
     @property
     def duration_text(self) -> str:
@@ -32,6 +34,7 @@ def parse_run_list(result: Mapping[str, Any]) -> list[RunSummary]:
         if not isinstance(item, Mapping) or not isinstance(item.get("run_id"), str):
             continue
         duration = item.get("duration_ms")
+        warnings = item.get("warnings")
         path = item.get("script_path")
         status = item.get("status")
         runs.append(RunSummary(
@@ -42,5 +45,6 @@ def parse_run_list(result: Mapping[str, Any]) -> list[RunSummary]:
             status=status if isinstance(status, str) else None,
             started=str(item.get("started") or ""),
             duration_ms=duration if isinstance(duration, int) else None,
+            warnings=warnings if isinstance(warnings, int) else None,
         ))
     return runs

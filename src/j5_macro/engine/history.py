@@ -63,6 +63,7 @@ def run_info(run_id: str, meta: dict[str, Any]) -> RunInfo:
         "script_name": meta.get("script_name"),
         "script_path": meta.get("script_path"),
         "mode": meta.get("mode"),
+        "warnings": meta.get("warnings"),
     }, f"{run_id}/run.json")
 
 
@@ -154,7 +155,8 @@ class RunHistory:
         if bad:
             self.server.log("warning", f"run {run_id}: skipped {bad} unreadable line(s) of "
                             "its events.jsonl")
-        return GetRunResult(run_id=run_id, run=meta, events=events, captures=captures)
+        return GetRunResult(run_id=run_id, run=meta, dir=str(store.path_of(run_id).resolve()),
+                            events=events, captures=captures)
 
     def delete(self, payload: RunRef) -> None:
         run_id = check_run_id(payload.run_id)
