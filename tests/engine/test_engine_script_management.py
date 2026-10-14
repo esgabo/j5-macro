@@ -69,7 +69,17 @@ def engine(monkeypatch: pytest.MonkeyPatch, factory: FakeFactory) -> Iterator[En
 
 
 def write(path: Path, text: str) -> None:
-    path.write_bytes(text.encode("utf-8"))
+    """Save like an editor that writes a new file and renames it over the old one, so the
+    watcher never reads a half-written (or just truncated) file."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(text.encode("utf-8"))
+    for _ in range(50):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:  # Windows: the engine is reading the file right now
+            time.sleep(0.02)
+    os.replace(tmp, path)
 
 
 def changes(engine: Engine) -> list[Message]:
