@@ -1,5 +1,5 @@
-"""Input steps: ``click``, ``move``, ``drag``, ``scroll``, ``type``, ``key`` and
-``wait_image``.
+"""Input steps: ``click``, ``move``, ``drag``, ``scroll``, ``type`` and ``key`` (the
+waits are in :mod:`j5_macro.steps.waits`).
 
 In normal and step mode they drive the run's input session through ``ctx.input``
 (docs/contract.md, "Mouse and keyboard masters"). In dry-run mode each step logs what it
@@ -15,7 +15,8 @@ multiplied by the display scale ratio (:mod:`j5_macro.steps.positions`).
 
 Image targets (``image``, with ``threshold``, ``scale``, ``region`` and ``window``) are
 searched through ``ctx.vision``: once, or until the step's common ``timeout`` when it is
-set; a miss fails with ``image_not_found``. ``at`` targets are image results kept with
+set (a missing window then counts as "not found yet"); a miss fails with
+``image_not_found``. ``at`` targets are image results kept with
 ``as``, placed where they are now (following their window; see
 :mod:`j5_macro.steps.positions`). For both, the action lands on the centre of the area
 plus ``offset``, and the area is passed to the input layer as the ``target`` for
@@ -36,9 +37,11 @@ from j5_macro.steps.checks import check_point, is_interpolated
 from j5_macro.steps.images import (
     describe_match,
     dry_locate,
+    dry_search,
     locate_target,
     match_report,
-    search_options,
+    window_missing,
+    window_title,
 )
 from j5_macro.steps.positions import (
     FindWindow,
@@ -71,10 +74,9 @@ Describe = Callable[[dict[str, Any]], str]
 Perform = Callable[[StepContext, dict[str, Any]], dict[str, Any]]
 
 
-def input_step(describe: Describe, perform: Perform, *, image_wait: bool = False) -> Executor:
+def input_step(describe: Describe, perform: Perform) -> Executor:
     """An executor that runs ``perform``, or in dry-run mode searches each image target
-    once and describes what the step would do. ``image_wait``: the step itself is a
-    wait for its ``image`` (``wait_image``)."""
+    once and describes what the step would do."""
 
     def run(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
         if not ctx.dry_run:
@@ -82,22 +84,39 @@ def input_step(describe: Describe, perform: Perform, *, image_wait: bool = False
         result: dict[str, Any] = {"dry_run": True}
         found = ""
         if "image" in params:
-            wait = _wait_seconds(ctx, params) if image_wait else 0.0
-            match = dry_locate(ctx, params, wait)
+            match = dry_locate(ctx, params)
             found = describe_match(match)
             if match is not None:
                 result.update(match_report(match, params))
         elif "at" in params:
             result.update(stored_report(read_stored(params["at"])))
+        else:
+            _dry_window(ctx, params)
         for name in ("from", "to"):
             target = params.get(name)
             if isinstance(target, Mapping) and "image" in target:
                 found += describe_match(dry_locate(ctx, target), name)
+            elif isinstance(target, Mapping) and "at" not in target:
+                _dry_window(ctx, target)
         description = f"would {describe(params)}{found}"
         ctx.log("info", description)
         return {**result, "description": description}
 
     return run
+
+
+def _dry_window(ctx: StepContext, target: Mapping[str, Any]) -> None:
+    """The window of an ``x``/``y`` target, looked up once in a dry run: a warning when
+    it is missing, ``window_not_found`` in a strict dry run (see
+    :func:`~j5_macro.steps.images.dry_search`)."""
+    title = window_title(target)
+    if title is None:
+        return
+    looked = dry_search(ctx, f"window {title!r}", lambda: [ctx.vision.find_window(title)],
+                        lambda found: None if found[0] is not None
+                        else window_missing(title, " in a strict dry run"))
+    if looked is not None and looked[0] is None:
+        ctx.log("warning", f"dry-run: no visible window whose title contains {title!r}")
 
 
 def _target(params: Mapping[str, Any]) -> str:
@@ -143,10 +162,6 @@ def _describe_drag(p: dict[str, Any]) -> str:
 
 def _offset(p: Mapping[str, Any]) -> str:
     return f" offset {p['offset']}" if p.get("offset") else ""
-
-
-def _describe_wait(p: dict[str, Any]) -> str:
-    return f"wait up to {p.get('timeout', '10s')} for image {p['image']}"
 
 
 def _describe_key(p: dict[str, Any]) -> str:
@@ -223,13 +238,6 @@ def _resolve_target(ctx: StepContext, inp: StepInput, target: Mapping[str, Any],
     return (x, y), landing, report
 
 
-def _wait_seconds(ctx: StepContext, params: Mapping[str, Any]) -> float:
-    try:
-        return parse_duration(params.get("timeout", DEFAULT_WAIT)).sample(ctx.rng)
-    except ValueError as exc:
-        raise StepError(ErrorCode.VALIDATION_FAILED, str(exc), {"param": "timeout"}) from exc
-
-
 def _resolve_point(inp: StepInput, target: Mapping[str, Any],
                    where: str = "") -> tuple[tuple[int, int], dict[str, Any]]:
     """The absolute point of an ``x``/``y`` target (``window``-relative when given) and
@@ -289,12 +297,6 @@ def perform_drag(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def perform_wait_image(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
-    match = ctx.vision.wait(params["image"], timeout=_wait_seconds(ctx, params),
-                            **search_options(params))
-    return match_report(match, params)
-
-
 def perform_scroll(ctx: StepContext, params: dict[str, Any]) -> dict[str, Any]:
     dx, dy = _int(params.get("dx", 0), "dx"), _int(params.get("dy", 0), "dy")
     ctx.input.scroll(dx, dy)
@@ -345,7 +347,7 @@ def _check_threshold(params: Mapping[str, Any]) -> list[ParamProblem]:
     return []
 
 
-def _check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
+def check_image_options(params: Mapping[str, Any]) -> list[ParamProblem]:
     problems = _check_threshold(params)
     region = region_problem(params.get("region"))
     if region is not None:
@@ -370,7 +372,7 @@ def _check_offset(params: Mapping[str, Any], where: str = "") -> list[ParamProbl
 
 
 def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
-    problems = check_point(params) + _check_image_options(params)
+    problems = check_point(params) + check_image_options(params)
     problems += _check_offset(params)
     clicks = params.get("clicks")
     if isinstance(clicks, int) and clicks < 1:
@@ -379,7 +381,7 @@ def check_click(params: Mapping[str, Any]) -> list[ParamProblem]:
 
 
 def check_move(params: Mapping[str, Any]) -> list[ParamProblem]:
-    return check_point(params) + _check_image_options(params) + _check_offset(params)
+    return check_point(params) + check_image_options(params) + _check_offset(params)
 
 
 def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
@@ -389,10 +391,6 @@ def check_drag(params: Mapping[str, Any]) -> list[ParamProblem]:
         if isinstance(value, Mapping):
             problems += check_point(value, name) + _check_offset(value, f"{name}.")
     return problems
-
-
-def check_wait_image(params: Mapping[str, Any]) -> list[ParamProblem]:
-    return _check_image_options(params)
 
 
 def text_problem(text: Any) -> ParamProblem | None:
@@ -475,7 +473,6 @@ REGION = ParamSpec(name="region", type="any",
                        "given), or {at: <image result>, offset: [dx, dy], size: [w, h]} "
                        "next to a kept result (pixels, or multiples of its size such as "
                        "2w); defaults to the window, else the whole desktop.")
-DEFAULT_WAIT = "10s"
 BUTTON = ParamSpec(name="button", type="string", default="left", choices=BUTTONS,
                    doc="Mouse button.")
 
@@ -626,23 +623,3 @@ KEY = StepType(StepSpec(
         *DRY_RESULT,
     ),
 ), input_step(_describe_key, perform_key))
-
-WAIT_IMAGE = StepType(StepSpec(
-    name="wait_image",
-    doc="Wait until an image is visible on screen.",
-    shorthand="image",
-    params=(
-        _image(required=True),
-        ParamSpec(name="timeout", type="duration", default=DEFAULT_WAIT,
-                  doc="Give up with image_not_found after this long; the step's common "
-                      "'timeout' replaces it when set."),
-        THRESHOLD, REGION, WINDOW, SCALE,
-    ),
-    result=(
-        ResultField(name="found", type="boolean",
-                    doc="Whether the image was found (always true outside dry runs)."),
-        ResultField(name="score", type="number", doc="Best match score, from 0 to 1."),
-        *AREA_RESULT,
-        *DRY_RESULT[:2],
-    ),
-), input_step(_describe_wait, perform_wait_image, image_wait=True))

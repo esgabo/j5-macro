@@ -164,7 +164,7 @@ def test_a_fully_transparent_image_is_refused_with_the_vision_extra() -> None:
 UNKNOWN_REFERENCES = [
     ("click: {image: \"#nope\"}", "image"),
     ("move: {image: \"#nope\"}", "image"),
-    ("wait_image: \"#nope\"", "image"),
+    ("wait_image_in: \"#nope\"", "image"),
     ("drag: {from: {x: 1, y: 2}, to: {image: \"#nope\"}}", "to.image"),
     ("if: {when: {image_visible: \"#nope\"}, then: []}", "when.image_visible"),
     ("loop: {while: {image_visible: {image: \"#nope\"}}, do: []}",
@@ -195,8 +195,8 @@ def test_a_reference_to_a_broken_entry_is_reported_once() -> None:
 
 def test_references_built_at_run_time_and_other_values_are_not_checked() -> None:
     text = ("vars: {icon: \"#later\"}\nsteps:\n"
-            "  - wait_image: \"${icon}\"\n"
-            "  - wait_image: \"#${icon}\"\n"
+            "  - wait_image_in: \"${icon}\"\n"
+            "  - wait_image_in: \"#${icon}\"\n"
             "  - set: {name: x, value: {image: \"#not_an_image_parameter\"}}\n"
             "  - log: \"#hashtag\"\n")
     assert load(text).ok
@@ -209,7 +209,7 @@ version: 1
 name: Demo   # the name
 steps:
   - id: w
-    wait_image: img/icon.png
+    wait_image_in: img/icon.png
   - id: c
     click: {image: img/icon.png, threshold: 0.8}  # keep me
   - id: v
@@ -274,7 +274,7 @@ def test_updating_a_parameter_to_a_reference_quotes_it() -> None:
     text = edit(BASE, images={"icon": {"png": b64(PNG)}})
     text = apply_edits(text, [UpdateEdit(step_id="w", params={"image": "#icon"})],
                        lookup=REGISTRY.spec)
-    assert "    wait_image: '#icon'\n" in text
+    assert "    wait_image_in: '#icon'\n" in text
     result = load(text)
     assert result.ok and result.script is not None
     assert result.script.steps[0].params["image"] == "#icon"
@@ -306,9 +306,9 @@ def test_rewrite_images_adds_to_an_existing_section() -> None:
 
 
 def test_rewrite_images_keeps_the_short_form_and_unknown_steps() -> None:
-    text = "steps:\n  - wait_image: a.png\n  - mystery: {image: a.png}\n"
+    text = "steps:\n  - wait_image_in: a.png\n  - mystery: {image: a.png}\n"
     out = rewrite_images(text, {"a.png": "#a"}, lookup=REGISTRY.spec)
-    assert out == "steps:\n  - wait_image: \"#a\"\n  - mystery: {image: a.png}\n"
+    assert out == "steps:\n  - wait_image_in: \"#a\"\n  - mystery: {image: a.png}\n"
 
 
 # --- schema -----------------------------------------------------------------------------

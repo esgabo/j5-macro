@@ -55,7 +55,7 @@ j5-macro 0.0.1
 ## `j5 run`
 
 ```text
-j5 run [-h] [--runs-dir DIR] [--step | --dry-run] [--break STEP_ID]
+j5 run [-h] [--runs-dir DIR] [--step | --dry-run] [--strict] [--break STEP_ID]
        [--seed SEED] [--fast] [--allow-exec] [--display-scale SCALE]
        [--param NAME=VALUE]
        [--param-file NAME=PATH] [--param-env NAME=VARIABLE]
@@ -72,7 +72,8 @@ Loads the script, runs it and shows its progress. The output is explained in
 | `script` | Path to the YAML script |
 | `--step` | Debug: start paused before the first step and give the debugger prompt at every pause (see [debugging.md](debugging.md)) |
 | `--break STEP_ID` | Pause before the step with this id and give the debugger prompt, with or without `--step`. Repeatable. An id the script does not have fails before the run starts (exit 2) |
-| `--dry-run` | Send no input: input steps describe what they would do, image searches run once. Cannot be combined with `--step` (use `--break` to pause a dry run) |
+| `--dry-run` | Send no input: input steps describe what they would do, image searches run once. Cannot be combined with `--step` (use `--break` to pause a dry run). The summary line counts the run's warnings: `✓ dry run completed in 0.412s with 3 warnings` |
+| `--strict` | With `--dry-run`: fail the step, and so the run (exit 1), where a dry run would only warn that the real run fails: an image that is not found (or still there, for `wait_image_out`), a missing window (or one still open, for `wait_window_out`), vision not available, an `exec` step without `--allow-exec`. See [Checking a script with a dry run](#checking-a-script-with-a-dry-run). Without `--dry-run`: usage error (exit 2) |
 | `--seed SEED` | Integer seed of the run, to repeat the same human-like input. Without it the engine picks one and shows it |
 | `--fast` | Use the `direct` strategy for mouse and keyboard: no human-like movement or typing |
 | `--allow-exec` | Let the script's [`exec`](scripts.md#exec) steps run programs. Without it they fail with `capability_missing` |
@@ -126,6 +127,31 @@ j5: warning: secret param 'password' was given with --param, so it is visible in
 `j5 validate` lists a script's params. How params and secrets behave during a run is in
 [how-it-works.md](how-it-works.md#params-and-secrets).
 
+### Checking a script with a dry run
+
+A dry run sends no input and tries each image search once, so it checks a script
+against the screen as it is now. By itself it completes even when targets are missing:
+each one is only a warning, counted in the summary line and in `run_finished.warnings`.
+Add `--strict` to make those failures, so the exit code answers "is it ready to run?":
+
+```console
+$ j5 run --dry-run --strict save_report.yaml
+...
+  0.215s  ✗ click_save  [image_not_found] img/save.png not found in a strict dry run (one attempt; best score 0.412, threshold 0.9)
+  0.215s    screenshot: captures/0001-click_save-1.png
+✗ dry run failed after 0.231s  (seed 1234): [image_not_found] img/save.png not found in a strict dry run (one attempt; best score 0.412, threshold 0.9)
+```
+
+The exit code is 1. In a strict dry run, steps fail where the real run would: an image
+search that does not find its template (`image_not_found`, with its capture saved in the
+run's directory), a wait whose single check is not satisfied (`wait_image_out` or
+`wait_window_out` whose target is there: `still_visible`; `wait_window_in` without its
+window: `window_not_found`), a search that cannot be made (`capability_missing` without the
+`vision` extra or a screen to capture, `window_not_found`), and an `exec` step without
+`--allow-exec` (`capability_missing`). The step's `on_error` applies as usual. An
+`image_visible` condition is still just false when the image is not there. Agents and CI
+jobs should use `--dry-run --strict`.
+
 ### Pauses and Ctrl+C
 
 When a run pauses and no debugger is active (`--step` or `--break`):
@@ -156,7 +182,7 @@ $ j5 run --json --seed 7 examples/hello.yaml 2>/dev/null
 {"v":1,"kind":"event","type":"input_executed","run_id":"r-20261012-214903-d10b","seq":8,"ts":"2026-10-12T21:49:04.762Z","t_ms":911,"payload":{"device":"mouse","actual_duration_ms":906,"aborted":false}}
 {"v":1,"kind":"event","type":"input_state","run_id":"r-20261012-214903-d10b","seq":9,"ts":"2026-10-12T21:49:04.763Z","t_ms":911,"payload":{"held":["button:left"]}}
 ...
-{"v":1,"kind":"event","type":"run_finished","run_id":"r-20261012-214903-d10b","seq":78,"ts":"2026-10-12T21:49:07.637Z","t_ms":3785,"payload":{"status":"completed","duration_ms":3785}}
+{"v":1,"kind":"event","type":"run_finished","run_id":"r-20261012-214903-d10b","seq":78,"ts":"2026-10-12T21:49:07.637Z","t_ms":3785,"payload":{"status":"completed","duration_ms":3785,"warnings":0}}
 ```
 
 Each line is an envelope:
@@ -274,7 +300,7 @@ j5 pack [-h] [-o FILE] script
 Embeds every image file the script references into its `images` section (see [Embedded
 images](scripts.md#embedded-images)), so it can be shared as a single file. Each image
 parameter written as a path (`img/save button.png`, in `click`, `move`, `drag`,
-`wait_image` or `image_visible`) becomes a reference to the embedded copy
+`wait_image_in` or `image_visible`) becomes a reference to the embedded copy
 (`"#save_button"`):
 
 - names come from the file stems, made valid (`save button` gives `save_button`) and
@@ -476,7 +502,7 @@ saved run r-20261012-214849-bba4
   captures  1 file in /home/me/.local/state/j5-macro/runs/r-20261012-214849-bba4
     captures/0001-find_button-4.png
 run r-20261012-214849-bba4  Search  (mode normal, seed 1659557458, backend x11)
-  0.001s  ▶ find_button  wait_image  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
+  0.001s  ▶ find_button  wait_image_in  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
   1.275s  ✗ find_button  [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)
   1.275s    screenshot: captures/0001-find_button-4.png
 ✗ failed after 1.275s  (seed 1659557458): [image_not_found] img/button.png not found after 4 attempt(s) in 1s (best score 0.000, threshold 0.9)

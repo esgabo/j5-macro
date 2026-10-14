@@ -9,7 +9,7 @@
   Offset items are pixels, multiplied by the display scale ratio (display / capture
   scale) when the target has an area, or multiples of the area's size (``0.5w``,
   ``-2h``), which only targets with an area have (:func:`length_problem`).
-- A *stored result* is an image result kept with ``as`` (``wait_image``, an image or
+- A *stored result* is an image result kept with ``as`` (``wait_image_in``, an image or
   ``at`` target of ``click``/``move``): ``bbox`` on the desktop and, when the search had a
   window, ``window`` (its title) and ``window_bbox`` (relative to its client area).
   :func:`read_stored` checks one, :func:`locate_stored` finds where it is now (looking

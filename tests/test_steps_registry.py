@@ -6,9 +6,11 @@ from j5_macro.protocol.payloads.commands import ListStepTypesResult
 from j5_macro.steps import ParamProblem, ParamSpec, StepRegistry, StepSpec, StepType
 from j5_macro.steps import registry as registry_module
 from j5_macro.steps.builtins import default_registry
+from j5_macro.steps.spec import RENAMED_STEP_TYPES
 
-V1_STEPS = ["click", "move", "drag", "scroll", "type", "key", "wait_image", "sleep", "if",
-            "loop", "set", "log", "pause", "exec"]
+V1_STEPS = ["click", "move", "drag", "scroll", "type", "key", "wait_image_in",
+            "wait_image_out", "wait_window_in", "wait_window_out", "sleep", "if", "loop",
+            "set", "log", "pause", "exec"]
 
 NOOP = StepType(StepSpec(name="noop", doc="Do nothing.",
                          params=(ParamSpec(name="a", type="integer"),
@@ -61,6 +63,13 @@ def test_default_registry_has_every_v1_step():
         assert (step_type.executor is None) == (spec.kind == "control"), name
 
 
+def test_renamed_step_types_point_to_registered_ones():
+    registry = default_registry()
+    assert RENAMED_STEP_TYPES
+    for old, new in RENAMED_STEP_TYPES.items():
+        assert registry.get(old) is None and registry.get(new) is not None
+
+
 def test_describe_matches_the_wire_shape():
     entries = default_registry().describe()
     result = ListStepTypesResult.from_json({"step_types": entries})
@@ -71,7 +80,7 @@ def test_describe_matches_the_wire_shape():
     assert "anyOf" in sleep["schema"]
     loop = next(e for e in entries if e["name"] == "loop")
     assert loop["schema"]["required"] == ["do"]
-    wait = next(e for e in entries if e["name"] == "wait_image")
+    wait = next(e for e in entries if e["name"] == "wait_image_in")
     fields = {f["name"]: (f["type"], f["optional"]) for f in wait["result"]}
     assert {k: fields[k] for k in ("found", "score", "bbox", "center", "window",
                                    "window_bbox")} == {

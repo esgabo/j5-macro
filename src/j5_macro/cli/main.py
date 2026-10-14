@@ -302,6 +302,10 @@ def build_parser() -> argparse.ArgumentParser:
                            "piped, and the run continues to the end when they run out")
     mode.add_argument("--dry-run", action="store_true",
                       help="send no input; image searches are tried once")
+    run.add_argument("--strict", action="store_true",
+                     help="with --dry-run: fail the step, and the run, where a dry run "
+                          "would only warn that the real run fails (an image not found, "
+                          "a missing window, vision not available, exec not allowed)")
     run.add_argument("--break", dest="breakpoints", metavar="STEP_ID", action="append",
                      default=[],
                      help="pause before the step with this id and give the debugger prompt "
@@ -511,6 +515,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         return commands.run_sync(commands.steps(cmd, as_json=args.json, io=io))
     if args.command in AUTHORING_COMMANDS:
         return _authoring(args, cmd, io)
+    if args.strict and not args.dry_run:
+        raise CliError("--strict only applies with --dry-run", ExitCode.USAGE)
     variables: dict[str, Any] = dict(args.vars)
     try:
         params = collect_params(args.params_file, args.params, args.param_files,
@@ -534,6 +540,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         captures=args.captures,
         allow_exec=args.allow_exec,
         display_scale=args.display_scale,
+        strict=args.strict,
         as_json=args.json,
         interactive=interactive,
     )

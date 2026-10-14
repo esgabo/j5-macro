@@ -328,6 +328,20 @@ def test_run_fast_and_dry(engine, script, record):
                                     "keyboard": {"strategy": "direct"}}
     assert "seed" not in run
     assert "allow_exec" not in run
+    assert "strict" not in run
+
+
+def test_run_dry_strict(engine, script, record):
+    engine("valid")
+    assert main(["run", script, "--dry-run", "--strict"]) == 0
+    (run,) = sent(record, "run")
+    assert (run["mode"], run["strict"]) == ("dry", True)
+
+
+@pytest.mark.parametrize("extra", [[], ["--step"]])
+def test_strict_needs_dry_run(script, capsys, extra):
+    assert main(["run", script, "--strict", *extra]) == 2
+    assert "--strict only applies with --dry-run" in capsys.readouterr().err
 
 
 def test_run_allow_exec(engine, script, record):

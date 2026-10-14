@@ -349,7 +349,7 @@ def test_dry_run_describes_input_and_runs_the_rest(tmp_path, monkeypatch):
     assert rec.of("step_finished", step_id="c")[0]["result"] == {
         "dry_run": True, "description": "would click left at (1, 2)"}
     warnings = rec.of("log", level="warning", step_id="look")
-    assert "treated as false in dry-run" in warnings[0]["message"]
+    assert "treated as false" in warnings[0]["message"]
     assert rec.of("branch_taken")[0]["branch"] == "else"
     assert rec.of("variable_changed", name="n")[0]["new"] == 1
     assert rec.of("step_finished", step_id="nap")[0]["result"] == {"seconds": 1.0}

@@ -58,7 +58,8 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "list_step_types": {},
     "load": {"path": "scripts/a.yaml"},
     "validate": {"script_id": "s"},
-    "run": {"script_id": "s", "mode": "step", "captures": "on_failure", "allow_exec": True},
+    "run": {"script_id": "s", "mode": "dry", "captures": "on_failure", "allow_exec": True,
+            "strict": True},
     "pause": RUN, "resume": RUN, "step_over": RUN, "step_into": RUN, "step_out": RUN,
     "stop": {"run_id": "r-1", "reason": "user"},
     "set_breakpoints": {"script_id": "s", "step_ids": ["a", "b"]},
@@ -150,7 +151,7 @@ EVENT_EXAMPLES: dict[str, dict[str, Any]] = {
                     "input_profile": {}, "display_scale": 1.25,
                     "display_scale_source": "detected", "capture_scale": 1.0},
     "state_changed": {"state": "paused", "reason": "step"},
-    "run_finished": {"status": "failed", "duration_ms": 10,
+    "run_finished": {"status": "failed", "duration_ms": 10, "warnings": 2,
                      "error": {"code": "image_not_found", "message": "timeout"}},
     "step_started": {**STEP, "type": "click", "params": {"x": 1}},
     "step_finished": {**STEP, "duration_ms": 5},
@@ -314,9 +315,9 @@ def test_unknown_fields_ignored():
 def test_optional_omitted_and_defaults():
     parsed = RunPayload.from_json({"script_id": "s", "mode": "normal"})
     assert parsed.vars is None and parsed.seed is None and parsed.captures == "on_failure"
-    assert parsed.allow_exec is False
+    assert parsed.allow_exec is False and parsed.strict is False
     assert parsed.to_json() == {"script_id": "s", "mode": "normal", "captures": "on_failure",
-                                "allow_exec": False}
+                                "allow_exec": False, "strict": False}
     assert "line" not in LogEvent(level="info", message="m").to_json()
 
 

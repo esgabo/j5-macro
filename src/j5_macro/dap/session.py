@@ -340,6 +340,9 @@ class DebugSession:
             raise DapError("'displayScale' must be a positive number, such as 1.5")
         self._no_debug = args.get("noDebug") is True
         dry = args.get("dryRun") is True
+        strict = args.get("strict") is True
+        if strict and not dry:
+            raise DapError("'strict' only applies with 'dryRun': true")
         self._stop_on_entry = args.get("stopOnEntry") is True and not self._no_debug
         self._mode = "dry" if dry else "step" if self._stop_on_entry else "normal"
         payload: JsonObject = {"mode": self._mode}
@@ -353,6 +356,8 @@ class DebugSession:
             payload["allow_exec"] = True
         if display_scale is not None:
             payload["display_scale"] = display_scale
+        if strict:
+            payload["strict"] = True
         self._run_payload = payload
         self._program = program
 
@@ -921,6 +926,9 @@ class DebugSession:
         reason = payload.get("reason")
         if reason:
             text += f" (reason: {reason})"
+        warnings = payload.get("warnings")
+        if isinstance(warnings, int) and not isinstance(warnings, bool) and warnings > 0:
+            text += f" with {warnings} warning{'s' if warnings != 1 else ''}"
         error = payload.get("error")
         if isinstance(error, dict):
             text += f": [{error.get('code')}] {error.get('message')}"

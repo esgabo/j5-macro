@@ -24,7 +24,7 @@ SCRIPT = f"""\
 name: Embedded
 steps:
   - id: wait
-    wait_image: "#icon"
+    wait_image_in: "#icon"
 images:
   icon: {{png: {DATA}, scale: 1.5}}
 """
@@ -81,7 +81,7 @@ def test_an_unknown_reference_fails_load_with_the_step_and_parameter(engine: Eng
 def test_set_meta_writes_images_and_runs_get_them(engine: Engine, factory: FakeFactory,
                                                    tmp_path: Path) -> None:
     path = tmp_path / "s.yaml"
-    text = "name: S\nsteps:\n  - id: wait\n    wait_image: img/icon.png\n"
+    text = "name: S\nsteps:\n  - id: wait\n    wait_image_in: img/icon.png\n"
     path.write_text(text, encoding="utf-8")
     script_id = engine.ok("load", {"path": str(path)})["script_id"]
     response = engine.call("edit_script", {
@@ -91,7 +91,7 @@ def test_set_meta_writes_images_and_runs_get_them(engine: Engine, factory: FakeF
         ]})
     assert response["ok"] is True, response
     saved = path.read_text(encoding="utf-8")
-    assert saved == (f"name: S\nsteps:\n  - id: wait\n    wait_image: '#icon'\n"
+    assert saved == (f"name: S\nsteps:\n  - id: wait\n    wait_image_in: '#icon'\n"
                      f"images:\n  icon:\n    png: |\n      {DATA}\n")
     script = GetScriptResult.from_json(engine.ok("get_script", {"script_id": script_id}))
     assert [image["name"] for image in script.images] == ["icon"]

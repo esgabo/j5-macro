@@ -135,10 +135,10 @@ says what you can do: `c` retries the step (a new attempt, with new random choic
 $ j5 run --break find_button flaky.yaml
 ...
 (j5) c
-  0.130s  ▶ find_button  wait_image  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
+  0.130s  ▶ find_button  wait_image_in  {"image": "img/button.png", "timeout": "1s", "threshold": 0.9}
   0.130s  ✗ find_button  [capability_missing] the screen cannot be captured: ...
   0.130s  ⏸ paused (error)
--> find_button  wait_image  (flaky.yaml:4)
+-> find_button  wait_image_in  (flaky.yaml:4)
 step 'find_button' failed: c retries it, n skips it
 (j5) n
   0.131s  ↷ find_button  skipped (user)
@@ -261,6 +261,7 @@ in the active editor and stops before its first step. An example `.vscode/launch
 | `cwd` | Directory a relative `program` is resolved against (default: the adapter's directory, the workspace folder) |
 | `stopOnEntry` | Pause before the first step (the engine's step mode) |
 | `dryRun` | Send no input: input steps describe what they would do, image searches run once. With `stopOnEntry` it stops at the first step too |
+| `strict` | With `dryRun`: fail the step where a dry run would only warn that the real run fails, such as an image that is not found (`j5 run --dry-run --strict`) |
 | `fast` | Use the `direct` strategy for mouse and keyboard instead of human-like movement |
 | `allowExec` | Let the script's `exec` steps run programs (`j5 run --allow-exec`) |
 | `displayScale` | The display scale of the run, e.g. `1.5` (`j5 run --display-scale`); detected per monitor when not given |
@@ -350,10 +351,11 @@ When the run ends, the debug session ends with exit code 0 (completed), 1 (faile
 
 ## Debugging without the debugger
 
-- **Dry runs.** `j5 run --dry-run` runs the whole logic (variables, loops, branches, logs,
+- **Dry runs.** `j5 run --dry-run` (add `--strict` to fail where the real run would,
+  such as on an image that is not found) runs the whole logic (variables, loops, branches, logs,
   sleeps) without sending input. Input steps say what they would do
   (`[info] would click left at (120, 40)`, `would type 12 characters`) and image searches
-  run once and report their score, so you can check templates against the current screen.
+  and window waits run once and report what they found, so you can check templates against the current screen.
   It works without an input backend too.
 - **Logs and pauses in the script.** A `log:` step prints any expression
   (`log: "attempts=${attempts}"`), and a `pause:` step stops the run until you press Enter.

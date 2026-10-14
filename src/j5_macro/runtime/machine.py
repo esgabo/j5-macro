@@ -36,7 +36,11 @@ from j5_macro.runtime.input import RunInput
 from j5_macro.runtime.resolve import ConditionFn, check_condition, evaluated, resolve_params
 from j5_macro.runtime.vision import BoundVision, RunVision
 from j5_macro.script.model import Script, Step
-from j5_macro.script.params import secret_texts
+from j5_macro.script.params import (
+    is_short_secret,
+    secret_texts,
+    short_secret_warning,
+)
 from j5_macro.steps.registry import StepRegistry
 from j5_macro.steps.spec import LogLevel, StepError, StepSpec
 from j5_macro.vision.api import StepVision
@@ -66,6 +70,7 @@ class Machine:
         self._seed = options.seed
         self._dry_run = options.mode == "dry"
         self._allow_exec = options.allow_exec
+        self._strict = self._dry_run and options.strict
         self._script_dir = Path(script.source_path).parent if script.source_path else None
         self._conditions = conditions
         self._add_secrets = options.add_secrets
@@ -276,12 +281,15 @@ class Machine:
                        result: dict[str, Any] | None) -> None:
         """Emit ``step_finished`` and keep the result in the step's ``as`` variable: a
         secret result is registered with the engine first, so its own ``step_finished``
-        is masked too."""
+        is masked too; a short string (masked only as a whole value) logs a warning first."""
         store = step.store_as
         if store is not None and store.secret and self._add_secrets is not None:
             texts = secret_texts(result)
             if texts:
                 self._add_secrets(texts)
+                if any(is_short_secret(text) for text in texts):
+                    self._events.log("warning", short_secret_warning(
+                        f"a string of the secret result '{store.name}'"), step.id)
         self._events.step_finished(step, its, duration_ms, result)
         if store is not None:
             self.assign(store.name, result, step.id)
@@ -300,7 +308,7 @@ class Machine:
         return RunContext(self, step_id=step.id, iterations=its, attempt=attempt, depth=depth,
                           dry_run=self._dry_run, seed=self._seed, input_overrides=step.input,
                           timeout=step.timeout, script_dir=self._script_dir,
-                          allow_exec=self._allow_exec)
+                          allow_exec=self._allow_exec, strict=self._strict)
 
     def _elapsed_ms(self, started: float, paused_before: float) -> int:
         active = self._clock.now() - started - (self._paused - paused_before)

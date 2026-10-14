@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from j5_macro.backends.base import Rect
+from j5_macro.backends.base import Rect, WindowInfo
 
 DEFAULT_THRESHOLD = 0.9
 """Minimum match score of image searches when a step gives no ``threshold``."""
@@ -77,6 +77,9 @@ class Match:
     display_ratio: float = 1.0
     """The display scale / capture scale ratio the template was resized by, besides the
     step's ``scale`` (set by ``StepVision``); pixel offsets from the match use it."""
+    capture: str | None = None
+    """The capture saved for this attempt, relative to the run's directory (set by
+    ``StepVision`` under the run's ``captures`` policy), for ``step_failed``."""
 
 
 class Capturer(Protocol):
@@ -120,16 +123,20 @@ screen cannot be captured."""
 
 
 class StepVision(Protocol):
-    """What step executors and conditions see as ``ctx.vision``."""
+    """What step executors and conditions see as ``ctx.vision``: image searches and
+    the window lookups of the waits, each polling every :data:`DEFAULT_INTERVAL`
+    seconds of unpaused time, interruptible by ``stop`` and suspended by ``pause``."""
 
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
-             window: dict[str, Any] | None = None) -> Match:
+             window: dict[str, Any] | None = None,
+             failing: Callable[[Match], bool] | None = None) -> Match:
         """One search (one ``image_search`` event). ``image`` is relative to the script's
         directory, or ``#name`` for an image embedded in the script; ``region`` is
         ``[x, y, w, h]``, relative to ``window`` when given, or ``{at, offset?, size?}``
         next to a stored image result. The match's ``frame`` is the client area of
-        ``window``, when given.
+        ``window``, when given. ``failing(match)`` says whether the step fails with this
+        match (a strict dry run), so its capture is saved (``Match.capture``).
         Raises StepError: ``template_missing``, ``window_not_found``,
         ``capability_missing`` (no vision)."""
         ...
@@ -142,5 +149,38 @@ class StepVision(Protocol):
         a single attempt in dry runs). Raises StepError ``image_not_found`` with
         ``details.best_score`` when it times out. The step's common ``timeout`` field,
         when set, replaces ``timeout``; ``timeout=0`` makes a single attempt that fails
-        when the image is not found."""
+        when the image is not found. While waiting (a timeout above 0), a missing
+        ``window`` is "not found yet": ``window_not_found`` (with ``details.timeout``)
+        only when it never appeared."""
+        ...
+
+    def wait_gone(self, image: str, *, timeout: float,
+                  threshold: float = DEFAULT_THRESHOLD, scale: float = DEFAULT_SCALE,
+                  region: list[int] | dict[str, Any] | None = None,
+                  window: dict[str, Any] | None = None,
+                  interval: float = DEFAULT_INTERVAL) -> float:
+        """Search until the image is not found, outside dry runs; returns the unpaused
+        seconds waited. A missing ``window`` is "not gone yet". Raises StepError
+        ``still_visible`` on timeout (``window_not_found`` when the window never
+        appeared). The step's common ``timeout`` replaces ``timeout``."""
+        ...
+
+    def find_window(self, title: str) -> WindowInfo | None:
+        """One look for the topmost visible window whose title contains ``title``: its
+        full title and client area, or None. No event. Raises StepError
+        ``capability_missing`` without a backend with the ``windows`` capability."""
+        ...
+
+    def wait_window(self, title: str, *, timeout: float,
+                    interval: float = DEFAULT_INTERVAL) -> WindowInfo:
+        """Look for the window until it is there, outside dry runs. Raises StepError
+        ``window_not_found`` (``details.timeout``) on timeout. The step's common
+        ``timeout`` replaces ``timeout``."""
+        ...
+
+    def wait_window_gone(self, title: str, *, timeout: float,
+                         interval: float = DEFAULT_INTERVAL) -> float:
+        """Look for the window until none matches, outside dry runs; returns the
+        unpaused seconds waited. Raises StepError ``still_visible`` on timeout. The
+        step's common ``timeout`` replaces ``timeout``."""
         ...

@@ -36,7 +36,7 @@ no vision, window not found, file in the way...), 2 usage error, 3 cancelled.
 
 ```text
 j5 validate [--json] SCRIPT
-j5 run [--dry-run | --step] [--break STEP_ID] [--json] [--fast] [--seed N]
+j5 run [--dry-run [--strict] | --step] [--break STEP_ID] [--json] [--fast] [--seed N]
        [--allow-exec] [--display-scale SCALE]
        [--param NAME=VALUE] [--param-env NAME=VAR] [--param-file NAME=PATH]
        [--params-file FILE] [--var NAME=VALUE]
@@ -45,7 +45,8 @@ j5 run [--dry-run | --step] [--break STEP_ID] [--json] [--fast] [--seed N]
 
 | Option | Use |
 | --- | --- |
-| `--dry-run` | No input; each image search once; `exec` starts nothing. Always first |
+| `--dry-run` | No input; each image search once; `exec` starts nothing. Always first, with `--strict` |
+| `--strict` | With `--dry-run`: an image not found, a missing window, no vision or `exec` without `--allow-exec` fails the run (exit 1) instead of a warning. Use it in every check |
 | `--json` | One event per line on stdout |
 | `--fast` | Instant mouse and keyboard (no human-like movement) |
 | `--seed N` | Repeat the same human-like input |
@@ -91,7 +92,10 @@ $ j5 run --json s.yaml < /dev/null | grep -E '"type":"(step_failed|run_finished)
 ```
 
 Error codes: `image_not_found` (`details.best_score`, `threshold`, `attempts`),
-`window_not_found` (`details.title`), `template_missing`, `expression_error`,
+`window_not_found` (`details.title`; `timeout` when the step waited for it),
+`still_visible` (a `wait_*_out` timed out: `details.image` or `title`, `timeout`),
+`unknown_step_type` (`details.suggestion` for a renamed step), `template_missing`,
+`expression_error`,
 `validation_failed`, `capability_missing` (no backend, no vision, `exec` not allowed,
 no tkinter), `exec_failed` (`details.reason`: `start`, `timeout`, `exit_code`),
 `input_denied` (Windows: an elevated target window).

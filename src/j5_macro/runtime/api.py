@@ -70,6 +70,9 @@ class RunOptions:
     display_scale: float | None = None
     """The run's display scale (the ``run`` command's ``display_scale``); None detects
     it with the backend, per monitor (``j5_macro.runtime.display``)."""
+    strict: bool = False
+    """In a dry run, fail the step where a dry run would only warn that the real run
+    fails (the ``run`` command's ``strict``; only given with ``mode: dry``)."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

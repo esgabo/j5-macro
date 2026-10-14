@@ -15,10 +15,12 @@ steps:
   - id: open_editor
     exec: {command: [mousepad]}
 
-  # Give the window a moment to appear. If it is still not there, the click fails with
-  # window_not_found and the run pauses: resume once the editor is open.
+  # Wait for the window to appear (up to 15 s) instead of a fixed sleep. If it never
+  # does, the step fails with window_not_found and the run pauses: resume once the
+  # editor is open.
   - id: let_it_open
-    sleep: 2s
+    wait_window_in: {title: "${title}", timeout: 15s}
+    on_error: pause
   - id: focus_editor
     click: {window: {title: "${title}"}, x: 200, y: 150}
     on_error: pause

@@ -31,8 +31,11 @@ command, file edit or API call can do: GUI automation is the slow, fragile last 
 1. **j5 sends real input to the user's desktop.** Before any `j5 run` without
    `--dry-run`, tell the user what the script will do and get their go-ahead, unless they
    already asked you to run it. Whatever has the focus receives the keys.
-2. **Dry run first.** `j5 run --dry-run` sends no input, searches each image once and
-   checks params, expressions and windows. Fix everything it reports before a real run.
+2. **Dry run first, strictly.** `j5 run --dry-run --strict` sends no input, searches
+   each image once and checks params, expressions and windows; with `--strict` an image
+   that is not found or a missing window fails the run (exit 1). A plain `--dry-run`
+   exits 0 even then, so never take its exit code as "ready". Fix everything it reports
+   before a real run.
 3. **Never put secrets in the script or the command line.** Declare a param with
    `secret: true` and pass it with `--param-env NAME=VAR` or `--param-file`. Results of
    steps that carry secrets get `as: {name: ..., secret: true}`. Secrets show as `***`
@@ -61,7 +64,7 @@ $ j5 capture --bbox 14,50,48,22 --window "practice form" \
 $ j5 find '#email_label' --script form.yaml --window "practice form"   # 4. test it
 j5: #email_label found at [14, 50, 48, 22] ([14, 50, 48, 22] in 'j5 practice form'), score 1.000; ...
 $ j5 validate form.yaml                                     # 5. after writing steps
-$ j5 run --dry-run form.yaml < /dev/null                    # 6. no input sent
+$ j5 run --dry-run --strict form.yaml < /dev/null           # 6. no input sent
 $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
 ```
 
@@ -89,8 +92,13 @@ $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
    with `window` or `region`.
 5. **Write the steps** (see below and `reference/script-format.md`), then
    `j5 validate SCRIPT` (or `--json`: errors with `code`, `message`, `line`, `step_id`).
-6. **Dry run.** `j5 run --dry-run SCRIPT < /dev/null` with the same params. Read each
-   image search (found? score?) and every warning.
+6. **Dry run.** `j5 run --dry-run --strict SCRIPT < /dev/null` with the same params.
+   Exit 0 means every image was found and every window was there; on exit 1 read the
+   `step_failed` event (`image_not_found` with the best score, `window_not_found`...).
+   Also read each image search (score close to the threshold?) and the warnings the
+   summary line counts (`with 2 warnings`; `run_finished.warnings` in `--json`). A strict
+   dry run of a script with `exec` steps needs `--allow-exec` too: it starts nothing in a
+   dry run, but the real run still needs the user's consent for it.
 7. **Run** after the user agrees: `j5 run --json SCRIPT < /dev/null > events.jsonl`.
    Read the exit code first, then the `step_failed` and `run_finished` events. Then
    verify the outcome yourself (a fresh `j5 screenshot`, the application's output) rather
@@ -124,7 +132,7 @@ vars:
   form: j5 practice form
 steps:
   - id: wait_form                      # give every step an explicit, stable id
-    wait_image: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
+    wait_image_in: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
     as: email_label                    # keep the match: {found, score, bbox, center, window, window_bbox}
   - id: click_email
     click: {at: "${email_label}", offset: [3.5w, 0]}   # 3.5 label widths right of its centre
@@ -133,7 +141,7 @@ steps:
   - id: submit
     click: {image: "#submit", window: {title: "${form}"}}
   - id: confirm                        # check the outcome, do not assume it
-    wait_image: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
+    wait_image_in: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
 images:
   email_label: {png: "..."}            # written by j5 capture --embed
 ```
@@ -142,7 +150,7 @@ Prefer, in this order:
 
 1. **Image targets** (`click: {image: "#name", window: {title: ...}}`): they follow the
    layout. Restrict them with `window` (faster, fewer false matches) or `region`.
-2. **Kept results with `at`**: find once with `wait_image` + `as: label`, then
+2. **Kept results with `at`**: find once with `wait_image_in` + `as: label`, then
    `click: {at: "${label}", offset: [...]}`. No new search, and it follows the window if
    it moved. Use it for fields next to labels and repeated clicks in a loop.
 3. **Window-relative coordinates** (`click: {window: {title: ...}, x: 120, y: 48}`) for
@@ -154,10 +162,14 @@ Other rules:
 - **Offsets**: `offset: [dx, dy]` in pixels, or relative to the target's size on image
   and `at` targets: `0.5w` (half its width), `1.5h`. Relative units survive font and
   scale changes; prefer them. `w`/`h` are an error on `x`/`y` targets.
-- **Waiting**: use `wait_image` for what the next step needs, not `sleep`. A `window`
-  that does not exist yet fails **at once** with `window_not_found` (it does not wait), so
-  to wait for a window that is still opening, search without `window` (whole desktop),
-  or give the step `on_error: retry`.
+- **Waiting**: wait for what the next step needs, not with `sleep`. One step per
+  direction: `wait_window_in` / `wait_window_out` for a window to open or close (by
+  title), `wait_image_in` / `wait_image_out` for an image to appear or go away. After a
+  reload or a click that refreshes content, `wait_image_in` alone may match the old
+  screen: wait for the spinner or "Loading..." to go (`wait_image_out`) first. Image
+  waits (and image targets with the common `timeout`) also wait for their `window` to
+  appear; a step without a timeout looks the window up once. `image_visible` is false
+  when its window is missing.
 - **Focus**: start with a step that clicks into the target window, since keys go to the
   focused window.
 - **Unattended errors**: use `on_error: retry` (3 attempts) or `continue`, not `pause`.
@@ -173,9 +185,9 @@ Other rules:
   `${row.name}`.
 - **Running programs** (`exec`, needs `--allow-exec`): `exec: {command: [mousepad]}`
   starts a program and goes on; `wait: true` + `as: out` keeps `{exit_code, stdout,
-  stderr}`. In a dry run nothing starts and the kept result has no `stdout`, so a later
-  `${out.stdout}` fails there; guard it (`"strip(out.stdout) if 'stdout' in out else
-  'x'"`). Pass secrets to programs through `env`, not `command`.
+  stderr}`. In a dry run nothing starts and the kept result has an empty `stdout` and
+  `stderr` and `exit_code: 0`, so later steps that use them still check. Pass secrets to
+  programs through `env`, not `command`.
 
 Full cheat sheet of keys, steps, results, expressions and conditions:
 **`reference/script-format.md`**. Commands, flags, exit codes and JSON outputs:
@@ -213,7 +225,9 @@ outlined in red: `screenshot` is relative to the run's directory, which
 | --- | --- |
 | `image_not_found` (best score given) | Open the failure capture. Score 0.8–0.9: same thing, slightly different pixels: recapture in the run's state or lower `threshold` a little (0.85). Score low: wrong window, obscured, not there yet (raise `timeout`), or a different theme/scale: re-screenshot and recapture. Test with `j5 find`. |
 | Matches the wrong place | Make the template more distinctive (more context, `--padding`), add `window` or `region` (`region: {at: "${label}", offset: [3w, 0], size: [4w, 1.5h]}`). |
-| `window_not_found` | `j5 windows`: is it open, visible, titled as you think (case-sensitive substring)? Still opening: wait without `window` or use `on_error: retry`. |
+| `window_not_found` | `j5 windows`: is it open, visible, titled as you think (case-sensitive substring)? Still opening: add `wait_window_in: {title: ..., timeout: 20s}` before, or give the image step a longer `timeout` (image waits wait for their window). |
+| `still_visible` | A `wait_image_out`/`wait_window_out` timed out: the spinner or dialog is still there. Raise `timeout`, or check the template matches only the thing that goes away (`j5 find`). |
+| `unknown step type ...; did you mean ...?` | The step type was renamed: use the suggested name (the image wait is `wait_image_in`; its opposite `wait_image_out`). |
 | `capability_missing` | Message says which: no backend (Wayland, no `DISPLAY`, missing `x11` extra), no `vision` extra, `exec` without `--allow-exec` (ask the user), or the overlay without tkinter. |
 | `template_missing` | An image path that does not exist (relative to the script's folder), or a `${...}` reference to an unknown embedded name. |
 | `expression_error` | Unknown variable (a step with `as` failed or was skipped earlier), missing key, bad syntax. Quote expressions with `:` or `#`. |
@@ -222,7 +236,7 @@ outlined in red: `screenshot` is relative to the run's directory, which
 | Exit 2, "missing required params" | Pass them: `--param`, `--param-env`, `--param-file`, `--params-file`. |
 | Exit 3 | The user (or the corner failsafe) stopped it. Ask before trying again. |
 | Typed text goes elsewhere | Focus the window first (click inside it); check nothing else stole focus. |
-| `***` in odd places (`"backend": "***11"`) | Every occurrence of a secret's text is masked, so a very short test secret (`x`) mangles unrelated output. Test with realistic values. |
+| `***` in odd places, or a warning "fewer than 4 characters" | Secrets of 4 or more characters are masked wherever they appear; shorter ones only as whole values, so they still show inside longer text. Test with realistic values. |
 
 Note: `j5 find --show`, `j5 pick` and `j5 capture` without `--bbox` open a full-screen
 overlay for a **human** to click or drag. As an agent, use `--bbox`, screenshots and
@@ -233,7 +247,8 @@ overlay for a **human** to click or drag. As an agent, use `--bbox`, screenshots
 - `reference/script-format.md`: script format cheat sheet.
 - `reference/cli.md`: commands, flags, exit codes, JSON outputs.
 - `reference/protocol.md`: driving `python -m j5_macro.engine` over JSON lines.
-- `examples/open_editor.yaml`: `exec` + `wait_image` + an `exec` output + `type`.
+- `examples/open_editor.yaml`: `exec` + `wait_window_in` + `wait_image_in` in that
+  window + an `exec` output + `type`.
 - `examples/sign_in.yaml`: embedded templates, `as` + `at` with relative offsets, a
   secret param, an outcome check.
 - `examples/fill_rows.yaml`: a `for_each` loop over data, `on_error: retry`, a counter.

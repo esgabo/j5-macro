@@ -112,7 +112,7 @@ the script. Time spent paused is accumulated and subtracted from `duration_ms`.
 ### Pause at the next atomic action, stop immediately
 
 `pause` only sets a flag. The worker honours it at the next checkpoint or inside an
-interruptible wait (`sleep`, and the intervals between `wait_image` attempts). An input
+interruptible wait (`sleep`, and the intervals between the polls of the `wait_*` steps). An input
 action (a whole movement, a click, a `type` text, a key combination) is atomic for
 `pause`: the input masters wait through an `AbortSignal` whose `sleep` ignores pause
 requests. This guarantees that a pause never leaves the cursor half-way or a modifier
@@ -120,8 +120,10 @@ down.
 
 Waits are interruptible with remaining time: `RunControl.sleep(seconds)` returns the time
 left when a pause is requested, the machine pauses at the current step (reason `user`),
-and after the next command the wait continues with what was left. A `wait_image` timeout
-counts only unpaused time.
+and after the next command the wait continues with what was left. The timeout of a
+`wait_*` step counts only unpaused time: every wait polls through one loop
+(`BoundVision._poll`), which measures unpaused time with the clock and the machine's
+running total of paused seconds.
 
 `stop` records a reason and notifies the condition variable. It is raised as
 `RunStopped` on the worker at the next `check_stop`, inside any wait, while paused, or
@@ -154,10 +156,19 @@ emits neither `step_finished` nor `step_failed` for the interrupted one.
 In `dry` mode the run takes the same path through the interpreter, so variables, loops,
 branches, logs and sleeps behave as usual. Input executors check `ctx.dry_run` and return
 a description with `dry_run: true` instead of acting; as a safeguard the run's input
-refuses to create a session in a dry run. Image searches make exactly one attempt and
-report it, since without input the screen never changes and a wait would always fail.
-Searches that cannot be made (no vision, no window) become warnings, and image
-conditions are then false. A `while` loop is capped at 1000 iterations with a warning.
+refuses to create a session in a dry run. Image searches and window lookups make
+exactly one attempt and report it, since without input the screen never changes and a
+wait would always fail. They all go through one helper (`steps.images.dry_search`), so
+what a dry run does with a search lives in one place. Searches that cannot be made (no
+vision, no backend, no window) become warnings, and image conditions are then false. A
+`while` loop is capped at 1000 iterations with a warning.
+In a strict dry run (`run`'s `strict`, `ctx.strict`) those warnings that mean the real run
+would fail are raised instead: `steps.images.dry_run_skips` lets nothing through, and
+`dry_search` raises the error the step's timeout would have ended with when its single
+check is not satisfied (`image_not_found`, `still_visible`, `window_not_found`; an image
+search that fails saves its capture as a real run's last attempt does, through
+`StepVision.find`'s `failing`). `exec` raises `capability_missing` without `allow_exec`.
+The engine counts each run's warning `log` events for `run_finished.warnings`.
 
 ## Expressions
 
@@ -555,8 +566,16 @@ is masked. Events already published are not rewritten; nothing secret has been i
 since the value did not exist before the step finished. Without an engine (the
 interpreter in tests) nothing is masked.
 
-Masking replaces the exact text in strings, mapping keys and nested containers, and a
-number equal to a secret's text. Top-level position fields (`path`, `iterations`,
+Masking replaces the exact text in strings and nested containers, and a number equal to
+a secret's text. Mapping keys are never masked: they are names (payload fields, variable
+names, result fields), and rewriting them broke clients that read fields by name. A
+secret shorter than `MIN_SECRET_LENGTH` (4) characters is masked only where a string or a
+number's text is exactly that secret, never inside longer text: masking every `x` turned
+`"backend": "x11"` into `"***11"`. The engine logs a warning naming each short secret
+param after `run_started`, and the interpreter logs one before the `step_finished` of an
+`as: {secret: true}` step that registers a short string; neither shows the value.
+Word-boundary matching was rejected: it is more complex and still leaks a secret next to
+punctuation or other text. Top-level position fields (`path`, `iterations`,
 `line`, `index`, `total`, `duration_ms`) are left alone when they hold integers, so a
 short numeric secret never breaks a position. A type error on a secret param says "a
 secret value" instead of repeating it.
@@ -565,6 +584,8 @@ Limits, by design or not yet solved:
 
 - Only the exact text is masked; a transformed value (`upper(password)`, a substring) is
   not recognised.
+- A short secret (under 4 characters) shows wherever it is part of a longer text, and a
+  secret used as a mapping key is never masked.
 - The length is visible: `type` reports how many characters it typed (in its result and
   in `input_planned.chars`), never the text.
 - Values travel unmasked from the client to the engine in the `run` command, and the

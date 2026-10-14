@@ -22,7 +22,7 @@ steps:
   # Waits for the form and keeps where the label is: email_label = {found, score, bbox,
   # center, window, window_bbox}. Later steps aim at it with `at` without searching again.
   - id: wait_form
-    wait_image: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
+    wait_image_in: {image: "#email_label", window: {title: "${form}"}, timeout: 10s}
     as: email_label
 
   # The field is to the right of its label: 3.5 label widths from the label's centre.
@@ -32,7 +32,7 @@ steps:
     type: "${email}"
 
   - id: find_password_label
-    wait_image: {image: "#password_label", window: {title: "${form}"}, timeout: 2s}
+    wait_image_in: {image: "#password_label", window: {title: "${form}"}, timeout: 2s}
     as: password_label
   - id: click_password
     click: {at: "${password_label}", offset: [2w, 0]}
@@ -45,7 +45,7 @@ steps:
 
   # Check the outcome instead of assuming it.
   - id: confirm
-    wait_image: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
+    wait_image_in: {image: "#saved", window: {title: "${form}"}, timeout: 5s}
   - id: done
     log: "signed in as ${email}"
 images:

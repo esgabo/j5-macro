@@ -113,7 +113,7 @@ input:
   mouse: {strategy: linear, speed: 4}
 steps:
   - id: appear
-    wait_image: {image: target.png, timeout: 3s}
+    wait_image_in: {image: target.png, timeout: 3s}
   - id: check
     if:
       when: {image_visible: target.png}
@@ -127,7 +127,7 @@ version: 1
 name: vision e2e missing
 steps:
   - id: never
-    wait_image: {image: missing.png, timeout: 600ms}
+    wait_image_in: {image: missing.png, timeout: 600ms}
 """
 
 
@@ -415,3 +415,54 @@ def test_params_are_typed_and_the_secret_stays_out_of_the_history(observer, tmp_
     assert secret not in out
     (run_dir,) = (tmp_path / "runs").iterdir()
     assert secret not in (run_dir / "events.jsonl").read_text(encoding="utf-8")
+
+
+# --- window waits ------------------------------------------------------------------------
+
+WINDOW_WAIT_TITLE = "j5 window wait - target"
+WINDOW_WAIT_SCRIPT = """\
+version: 1
+name: window waits e2e
+steps:
+  - id: opened
+    wait_window_in: {title: "j5 window wait", timeout: 10s}
+  - id: closed
+    wait_window_out: {title: "j5 window wait", timeout: 10s}
+"""
+
+
+def test_run_waits_for_a_window_to_open_and_close(observer, tmp_path, monkeypatch, capsys):
+    import time
+
+    monkeypatch.setenv("J5_RUNS_DIR", str(tmp_path / "runs"))
+    monkeypatch.setenv("J5_BACKEND", "x11")
+    monkeypatch.delenv(ENGINE_CMD_ENV, raising=False)
+    script = tmp_path / "windows.yaml"
+    script.write_text(WINDOW_WAIT_SCRIPT, encoding="utf-8")
+    window = observer.create_window(150, 120, 200, 100, wm_name=WINDOW_WAIT_TITLE,
+                                    wm_state=True, mapped=False)
+    observer.drain()
+
+    def open_then_close() -> None:
+        time.sleep(0.6)
+        window.map()
+        observer.display.sync()
+        time.sleep(0.8)
+        window.unmap()
+        observer.display.sync()
+
+    actor = threading.Thread(target=open_then_close, daemon=True)
+    actor.start()
+    try:
+        code = main(["run", str(script)])
+    finally:
+        actor.join(5)
+    out = capsys.readouterr().out
+    assert code == 0, out
+    (run_dir,) = (tmp_path / "runs").iterdir()
+    events = [json.loads(line) for line in
+              (run_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+    results = {e["payload"]["step_id"]: e["payload"]["result"] for e in events
+               if e["type"] == "step_finished"}
+    assert results["opened"] == {"window": WINDOW_WAIT_TITLE, "bbox": [150, 120, 200, 100]}
+    assert results["closed"]["gone"] is True and results["closed"]["waited_ms"] > 0

@@ -87,7 +87,7 @@ def test_window_without_a_title_is_validation_failed():
     "click: {image: img/ok.png}",
     "move: {image: img/ok.png}",
     "drag: {from: {image: img/a.png}, to: {x: 1, y: 1}}",
-    "wait_image: img/ok.png",
+    "wait_image_in: img/ok.png",
 ])
 def test_image_targets_need_vision_outside_dry_runs(step, tmp_path, monkeypatch):
     """Without the vision toolkit (not importable in this test environment)."""
@@ -103,7 +103,7 @@ def test_image_targets_need_vision_outside_dry_runs(step, tmp_path, monkeypatch)
         assert not session.named("click") + session.named("move") + session.named("drag")
 
 
-@pytest.mark.parametrize("step", ["click: {image: img/none.png}", "wait_image: img/none.png"])
+@pytest.mark.parametrize("step", ["click: {image: img/none.png}", "wait_image_in: img/none.png"])
 def test_a_missing_template_is_reported_even_without_vision(step, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     outcome, _, _ = one_step(step)

@@ -245,7 +245,7 @@ class FakeCliEngine:
             self.event("state_changed", r, {"state": "running", "reason": "user"})
         if self.scenario == "failed":
             self.event("step_started", r, {"step_id": "wait_dialog", "path": [1],
-                                           "type": "wait_image",
+                                           "type": "wait_image_in",
                                            "params": {"image": "dialog.png"}})
             error = {"code": "image_not_found", "message": "dialog.png not found",
                      "step_id": "wait_dialog"}

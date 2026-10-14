@@ -6,7 +6,7 @@
 # recapture them (j5 capture --bbox ... --embed fill_rows.yaml --name ... -f) and check
 # them with j5 find before running.
 #
-#   j5 run --dry-run fill_rows.yaml       # describes every click and key, sends nothing
+#   j5 run --dry-run --strict fill_rows.yaml   # describes every click and key, sends nothing
 #   j5 run fill_rows.yaml --json < /dev/null
 version: 1
 name: Fill the practice form once per row
@@ -25,10 +25,10 @@ vars:
 steps:
   # Find both labels once; every iteration aims at the kept results.
   - id: wait_form
-    wait_image: {image: "#name_label", window: {title: "${form}"}, timeout: 10s}
+    wait_image_in: {image: "#name_label", window: {title: "${form}"}, timeout: 10s}
     as: name_label
   - id: find_email_label
-    wait_image: {image: "#email_label", window: {title: "${form}"}, timeout: 2s}
+    wait_image_in: {image: "#email_label", window: {title: "${form}"}, timeout: 2s}
     as: email_label
 
   - id: each_row
@@ -48,7 +48,7 @@ steps:
           click: {image: "#submit", window: {title: "${form}"}}
         # Up to 3 attempts in all if the confirmation is slow, then the run stops.
         - id: confirm
-          wait_image: {image: "#saved", window: {title: "${form}"}, timeout: 3s}
+          wait_image_in: {image: "#saved", window: {title: "${form}"}, timeout: 3s}
           on_error: retry
         - id: count
           set: {name: saved, expr: "saved + 1"}

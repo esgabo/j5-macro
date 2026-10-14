@@ -28,11 +28,12 @@ Exactly one step-type key plus optional common fields:
 | `id` | Stable id (`[A-Za-z_][A-Za-z0-9_-]*`, unique). Always set it: generated ids give warnings |
 | `as` | Keep the step's result in a variable: `as: label` or `as: {name: token, secret: true}` |
 | `on_error` | `stop` (default), `continue`, `retry` (3 attempts in all), `pause` (unattended: retried twice, then exit 1) |
-| `timeout` | Replaces `wait_image`'s and `exec`'s timeout; makes `click`/`move`/`drag` image targets wait up to this long |
+| `timeout` | Replaces the `timeout` of the `wait_*` steps and `exec`; makes `click`/`move`/`drag` image targets wait up to this long (for their `window` too) |
 | `input` | Input profile override for this step |
 | `break` | `true`: breakpoint before this step |
 
-Short forms: `type: "text"`, `key: ctrl+s`, `wait_image: img/ok.png`, `sleep: 2s`,
+Short forms: `type: "text"`, `key: ctrl+s`, `wait_image_in: img/ok.png` (also
+`wait_image_out`), `wait_window_in: Mousepad` (also `wait_window_out`), `sleep: 2s`,
 `log: Done`, `pause: Check it`, `exec: mousepad notes.txt`. Other types need a mapping.
 
 ## Step types
@@ -45,7 +46,10 @@ Short forms: `type: "text"`, `key: ctrl+s`, `wait_image: img/ok.png`, `sleep: 2s
 | `scroll` | `dx` (0), `dy` (0), in notches; positive = right/down; acts where the pointer is | `dx`, `dy` |
 | `type` | `text` (required), `keyboard` (profile override) | `chars` (never the text) |
 | `key` | `press` (required, e.g. `ctrl+shift+s`), `hold` | `press`, `hold?` |
-| `wait_image` | `image` (required), `timeout` (10s), `threshold` (0.9), `region`, `window`, `scale` (1) | `found`, `score`, `bbox`, `center`, `window?`, `window_bbox?` |
+| `wait_image_in` | `image` (required), `timeout` (10s), `threshold` (0.9), `region`, `window`, `scale` (1); waits until the image is visible, else `image_not_found` | `found`, `score`, `bbox`, `center`, `window?`, `window_bbox?` |
+| `wait_image_out` | as `wait_image_in`; waits until the image is no longer visible, else `still_visible` | `gone` (true), `waited_ms` |
+| `wait_window_in` | `title` (required, substring, case-sensitive), `timeout` (10s); waits until such a window is visible, else `window_not_found` | `window` (full title), `bbox` (client area) |
+| `wait_window_out` | `title` (required), `timeout` (10s); waits until no visible window matches, else `still_visible` | `gone` (true), `waited_ms` |
 | `sleep` | `duration` (required; `2s`, `500ms`, `2s±20%`) | `seconds` |
 | `if` | `when` (condition), `then` (steps), `else?` (steps) | `branch` |
 | `loop` | exactly one of `times`, `while`, `for_each` (+ `as`, default `item`); `do` (steps) | `iterations` |
@@ -54,15 +58,23 @@ Short forms: `type: "text"`, `key: ctrl+s`, `wait_image: img/ok.png`, `sleep: 2s
 | `pause` | `message?` (unattended: resumes on its own) | `message` |
 | `exec` | `command` (list, or string split without a shell), `shell` (false), `wait` (false), `timeout`, `cwd` (script dir), `env`, `check` (true). **Needs `j5 run --allow-exec`** | with `wait`: `exit_code`, `stdout`, `stderr`, `truncated?`; without: `pid` |
 
-In a dry run, input steps and `exec` report `dry_run: true` and a `description`, plus
-`found`, `score`, `bbox`, `center` when an image was searched. A dry `exec` result has no
-`stdout`.
+Waits poll every 0.25 s; paused time does not count; `stop` ends them at once. An `_out`
+step whose target is already gone finishes at once.
+
+In a dry run, input steps, waits and `exec` report `dry_run: true` and a `description`,
+plus `found`, `score`, `bbox`, `center` when an image was searched (`found`, `window`,
+`bbox?` for window waits; an unmatched `wait_window_in` keeps the `title` as `window`).
+Each wait checks once (`--strict`: and fails if that check is not satisfied). A dry
+`exec` result has `exit_code: 0` and empty `stdout` and `stderr` with `wait` (`pid:
+null` without), so later steps that use them still check.
 
 ## Targets, windows, offsets
 
 - `x`/`y`: physical pixels on the desktop; with `window: {title: T}` relative to the
   client area of the first visible window whose title **contains** `T` (case-sensitive).
-  Missing window: `window_not_found` at once (no waiting).
+  Missing window: `window_not_found` at once, except in steps that wait (image waits,
+  image targets with the common `timeout`): they wait for the window too, and fail with
+  `window_not_found` only if it never appeared.
 - `image: "#name"` (embedded, quoted) or `image: img/x.png` (relative to the script's
   folder). The action aims at the match; without `offset` the human strategy lands
   anywhere inside it.
@@ -96,7 +108,7 @@ In a dry run, input steps and `exec` report `dry_run: true` and a `description`,
 ## Conditions
 
 `when`/`while` take an expression (truthy) or `image_visible` (one search; not found is
-false, but a missing `window` is still `window_not_found`):
+false, and so is a missing `window`):
 
 ```yaml
 when: {image_visible: "#error_icon"}

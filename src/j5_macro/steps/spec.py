@@ -85,6 +85,23 @@ class StepSpec:
 StepLookup = Callable[[str], StepSpec | None]
 """What the loader needs from the registry: a spec by step type name."""
 
+RENAMED_STEP_TYPES: Mapping[str, str] = {"wait_image": "wait_image_in"}
+"""Built-in step types removed by a rename, without an alias: a script that still uses
+the old name fails to load with ``unknown_step_type``, whose message suggests the new
+one (``details.suggestion``)."""
+
+
+def unknown_step_type(name: str) -> tuple[str, dict[str, Any]]:
+    """The message and details of ``unknown_step_type`` for ``name``, with a "did you
+    mean" hint for a renamed step type."""
+    details: dict[str, Any] = {"type": name}
+    suggestion = RENAMED_STEP_TYPES.get(name)
+    if suggestion is None:
+        return f"unknown step type {name!r}", details
+    details["suggestion"] = suggestion
+    return (f"unknown step type {name!r}; did you mean {suggestion!r}? (it was renamed)",
+            details)
+
 
 # --- validation -------------------------------------------------------------------------
 
@@ -242,6 +259,12 @@ class StepContext(Protocol):
     @property
     def dry_run(self) -> bool:
         """True in dry-run mode: executors must not send any input."""
+        ...
+
+    @property
+    def strict(self) -> bool:
+        """True in a strict dry run (``run``'s ``strict``): where a dry run would only
+        warn that the real run fails, the step fails instead."""
         ...
 
     @property

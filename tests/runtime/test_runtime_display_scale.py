@@ -51,7 +51,7 @@ def clicks(run: VisionRun) -> list[tuple[int, int]]:
     return [(call[1][0], call[1][1]) for call in run.factory.session.named("click")]
 
 
-WAIT = "steps:\n  - id: w\n    wait_image: img/x.png\n"
+WAIT = "steps:\n  - id: w\n    wait_image_in: img/x.png\n"
 
 
 # --- templates --------------------------------------------------------------------------
@@ -72,7 +72,7 @@ def test_capture_scale_divides_the_display_scale(tmp_path: Path) -> None:
 
 
 def test_the_step_scale_multiplies_on_top(tmp_path: Path) -> None:
-    run = vision(tmp_path, "steps:\n  - wait_image: {image: img/x.png, scale: 2}\n",
+    run = vision(tmp_path, "steps:\n  - wait_image_in: {image: img/x.png, scale: 2}\n",
                  scaled((PRIMARY, 1.5)))
     assert scales(run) == [3.0]
     assert run.searches()[0]["scale"] == 3.0
@@ -102,10 +102,10 @@ def test_each_search_uses_the_monitor_it_looks_at(tmp_path: Path) -> None:
     backend = scaled((PRIMARY, 1.0), (SECOND, 2.0), Notes=Rect(2000, 100, 800, 600))
     run = vision(tmp_path, """
 steps:
-  - wait_image: {image: img/x.png, window: {title: Notes}}
-  - wait_image: {image: img/x.png, region: [100, 100, 200, 200]}
-  - wait_image: {image: img/x.png, region: [2000, 100, 200, 200]}
-  - wait_image: img/x.png
+  - wait_image_in: {image: img/x.png, window: {title: Notes}}
+  - wait_image_in: {image: img/x.png, region: [100, 100, 200, 200]}
+  - wait_image_in: {image: img/x.png, region: [2000, 100, 200, 200]}
+  - wait_image_in: img/x.png
 """, backend)
     # The window and the last region are on the second monitor; the whole desktop is
     # searched at the primary monitor's scale.
@@ -115,8 +115,8 @@ steps:
 def test_embedded_images_carry_their_capture_scale(tmp_path: Path,
                                                    monkeypatch: pytest.MonkeyPatch) -> None:
     script = with_embedded("""\
-  - wait_image: "#big"
-  - wait_image: "#plain"
+  - wait_image_in: "#big"
+  - wait_image_in: "#plain"
 """, monkeypatch, big=png_header(), plain=png_header())
     images = {**script.images, "big": dataclasses.replace(script.images["big"], scale=1.5)}
     script = dataclasses.replace(script, capture_scale=1.25, images=images)
@@ -153,7 +153,7 @@ def test_offsets_of_at_targets_use_the_script_capture_scale(tmp_path: Path) -> N
 capture_scale: 0.5
 steps:
   - id: find
-    wait_image: img/x.png
+    wait_image_in: img/x.png
     as: label
   - click: {at: "${label}", offset: [10, 5]}
   - click: {at: "${label}", offset: [1w, 0.5h]}
@@ -185,10 +185,10 @@ def test_regions_at_a_result_scale_their_pixels_and_take_size_units(tmp_path: Pa
     run = vision(tmp_path, """
 steps:
   - id: find
-    wait_image: img/x.png
+    wait_image_in: img/x.png
     as: label
-  - wait_image: {image: img/x.png, region: {at: "${label}", offset: [0, 1h], size: [2w, 20]}}
-  - wait_image: {image: img/x.png, region: {at: "${label}", offset: [10, 0]}}
+  - wait_image_in: {image: img/x.png, region: {at: "${label}", offset: [0, 1h], size: [2w, 20]}}
+  - wait_image_in: {image: img/x.png, region: {at: "${label}", offset: [10, 0]}}
 """, display_scale=2.0)
     grabs = run.toolkit.capturer.grabs
     # 2w = 80; 20 px at display 2 = 40; centred 1h (20) below the label's centre.
@@ -201,7 +201,7 @@ def test_drag_points_take_units_and_scale(tmp_path: Path) -> None:
     run = vision(tmp_path, """
 steps:
   - id: find
-    wait_image: img/x.png
+    wait_image_in: img/x.png
     as: label
   - drag: {from: {at: "${label}", offset: [-0.5w, 0]}, to: {image: img/x.png, offset: [10, 0]}}
 """, scaled((PRIMARY, 2.0)))

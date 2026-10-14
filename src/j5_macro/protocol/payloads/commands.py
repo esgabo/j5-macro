@@ -197,6 +197,9 @@ class RunPayload(Payload):
     """Let ``exec`` steps start programs; without it they fail with capability_missing."""
     display_scale: float | None = None
     """The display scale of the whole run (1.0 = 100 %); None detects it per monitor."""
+    strict: bool = False
+    """Dry runs only: fail the step where a dry run would only warn that the real run
+    fails (an image not found, a search that cannot be made, ``exec`` not allowed)."""
 
     def check(self, path: str) -> None:
         scale = self.display_scale
