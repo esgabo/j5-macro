@@ -345,6 +345,24 @@ class GetScriptResult(Result):
     """The script's ``input`` profile (``mouse``, ``keyboard``), as written."""
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetImagePayload(Payload):
+    script_id: str
+    name: str
+    """The entry of the script's ``images`` (without the ``#``)."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GetImageResult(Result):
+    name: str
+    format: str
+    data: str
+    """The image file as base64, on one line."""
+    width: int
+    height: int
+    scale: float | None = None
+
+
 Block = Literal["then", "else", "do"]
 
 
@@ -494,6 +512,8 @@ class RunInfo(Payload):
     script_name: str | None = None
     script_path: str | None = None
     mode: str | None = None
+    warnings: int | None = None
+    """Warning ``log`` events of a finished run; None while it runs or when unknown."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -512,6 +532,8 @@ class GetRunResult(Result):
     run_id: str
     run: dict[str, Any]
     """The run's ``run.json``."""
+    dir: str | None = None
+    """The run's directory, absolute."""
     events: list[dict[str, Any]]
     captures: list[str] = field(default_factory=list)
     """Paths relative to ``runs/<run_id>/``."""
@@ -683,6 +705,7 @@ COMMAND_PAYLOADS: dict[str, type[Payload]] = {
     "list_scripts": ListScriptsPayload,
     "create_script": CreateScriptPayload,
     "get_script": ScriptRef,
+    "get_image": GetImagePayload,
     "edit_script": EditScriptPayload,
     "list_runs": ListRunsPayload,
     "get_run": GetRunPayload,
@@ -714,6 +737,7 @@ COMMAND_RESULTS: dict[str, type[Payload]] = {
     "list_scripts": ListScriptsResult,
     "create_script": CreateScriptResult,
     "get_script": GetScriptResult,
+    "get_image": GetImageResult,
     "edit_script": EditScriptResult,
     "list_runs": ListRunsResult,
     "get_run": GetRunResult,

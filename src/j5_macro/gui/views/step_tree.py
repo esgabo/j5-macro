@@ -33,6 +33,7 @@ GUTTER, ID_COLUMN, TYPE_COLUMN, DETAILS_COLUMN = range(4)
 BREAKPOINT_MARK = "●"
 PROBLEM_MARK = "⚠"
 CURRENT_COLOR = QColor(255, 236, 140)
+PAUSED_COLOR = QColor(255, 196, 120)
 BREAKPOINT_COLOR = QColor(200, 30, 30)
 PROBLEM_COLOR = QColor(176, 0, 32)
 STEP_MIME = "application/x-j5-step-id"
@@ -78,6 +79,7 @@ class StepTreeView(QTreeWidget):
         self._problems: dict[str, list[str]] = {}
         self._current: str | None = None
         self._registry = StepRegistry()
+        self._paused = False
         self.itemSelectionChanged.connect(self._selection_changed)
         self.itemClicked.connect(self._clicked)
 
@@ -178,6 +180,16 @@ class StepTreeView(QTreeWidget):
 
     def current_step(self) -> str | None:
         return self._current
+
+    def set_paused(self, paused: bool) -> None:
+        """Show the current step as paused at (a stronger highlight) or running."""
+        if paused != self._paused:
+            self._paused = paused
+            if self._current is not None:
+                self._paint_current(self._current, True)
+
+    def is_paused(self) -> bool:
+        return self._paused
 
     # -- drag and drop -------------------------------------------------------------------
 
@@ -306,7 +318,8 @@ class StepTreeView(QTreeWidget):
         item = self._items.get(step_id)
         if item is None:
             return
-        brush = QBrush(CURRENT_COLOR) if on else QBrush()
+        color = PAUSED_COLOR if self._paused else CURRENT_COLOR
+        brush = QBrush(color) if on else QBrush()
         for column in range(self.columnCount()):
             item.setBackground(column, brush)
             font = QFont(item.font(column))

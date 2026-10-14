@@ -100,7 +100,7 @@ def test_list_a_real_run(engine: Engine, tmp_path: Path) -> None:
     assert info.pop("started").endswith("Z")
     assert Path(info.pop("script_path")) == script.absolute()
     assert info == {"run_id": run_id, "status": "completed", "duration_ms": duration,
-                    "script_name": "Saved", "mode": "dry"}
+                    "script_name": "Saved", "mode": "dry", "warnings": 0}
 
 
 def test_filter_by_script_path(engine: Engine, tmp_path: Path) -> None:
@@ -274,6 +274,7 @@ def test_get_run_without_files(engine: Engine, tmp_path: Path) -> None:
     folder = tmp_path / "runs" / run_id_at(1)
     folder.mkdir(parents=True)
     answer = engine.ok("get_run", {"run_id": folder.name})
+    assert Path(answer.pop("dir")) == folder.resolve()
     assert answer == {"run_id": folder.name, "run": {"run_id": folder.name}, "events": [],
                       "captures": []}
 

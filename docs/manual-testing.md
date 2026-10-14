@@ -102,12 +102,39 @@ cannot: a real window manager, real input and the look of the window.
 | Script tab | Add a param, untick Required and give it a default; add a var with value `[1, 2]`; set the mouse strategy to `direct`; embed a PNG with Add from file…, rename it, delete it | Each change shows in the YAML in the `params`, `vars`, `input` and `images` sections; a renamed image's `#name` references follow it |
 | Save as one file | With a script that clicks image files, File > Save as self-contained file… | The status bar says how many images were embedded; the new file runs with `j5 run` from another folder and `j5 validate` accepts it. File > Unpack images to files… on that file writes `img/*.png` and opens the unpacked script |
 | Dry run | Open `pointer.yaml`, Dry run | The log streams the events (`▶ step`, `would click ...`, image searches) and ends with `run completed`; nothing moves |
-| Run | Run `pointer.yaml` | The mouse moves as with `j5 run`, the target logs the same clicks, the step being run is highlighted in the tree, and the run ends with `run completed`. The History tab lists the run |
+| Run | Run `pointer.yaml` | A confirmation says the run sends real input and names the stop key (`ctrl+alt+shift+q`). After **Run**, the mouse moves as with `j5 run`, the target logs the same clicks, the step being run is highlighted in the tree, and the run ends with `run completed`. The History tab lists the run |
+| Confirmation off | Run `pointer.yaml` again, tick **Do not ask again**; restart the GUI and run it once more | The second and third runs start without asking; **Run > Confirm runs that send real input** turns the question back on |
+| Params prompt | Open `flow.yaml`, Run | The run dialog asks for `name` (required, marked `*`); Start without it says it is required. Type `Ana`: the run logs `hello Ana`. Run again: `Ana` is filled in |
+| Secret param | Add `pin: {secret: true}` to `flow.yaml`'s params and `- log: "pin ${pin}"` to its steps; Run and type `48151623` | The field shows dots; the log shows `pin ***`; the next run's dialog has the field empty; `j5 runs show` of the run has no `48151623` |
+| Strict dry run | Minimise the target window, Dry run `pointer.yaml` with and without **Strict** | Without: `run completed` with warnings (the summary line counts them). With Strict: `run failed` at the first image search |
+| Breakpoint and stepping | Open `flow.yaml`, click the gutter of a step inside its loop, **Debug a dry run** | The run pauses at the first step (pause box: `Paused before ...`), F5 runs to the breakpoint (red dot) on every iteration; F10, F11 and Shift+F11 step over, into and out; the tree highlights and scrolls to the step; the variables show while paused; Shift+F5 stops |
+| Variables | **Debug a dry run** of `flow.yaml` (with `name` Ana); at the first pause set `name` to `"Bob"` and evaluate `upper(name)` | `name` shows `"Bob"`, the evaluation `"BOB"`, and the run logs `hello Bob` when it gets there |
+| Error pause and capture | Copy `pointer.yaml`, add `on_error: pause` to its first image step, minimise the target and Run the copy | The pause box shows `Step '...' failed`, `image_not_found`, and the capture of the screen. Restore the target and press **Retry**: the run goes on. Run it again and press **Skip**: the run goes on after the step |
+| Interference | Run `pointer.yaml` and move the mouse while j5 moves it | The pause box says the mouse was moved, with both positions; **Retry** runs the step again from where the pointer is; **Stop** ends the run. No button stays held |
 | Stop | Run `keyboard.yaml`, press Stop while it types | The run ends with `run stopped`; no key stays held |
-| Emergency stop key | Run `keyboard.yaml` and press the stop key shown | As Stop, with the engine's warning in the log |
+| Emergency stop key | Run `keyboard.yaml` and press the stop key shown, first with the GUI in front, then with the target window in front | As Stop, with the engine's warning in the log; no key stays held (type in another window to check Shift and Ctrl) |
+| Stop while paused | Debug `keyboard.yaml` (real input), step over twice, then Stop | `run stopped`; nothing was typed after the last step |
 | Engine crash | While the GUI is open, kill the engine process (`python -m j5_macro.engine`) | A red banner says the engine stopped, with its exit code; Restart engine brings it back and reopens the script |
 | Without PySide6 | In an environment without the `gui` extra, `j5 gui` | `j5: the GUI needs PySide6, which is not installed: pip install "j5-macro[gui]"`, exit code 2 |
 | Display scale | At 150 % (see "Display scale") | The window and its fonts are sharp and scaled, not blurry |
+
+The screen tools and the history ([gui.md](gui.md#screen-tools)) use the overlay and the
+real screen. Check them on Linux with X11 (Xfce) and on Windows, each at 100 % and at
+150 % (with `target.py --scale 1.5`; at 150 % the pattern is 72x72 and its centre is at
+(66, 66)). Write `/tmp/gui.yaml` (`%TEMP%\gui.yaml`) with `name: GUI` and one step,
+`- id: press` with `click: {x: 1, y: 1}`, and open it with `j5 gui /tmp/gui.yaml`.
+
+| Check | How | Expected |
+| --- | --- | --- |
+| Capture | Select `press`, Tools > Capture template…, keep **Embed in the script as** `press`, **Capture…**, drag tightly around the pattern | The application's windows disappear before the screen freezes and come back afterwards. The YAML shows `click: {image: '#press'}` and an `images` section with `press` (with `scale: 1.5` at 150 %, and the dialog says so); the Screen tab shows the template, 48x48 (72x72 at 150 %), over a checkerboard |
+| Capture to a file | Capture again with **Save as a file next to the script** and **Transparent background**, a few pixels of window background around the pattern | `press.png` is written next to the script with a transparent border, the step uses `image: press.png`, the preview shows the checkerboard through the border. At 150 % the dialog shows the `capture_scale` hint |
+| Flat template | Capture a rectangle of plain window background | The dialog warns that the template has a single colour |
+| Cancel | **Capture…**, then Escape; **Pick…**, then the right button | Each time the windows come back at once, the tool says "Cancelled." and the script does not change |
+| Test | With the pattern captured, Tools > Test image search | The windows hide for a moment; the result says Found with a score near 1 and shows a screenshot of the searched area with the pattern outlined in green. Cover the pattern with another window and test again: Not found, the best location outlined in red with its score |
+| Pick | Tools > Pick point…, click the centre of the pattern | The step becomes `click: {x: 44, y: 44, window: {title: j5 smoke target}}` ((66, 66) at 150 %, give or take a pixel) and loses its `image`; Run makes the target log a click on the pattern |
+| Windows | Tools > Windows… | `j5 smoke target` is listed with its client area; choosing it sets the step's `window` |
+| Busy | Open `examples/smoke/keyboard.yaml`, Run, and press **Pick…** in the Screen tab of a click step while it types | "A script is running…": nothing opens |
+| History | Capture `press` again, close `target.py` and Run `/tmp/gui.yaml` | The run fails; the History tab lists it with its status in red; its Failed search tab shows the template next to what the step saw, with the best location outlined in red and its score. **Open folder** opens the run's directory; **Delete…** asks, then removes the run and its folder |
 
 ## Safety checks
 

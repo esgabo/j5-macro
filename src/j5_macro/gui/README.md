@@ -36,11 +36,11 @@ flowchart TB
 
 | Module | Holds | Qt |
 | --- | --- | --- |
-| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog` and `format_event` (`run_log.py`), `RunSummary` (`runs.py`); for the editor, the step registry and the palette (`registry.py`), field kinds and value parsing (`fields.py`), the edits behind every editor action (`edits.py`) and the header's values (`header.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
+| `models/` | View models built from engine results and events: `StepItem` trees (`steps.py`), `ScriptState` and `ScriptEntry` (`script.py`), `EngineInfo` (`engine_info.py`), `RunLog`, `format_event` and the log filter (`run_log.py`), `RunSummary` (`runs.py`), and for running and debugging: `ParamSpec` and the params prompt's conversion (`params.py`), `RunKind`, `RunOptions` and the `run` payload (`run_options.py`), `debug_actions` and `PauseInfo` (`debugger.py`), `VariableRow` and `set_variable` payloads (`variables.py`). `RunDetail`, `SearchFailure` and the history rows (`history.py`), the screen tools' targets, edits, names and error messages (`screen.py`), and for the editor: the step registry and the palette (`registry.py`), field kinds and value parsing (`fields.py`), the edits behind every editor action (`edits.py`) and the header's values (`header.py`). Frozen dataclasses and plain functions, unit tested without a display | None |
 | `engine_thread.py` | `EngineThread`: the existing asyncio `EngineClient` on an event loop in a daemon thread (`j5-gui-engine`). `call()` returns a `concurrent.futures.Future`; events and the engine's death reach callbacks **on that thread**. Releases held keys when the engine dies (`cli.release`) | None |
 | `bridge.py` | `EngineBridge`: owns the `EngineThread` and turns its futures and callbacks into callbacks and signals **on the GUI thread** | QtCore |
-| `controllers/` | Shared state, as QObjects without widgets: `ScriptDocument` (the open script), `RunController` (the active run, the breakpoints) and `EditQueue` (the editor's edits, one at a time) | QtCore |
-| `screen_tools.py` | `ScreenTools`: `capture_region`, `pick_point`, `find_image`, `screenshot`, `list_windows` | QtCore |
+| `controllers/` | Shared state, as QObjects without widgets: `ScriptDocument` (the open script), `RunController` (the active run, debugging, the breakpoints) and `EditQueue` (the editor's edits, one at a time) | QtCore |
+| `screen_tools.py` | `ScreenTools`: `capture_region`, `pick_point`, `find_image`, `screenshot`, `list_windows`, `get_image`; `while_hidden` and the `hider` that hides the windows during overlays | QtCore |
 | `context.py` | `AppContext`: the bridge, the document, the run controller and the screen tools, handed to every panel | QtCore |
 | `views/` | The widgets (below) | QtWidgets |
 | `app.py` | `run_gui(target, engine_cmd)`: the `QApplication`, the context, the main window | QtWidgets |
@@ -103,14 +103,23 @@ ctx.bridge.event_received.connect(self.on_event)  # every Event, GUI thread, in 
 
 | Member | Meaning |
 | --- | --- |
-| `start(mode, **options)`, `stop()` | `run` (`normal`, `dry`, `step`; options as `run`'s payload, `None` left out) and `stop` |
-| `active` / `active_changed(bool)`, `run_id`, `log` (`RunLog`) | The active run |
-| `run_started(run_id)`, `event_logged(LogLine)`, `state_changed(state)`, `current_step_changed(step_id or None)`, `run_finished(payload)`, `error(message)` | What happened |
-| `breakpoints`, `set_breakpoints(ids)`, `toggle_breakpoint(id)`, `breakpoints_changed(frozenset)` | The client breakpoints of the open script (kept locally; not sent to the engine yet) |
+| `start(kind, params=, options=, **extra)`, `stop()` | `run` and `stop`. `kind` is `normal`, `dry`, `debug` (mode `step`) or `debug_dry` (mode `dry` with a breakpoint on the first step until the first pause), or `step`; `options` a `RunOptions`; `extra` other `run` fields (`None` left out). Nothing given is kept, so secret params only pass through |
+| `pause_run()`, `resume()`, `step_over()`, `step_into()`, `step_out()` | The control commands; ignored when they do not apply (see `actions`) or while one is in flight |
+| `retry()`, `skip(carry_on=None)` | For an error or interference pause: `resume`, and `step_over` (then `resume` at the next pause, unless the run was started to debug) |
+| `refresh_state()`, `variables` / `variables_changed(dict or None)` | `get_state`, sent at every pause; the variables (secrets masked) |
+| `set_variable(name, text, expression=, on_done=)`, `evaluate(expression, on_result, on_error)` | `set_variable` (a value, JSON else text, or an expression; then `get_state` again) and `evaluate`, only while paused |
+| `active` / `active_changed(bool)`, `run_id`, `kind`, `state`, `log` (`RunLog`) | The active run; `state` adds `starting` (requested, no `run_started` yet) to `RunLog.state` |
+| `pause` / `paused(PauseInfo or None)` | Why and where the run is paused (again when `get_state` says where) |
+| `actions` / `actions_changed(DebugActions)` | Which controls apply now (`models/debugger.py`) |
+| `run_started(run_id)`, `event_logged(LogLine)`, `state_changed(state)`, `current_step_changed(step_id or None)`, `run_finished(payload)`, `error(message)` | What happened. The current step comes from `step_started`, `breakpoint_hit` and `get_state` |
+| `breakpoints`, `set_breakpoints(ids)`, `toggle_breakpoint(id)`, `breakpoints_changed(frozenset)` | The client breakpoints of the open script, kept per script file for the session and sent with `set_breakpoints` when they change, when the script loads and when a new engine starts |
+| `runs_dir`, `capture_path(relative)` | Where the engine saves runs (from `--runs-dir`, `J5_RUNS_DIR` or the default, `AppContext.create` works it out) and a capture of the active run there |
+| `remembered_params(script)`, `remember_params(texts, script)` | The non-secret param texts of the last run of a script, for the session |
+| `confirm_real_input`, `set_confirm_real_input(bool)`, `use_settings(QSettings)` | Whether views confirm runs that send real input; `app.py` keeps it in `QSettings` |
 
 ## The main window and its areas
 
-`views/main_window.py` only lays out the panels, builds the menus (File, Run, Engine)
+`views/main_window.py` only lays out the panels, builds the menus (File, Run, Tools, Engine)
 and shows messages in the status bar. Each area is its own module and gets the
 `AppContext`:
 
@@ -119,13 +128,18 @@ and shows messages in the status bar. Each area is its own module and gets the
 | Left | `views/script_list.py` | `ScriptListPanel` | `list_scripts` of a folder, open, `create_script` |
 | Center | `views/editor.py` | `EditorPanel` | Title, problems, the toolbar (delete, duplicate, up, down), pack and unpack, and: |
 | | `views/palette.py` | `StepPalette` | The step types of `list_step_types` by group; inserts or drags a type |
-| | `views/step_tree.py` | `StepTreeView` | The steps, a row per block slot (`then`, `else`, `do`), drag and drop (emits `step_dropped`/`type_dropped` with a `Target`), problem marks, breakpoint gutter (column 0), current step highlight |
+| | `views/step_tree.py` | `StepTreeView` | The steps, a row per block slot (`then`, `else`, `do`), drag and drop (emits `step_dropped`/`type_dropped` with a `Target`), problem marks, breakpoint gutter (column 0), current step highlight (`set_paused` for the stronger paused one) |
 | | `views/step_form.py` | `StepFormPanel` | The selected step's form, generated from the registry; debounced `update` edits |
 | | `views/fields.py` | `Field` and friends | The field widgets, and the field tools hook (below) |
 | | `views/header_form.py` | `ScriptHeaderPanel` | The Script tab: name, capture scale, params, vars, images, input profile (`set_meta` and the image edits) |
 | | `views/yaml_view.py` | `YamlView` | `get_script`'s `source`, read-only; highlights the selected step's line, `line_clicked` selects a step |
-| Bottom tab | `views/run_panel.py` | `RunPanel` | Run, Dry run (+ Strict), Stop, state, stop key, log of events |
-| Bottom tab | `views/history_panel.py` | `HistoryPanel` | `list_runs` of the open script |
+| Bottom tab | `views/run_panel.py` | `RunPanel` | Run, Dry run (+ Strict), Debug, Options…, the debug toolbar (`run_actions`, with their shortcuts, also in the Run menu), state, stop key, the log with its filter and summary; `request(kind)` (dialogs, then the run) and `start(kind)` (no dialog) |
+| | `views/params_dialog.py` | `RunDialog` | The params prompt and the run options; `try_accept()`, `outcome()` |
+| | `views/pause_view.py` | `PauseView` | Why the run is paused; the error, the failure capture and Retry / Skip / Stop |
+| | `views/variables.py` | `VariablesPanel` | `get_state`'s variables, Set (value or expression), Evaluate |
+| Bottom tab | `views/history_panel.py` | `HistoryPanel` | `list_runs` of the open script; the selected run (`get_run`): events, captures, `FailureView` (the failing search's capture next to its template); `delete_run`, open folder |
+| Dialogs | `views/screen_dialogs.py` | `ImageFieldTools`, `PointFieldTools`, `CaptureDialog`, `TestResultDialog`, `WindowChooser`, `TopLevelHider` | The screen tools as reusable widgets (see "Field tools") |
+| | `views/template_preview.py` | `ImageView`, `TemplatePreview` | An image over a checkerboard with marks; a template from a file or `get_image` |
 | Top | `views/engine_banner.py` | `EngineBanner` | Engine failed or died, Restart |
 | Status bar | `views/main_window.py` | `MainWindow.engine_label` | Backend, vision, stop key (`hello`) |
 
@@ -202,18 +216,58 @@ Work on the next features stays inside these modules, so it can go on in paralle
   `controllers/edit_queue.py` and `models/registry.py`, `fields.py`, `edits.py`,
   `header.py` (see "The script editor" above). Every change goes through
   `edit_script`; the view refreshes on `state_changed`, never by itself.
-- **Run and debugging**: `controllers/run.py` (pause, resume, `step_*`,
-  `set_breakpoints` when `breakpoints_changed`, `get_state`, `set_variable`,
-  `evaluate`, the params prompt) and `views/run_panel.py` (controls, variables, the
-  on-error and interference pauses with retry/skip). The step tree already shows the
-  breakpoints and the current step from the controller's signals.
-- **History and screen tools**: `views/history_panel.py` (`get_run`, captures,
-  `delete_run`; `selected_run_id()`, `run_selected`), `screen_tools.py` (previews,
-  "Test" over a screenshot) and the image and coordinate fields that use it, through
-  the field tools hook of `views/fields.py`.
+- **Run and debugging**: `controllers/run.py` and the views it drives
+  (`views/run_panel.py`, `params_dialog.py`, `pause_view.py`, `variables.py`), with
+  their pure logic in `models/params.py`, `run_options.py`, `debugger.py`,
+  `variables.py` and `run_log.py`. The step tree shows the breakpoints and the current
+  step from the controller's signals (wired in `editor.py` and `main_window.py`).
+- **History and screen tools**: `views/history_panel.py`, `views/screen_dialogs.py`,
+  `views/template_preview.py`, `screen_tools.py`,
+  `models/history.py` and `models/screen.py`. Image and coordinate fields of the step
+  forms plug in the field tools below.
 
 Shared files (`context.py`, `views/main_window.py`, `controllers/document.py`) should
 only get small, additive changes: a new service in `AppContext`, a menu entry, a signal.
+
+## Field tools
+
+The screen tools are self-contained widgets (`views/screen_dialogs.py`) that any form
+embeds next to its field. They only need the `AppContext` and callables to read and
+write the field; they never edit the script themselves, so the form decides how a value
+is written (usually an `update` edit through `ctx.document.edit`).
+
+```python
+from j5_macro.gui.views.screen_dialogs import ImageFieldTools, PointFieldTools
+
+image_tools = ImageFieldTools(
+    ctx,
+    get_value=lambda: form.value("image"),          # "img/save.png", "#save" or None
+    set_value=lambda value: form.set("image", value),
+    get_search=lambda: form.values(),               # window: {title}, region, threshold, scale
+    step_id=lambda: form.step_id)                   # names new templates (str or callable)
+image_tools.refresh()                               # after the field's value changes
+
+point_tools = PointFieldTools(
+    ctx,
+    get_point=lambda: form.values(),                # x, y, window, image (as in the step)
+    set_point=lambda values: form.update(values))   # x, y, window ({title} or None),
+                                                    # image/at None when replaced
+```
+
+| Component | Contract |
+| --- | --- |
+| `ImageFieldTools(ctx, get_value, set_value, *, get_search=None, step_id=None, preview=True)` | **Capture…** opens a `CaptureDialog` (embed as `#name` or save a file next to the script; padding, transparent, replace) and calls `set_value("#name")` or `set_value("img/x.png")` (relative to the script) once the document shows the script's new version, so an edit made in `set_value` does not conflict. **Test** runs `find_image` with `get_value()` and `get_search()` (the step's other parameters, in the step's own shape) and opens a `TestResultDialog`; `tested(TestResult)` fires. `preview` is a `TemplatePreview`; call `refresh()` when the value changes. Whether a new image replaces the step's `x`/`y`/`at` is the form's choice: `models.screen.image_values(target, value)` gives those parameters |
+| `PointFieldTools(ctx, get_point, set_point)` | **Pick…** runs `pick_point` and calls `set_point(models.screen.pick_values(result, ...))`: `x`/`y` relative to the window the point is in plus `window: {title}` (or desktop coordinates with `window: None` when **Relative to its window** is cleared), `image: None` when the target had an image, `at: None`. **Window…** opens a `WindowChooser` (`list_windows`) and calls `set_point({"window": {"title": t}})`. `picked(values)` fires |
+| `TemplatePreview(ctx)` | `show_template(value)` shows a file (relative to the open script) or an embedded `#name` (`get_image`), with its size and scale; `script_id`, `script_path` and `use_document=False` for another script |
+| `ImageView` | `set_image(QImage)`, `set_marks([Mark(rect, color, label)])` in image pixels; scaled to fit, checkerboard behind |
+
+Both tool widgets show what happened (and errors, with install hints for a missing
+`vision` extra or tkinter) in their `message` label and emit `message_changed(str)`;
+Escape on the overlay is quiet, and `busy` (a run is active) says so. Their dialogs are
+modeless: `TopLevelHider` (installed by the main window as `ctx.screen.hider`) hides
+every top-level window while an overlay is open or a Test looks at the screen, and
+shows them again afterwards (after a short delay for the window manager; none on the
+`offscreen` platform). Without a hider (a bare `AppContext`), nothing is hidden.
 
 ## Tests
 
@@ -236,5 +290,6 @@ def test_something(qtbot, window, scripts):
 ```
 
 Avoid modal dialogs in code paths the tests drive (keep the dialog in a small method
-and the work in another, as `ScriptListPanel.ask_new_script` and `create_script` do).
+and the work in another, as `ScriptListPanel.ask_new_script` and `create_script` do, and
+`RunPanel.exec_dialog` and `confirm_real_input`, which tests replace).
 To look at the window, render it offscreen: `window.grab().save("window.png")`.

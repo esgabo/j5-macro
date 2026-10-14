@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject
 from j5_macro.gui.bridge import EngineBridge
 from j5_macro.gui.controllers.document import ScriptDocument
 from j5_macro.gui.controllers.run import RunController
+from j5_macro.gui.models.run_options import engine_runs_dir
 from j5_macro.gui.screen_tools import ScreenTools
 
 
@@ -32,5 +33,6 @@ class AppContext:
         bridge = EngineBridge(engine_cmd, env=env, cwd=cwd, parent=parent)
         document = ScriptDocument(bridge, parent=bridge)
         return cls(bridge=bridge, document=document,
-                   run=RunController(bridge, document, parent=bridge),
+                   run=RunController(bridge, document, parent=bridge,
+                                     runs_dir=engine_runs_dir(engine_cmd, env, cwd)),
                    screen=ScreenTools(bridge, parent=bridge))

@@ -7,19 +7,35 @@ finishes (Escape answers ``invalid_state`` with ``details.reason: cancelled``), 
 are sent without a timeout. Results and errors arrive on the GUI thread, like every
 :meth:`EngineBridge.call`.
 
-Extension point (screen tools): previews of templates, the "Test" result drawn over a
-screenshot, and hiding the main window while an overlay is open belong here and in the
-widgets that use this service.
+The widgets that use this service are in :mod:`j5_macro.gui.views.screen_dialogs`
+(``ImageFieldTools``, ``PointFieldTools``, the capture and test dialogs) and
+:mod:`j5_macro.gui.views.template_preview`.
+
+**Hiding the windows.** The overlay is a still image of the desktop taken when the
+command arrives, and a search looks at the screen as it is: the application's own
+windows must be out of the way first. A :class:`WindowHider` (the main window installs
+one, :class:`~j5_macro.gui.views.screen_dialogs.TopLevelHider`) hides them; every
+interactive command, and any work wrapped in :meth:`ScreenTools.while_hidden`, is sent
+once they are hidden and shows them again when it is answered.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
 from PySide6.QtCore import QObject, Signal
 
 from j5_macro.gui.bridge import EngineBridge, ErrorCallback, ResultCallback
+
+
+class WindowHider(Protocol):
+    def hide(self, then: Callable[[], None]) -> None:
+        """Hide the application's windows, then call ``then`` (later, once they are
+        gone from the screen)."""
+
+    def restore(self) -> None:
+        """Show again what :meth:`hide` hid."""
 
 
 class ScreenTools(QObject):
@@ -30,10 +46,38 @@ class ScreenTools(QObject):
         super().__init__(parent)
         self._bridge = bridge
         self._overlays = 0
+        self.hider: WindowHider | None = None
+        """Hides the application's windows during interactive commands; None leaves
+        them as they are (tests, embedding)."""
 
     @property
     def overlay_open(self) -> bool:
         return self._overlays > 0
+
+    def while_hidden(self, work: Callable[[Callable[[], None]], None]) -> None:
+        """Run ``work(done)`` with the application's windows hidden (see
+        :attr:`hider`); ``work`` calls ``done()`` once when it has finished, which shows
+        them again. Without a hider, ``work`` runs right away."""
+        hider = self.hider
+        if hider is None:
+            work(lambda: None)
+            return
+        finished = False
+
+        def done() -> None:
+            nonlocal finished
+            if not finished:
+                finished = True
+                hider.restore()
+
+        hider.hide(lambda: work(done))
+
+    def get_image(self, script_id: str, name: str, *, on_result: ResultCallback,
+                  on_error: ErrorCallback | None = None) -> None:
+        """``get_image``: an embedded image of a loaded script, with its data
+        (base64 PNG) and size."""
+        self._bridge.call("get_image", {"script_id": script_id, "name": name},
+                          on_result=on_result, on_error=on_error)
 
     def list_windows(self, *, on_result: ResultCallback,
                      on_error: ErrorCallback | None = None) -> None:
@@ -88,16 +132,22 @@ class ScreenTools(QObject):
             return
         self._overlay(+1)
 
-        def done(result: dict[str, Any]) -> None:
-            self._overlay(-1)
-            on_result(result)
+        def send(restore: Callable[[], None]) -> None:
+            def done(result: dict[str, Any]) -> None:
+                self._overlay(-1)
+                restore()
+                on_result(result)
 
-        def failed(exc: BaseException) -> None:
-            self._overlay(-1)
-            if on_error is not None:
-                on_error(exc)
+            def failed(exc: BaseException) -> None:
+                self._overlay(-1)
+                restore()
+                if on_error is not None:
+                    on_error(exc)
 
-        self._bridge.call(command, payload, on_result=done, on_error=failed, timeout=None)
+            self._bridge.call(command, payload, on_result=done, on_error=failed,
+                              timeout=None)
+
+        self.while_hidden(send)
 
     def _overlay(self, delta: int) -> None:
         before = self.overlay_open
