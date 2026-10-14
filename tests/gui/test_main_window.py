@@ -58,12 +58,13 @@ def test_opens_a_folder_and_a_script(qtbot: Any, window: Any, scripts: Path) -> 
     assert tree_rows(window.editor.tree) == [
         (0, "hello", "log"),
         (0, "repeat", "loop"),
-        (1, "bump", "set"),
-        (1, "check", "if"),
-        (2, "then", ""),
-        (3, "second", "log"),
-        (2, "else", ""),
-        (3, "first", "log"),
+        (1, "do", ""),
+        (2, "bump", "set"),
+        (2, "check", "if"),
+        (3, "then", ""),
+        (4, "second", "log"),
+        (3, "else", ""),
+        (4, "first", "log"),
         (0, "press", "key"),
     ]
     assert window.editor.yaml_view.toPlainText() == (scripts / "quick.yaml").read_text(

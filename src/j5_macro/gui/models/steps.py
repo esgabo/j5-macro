@@ -89,9 +89,15 @@ def find_step(steps: Sequence[StepItem], step_id: str) -> StepItem | None:
     return next((step for step in iter_steps(steps) if step.id == step_id), None)
 
 
-def step_summary(step: StepItem, limit: int = SUMMARY_LENGTH) -> str:
-    """A one-line description of the parameters: ``x=120 y=40 button=left``."""
-    parts = [f"{name}={_short(value)}" for name, value in step.params.items()]
+def step_summary(step: StepItem, limit: int = SUMMARY_LENGTH,
+                 defaults: Mapping[str, Any] | None = None) -> str:
+    """A one-line description of the parameters: ``x=120 y=40 button=left``. Parameters
+    equal to their value in ``defaults`` (the step type's declared defaults, which the
+    engine reports as if they were written) are left out."""
+    defaults = defaults or {}
+    parts = [f"{name}={_short(value)}" for name, value in step.params.items()
+             if not (name in defaults and value == defaults[name]
+                     and type(value) is type(defaults[name]))]
     text = " ".join(parts)
     return text if len(text) <= limit else text[: limit - 1] + "…"
 

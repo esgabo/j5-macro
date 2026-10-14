@@ -126,6 +126,11 @@ class MainWindow(QMainWindow):
                                               self.script_list.ask_new_script,
                                               QKeySequence.StandardKey.New)
         file_menu.addSeparator()
+        self.pack_action = self._action(file_menu, "Save as self-&contained file…",
+                                        self.editor.ask_save_packed)
+        self.unpack_action = self._action(file_menu, "&Unpack images to files…",
+                                          self.editor.ask_unpack)
+        file_menu.addSeparator()
         self._action(file_menu, "&Quit", self.close, QKeySequence.StandardKey.Quit)
 
         run_menu = self.menuBar().addMenu("&Run")
@@ -155,6 +160,9 @@ class MainWindow(QMainWindow):
 
     def _document_changed(self, state: ScriptState | None) -> None:
         self.setWindowTitle(f"{state.title} - {TITLE}" if state is not None else TITLE)
+        has_file = state is not None and state.path is not None
+        self.pack_action.setEnabled(has_file)
+        self.unpack_action.setEnabled(has_file and bool(state and state.images))
 
     def _run_active(self, active: bool) -> None:
         if active:

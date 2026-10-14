@@ -67,6 +67,10 @@ class ScriptState:
     errors: tuple[Mapping[str, Any], ...] = ()
     warnings: tuple[Mapping[str, Any], ...] = field(default=())
     """The warnings of the last ``load`` (``get_script`` does not report them)."""
+    vars: Mapping[str, Any] = field(default_factory=dict)
+    """The script's ``vars``."""
+    input: Mapping[str, Any] = field(default_factory=dict)
+    """The script's input profile, as written."""
 
     @classmethod
     def from_get_script(cls, result: Mapping[str, Any],
@@ -86,6 +90,8 @@ class ScriptState:
             valid=result.get("valid") is not False,
             errors=_mappings(result.get("errors")),
             warnings=tuple(warnings),
+            vars=_mapping(result.get("vars")),
+            input=_mapping(result.get("input")),
         )
 
     @property
@@ -103,6 +109,10 @@ def format_problem(problem: Mapping[str, Any]) -> str:
     line = problem.get("line")
     text = f"line {line}: {message}" if isinstance(line, int) else message
     return f"{text} ({code})" if code else text
+
+
+def _mapping(raw: object) -> dict[str, Any]:
+    return {str(k): v for k, v in raw.items()} if isinstance(raw, Mapping) else {}
 
 
 def _mappings(raw: object) -> tuple[Mapping[str, Any], ...]:
