@@ -176,6 +176,10 @@ run_job() {
     log "no script at $script; mount the job folder at $JOB_DIR"
     exit "$SETUP_FAILED"
   fi
+  if [[ ! "$JOB_TIMEOUT" =~ ^[0-9]+(\.[0-9]+)?[smhd]?$ ]]; then
+    log "JOB_TIMEOUT=$JOB_TIMEOUT is not a duration such as 90s, 10m or 1h"
+    exit "$SETUP_FAILED"
+  fi
   mkdir -p "$OUT_DIR/downloads"
 
   local started
@@ -188,19 +192,30 @@ run_job() {
   read -ra extra <<<"${J5_ARGS:-}"
   args+=("${extra[@]}" "$script")
 
-  local code=0
-  # timeout stops a run that takes too long. Like docker stop below, it interrupts j5
-  # with SIGINT (Ctrl+C), which ends the run cleanly: held keys released, the run saved
-  # with its run_finished event. It is killed if it has not ended 10 s later.
-  timeout --signal=INT --kill-after=10s "$JOB_TIMEOUT" j5 "${args[@]}" \
-    </dev/null >"$OUT_DIR/events.jsonl" 2>"$OUT_DIR/j5.log" &
+  local code=0 timed_out="$HOME/.j5-timed-out"
+  rm -f "$timed_out"
+  j5 "${args[@]}" </dev/null >"$OUT_DIR/events.jsonl" 2>"$OUT_DIR/j5.log" &
   local j5_pid=$!
+  # A watchdog stops a run that takes too long. Like docker stop below, it interrupts j5
+  # once with SIGINT (Ctrl+C), which ends the run cleanly: held keys released, the run
+  # saved with its run_finished event; j5 is killed if it has not ended 10 s later. (Not
+  # coreutils timeout: it signals both the command and its process group, and j5 takes
+  # a second Ctrl+C as "quit now", without saving the run.)
+  (
+    sleep "$JOB_TIMEOUT" || exit 0
+    touch "$timed_out"
+    kill -INT "$j5_pid" 2>/dev/null || exit 0
+    sleep 10
+    kill -KILL "$j5_pid" 2>/dev/null
+  ) &
+  local watchdog=$!
   trap 'kill -INT "$j5_pid" 2>/dev/null || true' TERM INT
   wait "$j5_pid" || code=$?
   # wait returns early when a trapped signal arrives: wait for j5 itself to end.
   while kill -0 "$j5_pid" 2>/dev/null; do wait "$j5_pid" || code=$?; done
   trap - TERM INT
-  if [[ $code -eq 124 || $code -eq 137 ]]; then
+  kill "$watchdog" 2>/dev/null || true
+  if [[ -e "$timed_out" ]]; then
     log "the job ran longer than JOB_TIMEOUT=$JOB_TIMEOUT and was stopped"
     echo "j5-browser: stopped after JOB_TIMEOUT=$JOB_TIMEOUT" >>"$OUT_DIR/j5.log"
     code=124

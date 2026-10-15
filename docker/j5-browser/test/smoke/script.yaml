@@ -22,9 +22,13 @@ steps:
     key: ctrl+a
   - id: copy
     key: ctrl+c
+  # Chromium fills the clipboard a moment after ctrl+c: retry until xclip gets the text.
   - id: save_clipboard
     exec:
-      command: xclip -o -selection clipboard > /out/clipboard.txt
+      command: >-
+        for i in $(seq 1 50); do
+        xclip -o -selection clipboard > /out/clipboard.txt 2>/dev/null && exit 0; sleep 0.1;
+        done; exit 1
       shell: true
       wait: true
       timeout: 10s

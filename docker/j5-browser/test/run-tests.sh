@@ -34,7 +34,8 @@ run_job() {  # run_job NAME [docker run options...]; sets $out and $code
   mkdir -p "$out"
   chmod 0777 "$out"
   code=0
-  docker run --rm --shm-size=512m -v "$here/$name:/job:ro" -v "$out:/out" "$@" "$image" run \
+  docker run --rm --shm-size=512m --user "$(id -u):$(id -g)" \
+    -v "$here/$name:/job:ro" -v "$out:/out" "$@" "$image" run \
     || code=$?
 }
 
@@ -83,6 +84,7 @@ run_job timeout -e JOB_TIMEOUT=5s
 check "exit code 124 (got $code)" test "$code" -eq 124
 check "stopped within 30 s (took $((SECONDS - started)) s)" test $((SECONDS - started)) -lt 30
 check "result.json says timeout" test "$(json "$out/result.json" status)" = timeout
+check "the run was saved as stopped" grep -q '"status":"stopped"' "$out/events.jsonl"
 [[ $failures -eq $before ]] || show_logs "$out"
 
 echo "== docker stop: interrupts the run cleanly"
@@ -90,13 +92,15 @@ before=$failures
 out="$work/stop"
 mkdir -p "$out"
 chmod 0777 "$out"
-cid=$(docker run -d --shm-size=512m -v "$here/timeout:/job:ro" -v "$out:/out" "$image" run)
+cid=$(docker run -d --shm-size=512m --user "$(id -u):$(id -g)" \
+  -v "$here/timeout:/job:ro" -v "$out:/out" "$image" run)
 for _ in $(seq 1 100); do grep -q step_started "$out/events.jsonl" 2>/dev/null && break; sleep 0.2; done
 docker stop -t 20 "$cid" >/dev/null
 code=$(docker inspect "$cid" --format '{{.State.ExitCode}}')
 docker rm "$cid" >/dev/null
 check "exit code 130 (got $code)" test "$code" -eq 130
 check "result.json says stopped" test "$(json "$out/result.json" status)" = stopped
+check "j5 was interrupted once" bash -c "! grep -q 'interrupted again' '$out/j5.log'"
 [[ $failures -eq $before ]] || show_logs "$out"
 
 echo "== setup errors"
@@ -114,7 +118,12 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$@" "http://127.0.0.1:$port/"
 for _ in $(seq 1 50); do [[ "$(status -u j5:test-pass)" == 200 ]] && break; sleep 0.2; done
 check "the page answers with the password" test "$(status -u j5:test-pass)" = 200
 check "and refuses without it" test "$(status)" = 401
-windows=$(docker exec "$cid" j5 windows --json 2>/dev/null || true)
+windows=
+for _ in $(seq 1 30); do  # Chromium may still be starting
+  windows=$(docker exec "$cid" j5 windows --json 2>/dev/null || true)
+  grep -qi chrom <<<"$windows" && break
+  sleep 0.5
+done
 check "j5 sees the browser window through docker exec" grep -qi chrom <<<"$windows"
 docker stop -t 5 "$cid" >/dev/null
 

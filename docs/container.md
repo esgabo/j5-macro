@@ -178,7 +178,8 @@ move the folders, and `J5_IMAGE` names an image built elsewhere.
   `exec` step that checks for the file (below). Chromium briefly shows a downloads
   bubble at the top right of the page after each download; `key: escape` closes it.
 - **Text from a page:** select and copy it in the page (`key: ctrl+a` or a drag, then
-  `key: ctrl+c`), then save the clipboard with `xclip`.
+  `key: ctrl+c`), then save the clipboard with `xclip`, retrying for a moment: Chromium
+  fills the clipboard shortly after the key press.
 - **A picture of the screen:** `j5 screenshot -o /out/name.png`, or
   `--window Chromium` for the window only.
 - **`--fast`** (`J5_FAST=1`) when nobody needs the input to look human.
@@ -201,9 +202,12 @@ steps:
     key: ctrl+a
   - id: copy
     key: ctrl+c
-  - id: save_summary
+  - id: save_summary   # retried: Chromium fills the clipboard a moment after ctrl+c
     exec:
-      command: xclip -o -selection clipboard > /out/summary.txt
+      command: >-
+        for i in $(seq 1 50); do
+        xclip -o -selection clipboard > /out/summary.txt 2>/dev/null && exit 0; sleep 0.1;
+        done; exit 1
       shell: true
       wait: true
   - id: export
