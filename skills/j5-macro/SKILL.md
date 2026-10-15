@@ -86,10 +86,12 @@ $ j5 run --json form.yaml < /dev/null > events.jsonl; echo $?   # 7. for real
    step.
 4. **Test each template.** `j5 find '#NAME' --script SCRIPT --window TITLE` searches
    exactly as a step would. Exit 0 = found; it prints the score (aim for ≥ 0.95 on the
-   screen it came from) and where. Exit 1 = not found, with the best score. j5 takes the
-   best match only, so check the reported bbox is the place you meant; if the same
-   pixels appear elsewhere (two "OK" buttons), capture more context or narrow the search
-   with `window` or `region`.
+   screen it came from) and where. Exit 1 = not found, with the best score. A step takes
+   the best match, so check the reported bbox is the place you meant. Add `--all` to list
+   every match in reading order (the order `nth` counts): if the same pixels appear
+   elsewhere (two "OK" buttons), choose one in the step with `after`/`before` an anchor,
+   `pick` or `nth`, or capture more context or narrow the search with `window` or
+   `region`.
 5. **Write the steps** (see below and `reference/script-format.md`), then
    `j5 validate SCRIPT` (or `--json`: errors with `code`, `message`, `line`, `step_id`).
 6. **Dry run.** `j5 run --dry-run --strict SCRIPT < /dev/null` with the same params.

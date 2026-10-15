@@ -657,6 +657,8 @@ class FindImagePayload(Payload):
     display_scale: float | None = None
     show: bool = False
     show_ms: int = 3000
+    all: bool = False
+    """Also report every match at or above the threshold (``matches``)."""
 
     def check(self, path: str) -> None:
         if not self.image:
@@ -683,6 +685,9 @@ class FindImageResult(Result):
     center: list[int] | None = None
     window: str | None = None
     window_bbox: list[int] | None = None
+    matches: list[dict[str, Any]] | None = None
+    """With ``all``: every match at or above the threshold, in reading order, each
+    ``{score, bbox, center}`` plus ``window_bbox`` with a window."""
 
 
 COMMAND_PAYLOADS: dict[str, type[Payload]] = {

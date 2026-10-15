@@ -245,6 +245,8 @@ class FindOptions:
     show: bool = False
     show_ms: int = 3000
     as_json: bool = False
+    all: bool = False
+    """List every match, not only the best one."""
 
 
 async def find(cmd: Sequence[str], image: str, options: FindOptions, *, io: Output) -> int:
@@ -254,6 +256,8 @@ async def find(cmd: Sequence[str], image: str, options: FindOptions, *, io: Outp
     payload: dict[str, Any] = window_payload(options.window)
     payload.update(threshold=options.threshold, scale=options.scale, show=options.show,
                    show_ms=options.show_ms)
+    if options.all:
+        payload["all"] = True
     if options.region is not None:
         payload["region"] = options.region
     if options.display_scale is not None:
@@ -281,6 +285,9 @@ async def find(cmd: Sequence[str], image: str, options: FindOptions, *, io: Outp
                 f"{options.threshold:g}; {scales}")
         return ExitCode.FAILED
     io.note(f"j5: {image} found at {where}, score {score:.3f}; {scales}")
+    matches = result.get("matches")
+    if isinstance(matches, list):
+        _note_matches(io, image, matches, result.get("window"))
     params: dict[str, Any] = {"image": image}
     if options.window is not None:
         params["window"] = {"title": options.window}
@@ -292,3 +299,18 @@ async def find(cmd: Sequence[str], image: str, options: FindOptions, *, io: Outp
         params["scale"] = options.scale
     io.line(step_yaml("click", params))
     return ExitCode.OK
+
+
+def _note_matches(io: Output, image: str, matches: list[Any], window: Any) -> None:
+    """``--all``: every match, numbered in reading order as ``nth`` counts them."""
+    count = len(matches)
+    io.note(f"j5: {count} match{'' if count == 1 else 'es'} of {image}, in reading order "
+            "(rows top to bottom, each left to right):")
+    for number, match in enumerate(matches, 1):
+        where = rect_text(match.get("bbox"))
+        if window and match.get("window_bbox"):
+            where += f" ({rect_text(match['window_bbox'])} in {window!r})"
+        io.note(f"  {number}. {where}, score {float(match.get('score', 0)):.3f}")
+    if count > 1:
+        io.note("j5: the step below takes the best match; choose another with pick, nth, "
+                "after or before")

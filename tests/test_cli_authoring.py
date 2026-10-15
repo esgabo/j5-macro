@@ -181,6 +181,29 @@ def test_find_prints_a_click_when_found_and_exits_1_when_not(fake_engine: Any) -
     assert "not found: best score 0.500" in err.getvalue()
 
 
+def test_find_all_lists_every_match_in_reading_order(fake_engine: Any) -> None:
+    client = fake_engine({"find_image": {
+        "found": True, "score": 0.998, "bbox": [10, 20, 30, 10], "center": [25, 25],
+        "region": [0, 0, 100, 100], "scale": 1.0, "display_scale": 1.0,
+        "capture_scale": 1.0, "elapsed_ms": 3, "window": "Notes",
+        "window_bbox": [10, 0, 30, 10],
+        "matches": [
+            {"score": 0.998, "bbox": [10, 20, 30, 10], "center": [25, 25],
+             "window_bbox": [10, 0, 30, 10]},
+            {"score": 0.951, "bbox": [10, 60, 30, 10], "center": [25, 65],
+             "window_bbox": [10, 40, 30, 10]}]}})
+    io_, out, err = output()
+    options = authoring.FindOptions(window="Notes", all=True)
+    assert run(authoring.find(["engine"], "img/a.png", options, io=io_)) == 0
+    assert client.calls[0][1]["all"] is True
+    assert out.getvalue() == "click: {image: img/a.png, window: {title: Notes}}\n"
+    notes = err.getvalue()
+    assert "2 matches of img/a.png, in reading order" in notes
+    assert "  1. [10, 20, 30, 10] ([10, 0, 30, 10] in 'Notes'), score 0.998" in notes
+    assert "  2. [10, 60, 30, 10] ([10, 40, 30, 10] in 'Notes'), score 0.951" in notes
+    assert "choose another with pick, nth" in notes
+
+
 def test_windows_and_screenshot_text(fake_engine: Any) -> None:
     fake_engine({"list_windows": {"windows": [{"title": "Notes", "bbox": [0, 30, 800, 570]}]},
                  "screenshot": {"path": "/tmp/a.png", "bbox": [0, 30, 800, 570],
