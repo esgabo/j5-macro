@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import base64
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +23,7 @@ from j5_macro.engine.backend import EngineBackend  # noqa: E402
 from j5_macro.vision.api import Frame, VisionToolkit  # noqa: E402
 from j5_macro.vision.capture import clip_region  # noqa: E402
 from j5_macro.vision.drawing import save_png  # noqa: E402
-from j5_macro.vision.matching import locate  # noqa: E402
+from j5_macro.vision.matching import locate, locate_all  # noqa: E402
 from j5_macro.vision.templates import TemplateCache, decode_template_bytes  # noqa: E402
 
 DESKTOP = Rect(0, 0, 400, 300)
@@ -70,7 +70,7 @@ class Toolkit:
             raise self.error
         return VisionToolkit(capturer=self.capturer, load_template=TemplateCache(),
                              locate=locate, save_image=save_png,
-                             decode_template=decode_template_bytes)
+                             decode_template=decode_template_bytes, locate_all=locate_all)
 
 
 class ScriptedOverlay:
@@ -86,6 +86,7 @@ class ScriptedOverlay:
         self.cancelled = threading.Event()
         self.frames: list[Frame] = []
         self.shown: list[tuple[Rect | None, bool, str, int]] = []
+        self.others: list[list[Rect]] = []
 
     def _wait(self, frame: Frame) -> Any:
         self.frames.append(frame)
@@ -104,8 +105,9 @@ class ScriptedOverlay:
         return result
 
     def show_match(self, frame: Frame, bbox: Rect | None, found: bool, label: str,
-                   duration_ms: int) -> None:
+                   duration_ms: int, *, others: Sequence[Rect] = ()) -> None:
         self.shown.append((bbox, found, label, duration_ms))
+        self.others.append(list(others))
         self._wait(frame)
 
     def cancel(self) -> None:
@@ -379,6 +381,37 @@ def test_find_image_searches_like_a_step(engine: Engine, tmp_path: Path) -> None
                                       "region": [0, 0, 90, 70]})
     assert missed["found"] is False and missed["score"] < 0.9
     assert "window" not in missed
+
+
+def test_find_image_all_lists_every_match_in_reading_order(engine: Engine, toolkit: Toolkit,
+                                                          overlay: ScriptedOverlay,
+                                                          tmp_path: Path) -> None:
+    cv2.imwrite(str(tmp_path / "icon.png"), region_of(ICON))
+    # A second, slightly altered copy, outside the window and below it: it still matches,
+    # but less well, so the best match does not depend on floating-point noise.
+    copy = region_of(ICON).copy()
+    copy[0, :3] = 0  # scores about 0.98
+    pixels = toolkit.capturer.pixels
+    pixels[250:250 + ICON.height, 20:20 + ICON.width] = copy
+    image = str(tmp_path / "icon.png")
+    plain = engine.ok("find_image", {"image": image})
+    assert "matches" not in plain
+    result = engine.ok("find_image", {"image": image, "all": True})
+    assert result["found"] is True and result["bbox"] == plain["bbox"]
+    assert [m["bbox"] for m in result["matches"]] == [[150, 120, 24, 16], [20, 250, 24, 16]]
+    assert result["matches"][1]["center"] == [32, 258]
+    assert 0.9 <= result["matches"][1]["score"] < result["matches"][0]["score"]
+    in_window = engine.ok("find_image", {"image": image, "all": True,
+                                         "window": {"title": "Notes"}})
+    assert in_window["matches"] == [{"score": in_window["score"],
+                                     "bbox": [150, 120, 24, 16], "center": [162, 128],
+                                     "window_bbox": [50, 40, 24, 16]}]
+    shown = engine.ok("find_image", {"image": image, "all": True, "show": True,
+                                     "show_ms": 100})
+    assert shown["found"] is True
+    assert overlay.shown[-1][0] == ICON
+    assert overlay.shown[-1][2].startswith("2 matches; found: score 1.000")
+    assert overlay.others[-1] == [Rect(20, 250, 24, 16)]
 
 
 def test_find_image_errors(engine: Engine, tmp_path: Path) -> None:

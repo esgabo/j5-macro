@@ -477,7 +477,7 @@ click: {window: {title: Untitled - Notes}, x: 212, y: 148}
 ```text
 j5 find [-h] [--script SCRIPT] [--window TITLE] [--region X,Y,W,H]
         [--threshold T] [--scale S] [--display-scale SCALE] [--show]
-        [--show-ms MS] [--json] IMAGE
+        [--show-ms MS] [--all] [--json] IMAGE
 ```
 
 Searches the screen once for IMAGE exactly as a step would, without running anything:
@@ -488,6 +488,22 @@ directory. When found, it prints a `click` step on it; either way the score, the
 and the scales go to standard error. `--show` highlights the best match on the screen
 for `--show-ms` milliseconds (3000 by default; a key or a click closes it sooner): green
 when found, red with the score when not.
+
+`--all` also lists every match at or above the threshold, numbered in reading order
+(rows from top to bottom, each left to right), which is the order a step's `nth`
+counts, so you can tell which one `nth: 2` or `pick: last` would take (see [Choosing
+among matches](scripts.md#choosing-among-matches)). With `--show`, the other matches are
+outlined in yellow; with `--json`, the answer adds `matches`.
+
+```console
+$ j5 find '#download' --script bank.yaml --window Bank --all
+j5: #download found at [940, 212, 90, 28] ([940, 180, 90, 28] in 'Bank'), score 1.000; scale 1 = display 1 / capture 1
+j5: 2 matches of #download, in reading order (rows top to bottom, each left to right):
+  1. [940, 212, 90, 28] ([940, 180, 90, 28] in 'Bank'), score 1.000
+  2. [940, 818, 90, 28] ([940, 786, 90, 28] in 'Bank'), score 1.000
+j5: the step below takes the best match; choose another with pick, nth, after or before
+click: {image: "#download", window: {title: Bank}}
+```
 
 ```console
 $ j5 find '#save_button' --script notes.yaml --window Notes

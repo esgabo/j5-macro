@@ -98,7 +98,7 @@ COMMAND_EXAMPLES: dict[str, dict[str, Any]] = {
     "pick_point": {"window": {"title": "Notes"}},
     "find_image": {"image": "#save", "script_id": "s", "threshold": 0.8, "scale": 1.0,
                    "region": [0, 0, 400, 300], "window": {"title": "Notes"},
-                   "display_scale": 1.5, "show": True, "show_ms": 1000},
+                   "display_scale": 1.5, "show": True, "show_ms": 1000, "all": True},
 }
 RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "hello": {"v": 1, "capabilities": CAPS},
@@ -154,7 +154,9 @@ RESULT_EXAMPLES: dict[str, dict[str, Any]] = {
     "find_image": {"found": True, "score": 0.98, "region": [0, 0, 1280, 800], "scale": 1.0,
                    "display_scale": 1.0, "capture_scale": 1.0, "elapsed_ms": 12,
                    "bbox": [10, 20, 30, 40], "center": [25, 40], "window": "Notes",
-                   "window_bbox": [10, 20, 30, 40]},
+                   "window_bbox": [10, 20, 30, 40],
+                   "matches": [{"score": 0.98, "bbox": [10, 20, 30, 40], "center": [25, 40],
+                                "window_bbox": [10, 20, 30, 40]}]},
 }
 EVENT_EXAMPLES: dict[str, dict[str, Any]] = {
     "ready": {"v": 1, "backend": "x11", "capabilities": CAPS},

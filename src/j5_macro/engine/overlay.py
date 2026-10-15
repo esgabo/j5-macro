@@ -19,7 +19,7 @@ import base64
 import contextlib
 import importlib
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Literal, Protocol
 
 from j5_macro.backends.base import Rect
@@ -34,6 +34,8 @@ POLL_MS = 50
 SELECT_COLOR = "#ff00ff"
 FOUND_COLOR = "#00d000"
 NOT_FOUND_COLOR = "#ff2020"
+OTHER_MATCH_COLOR = "#ffd000"
+"""The outline of the other matches of ``find_image`` with ``all``."""
 
 Mode = Literal["region", "point", "show"]
 
@@ -51,9 +53,10 @@ class Overlay(Protocol):
         ...
 
     def show_match(self, frame: Frame, bbox: Rect | None, found: bool, label: str,
-                   duration_ms: int) -> None:
-        """Highlight ``bbox`` (green when found, red otherwise) with ``label``, until
-        ``duration_ms`` pass or the user presses a key or clicks."""
+                   duration_ms: int, *, others: Sequence[Rect] = ()) -> None:
+        """Highlight ``bbox`` (green when found, red otherwise) with ``label``, and
+        ``others`` (the other matches) in yellow, until ``duration_ms`` pass or the
+        user presses a key or clicks."""
         ...
 
     def cancel(self) -> None:
@@ -124,9 +127,9 @@ class TkOverlay:
         return result if isinstance(result, tuple) else None
 
     def show_match(self, frame: Frame, bbox: Rect | None, found: bool, label: str,
-                   duration_ms: int) -> None:
+                   duration_ms: int, *, others: Sequence[Rect] = ()) -> None:
         self._session(frame, "show", "", bbox=bbox, found=found, label=label,
-                      duration_ms=duration_ms)
+                      duration_ms=duration_ms, others=others)
 
     def cancel(self) -> None:
         self._cancelled.set()
@@ -134,15 +137,15 @@ class TkOverlay:
     # --- internals -------------------------------------------------------------------
 
     def _session(self, frame: Frame, mode: Mode, hint: str, *, bbox: Rect | None = None,
-                 found: bool = False, label: str = "",
-                 duration_ms: int = 0) -> Rect | tuple[int, int] | None:
+                 found: bool = False, label: str = "", duration_ms: int = 0,
+                 others: Sequence[Rect] = ()) -> Rect | tuple[int, int] | None:
         import tkinter as tk
 
         self._cancelled.clear()
         session = _Session(tk, frame, mode, hint, self._cancelled)
         try:
             if mode == "show":
-                session.highlight(bbox, found, label, duration_ms)
+                session.highlight(bbox, found, label, duration_ms, others)
             return session.run()
         finally:
             session.close()
@@ -318,8 +321,15 @@ class _Session:
         self.canvas.tag_raise(self.magnifier_text)
 
     def highlight(self, bbox: Rect | None, found: bool, label: str,
-                  duration_ms: int) -> None:
+                  duration_ms: int, others: Sequence[Rect] = ()) -> None:
         colour = FOUND_COLOR if found else NOT_FOUND_COLOR
+        for other in others:
+            x, y = self.canvas_point(other.x, other.y)
+            for inset in range(2):
+                self.canvas.create_rectangle(x - 1 - inset, y - 1 - inset,
+                                             x + other.width + inset,
+                                             y + other.height + inset,
+                                             outline=OTHER_MATCH_COLOR)
         if bbox is not None:
             x, y = self.canvas_point(bbox.x, bbox.y)
             for inset in range(3):

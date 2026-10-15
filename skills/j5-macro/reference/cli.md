@@ -15,7 +15,7 @@ finds windows (X11 or Windows).
 | `j5 windows` | Visible windows, topmost first | `[x, y, w, h]  title` per line (client area on the desktop) | `{"windows": [{"title", "bbox"}]}` |
 | `j5 screenshot [-o FILE] [--window T] [--region X,Y,W,H]` | PNG of the desktop, a window's client area or a region (relative to the window when both) | the PNG's path; a note on stderr | `{path, bbox, display_scale, window?, window_bbox?}` |
 | `j5 capture --bbox X,Y,W,H [--window T] (-o FILE \| --embed SCRIPT --name NAME)` | Save a template; `--padding N`, `--transparent`, `-f` (replace) | a `click:` step using it | `{path \| image_name+version, bbox, window?, window_bbox?, display_scale, scale?, warnings}` |
-| `j5 find IMAGE [--script S] [--window T] [--region R] [--threshold T] [--scale S] [--display-scale D]` | One search, exactly as a step | found: a `click:` step; score and place on stderr | `{found, score, bbox, center, window?, window_bbox?, region, scale, display_scale, capture_scale, elapsed_ms}` |
+| `j5 find IMAGE [--script S] [--window T] [--region R] [--threshold T] [--scale S] [--display-scale D] [--all]` | One search, exactly as a step; `--all` also lists every match in reading order (as `nth` counts) | found: a `click:` step; score and place (and with `--all` each match) on stderr | `{found, score, bbox, center, window?, window_bbox?, region, scale, display_scale, capture_scale, elapsed_ms, matches?}` |
 | `j5 pick [--window T]` | Interactive only (a human clicks a point) | a `click:` step | the point and its window |
 
 - `--bbox` with `--window` is relative to the window's client area, the same pixels as

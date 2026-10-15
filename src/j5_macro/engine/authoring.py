@@ -54,6 +54,7 @@ from j5_macro.script import images as embedded
 from j5_macro.script.editor import EditError, rewrite_images
 from j5_macro.steps.spec import StepError
 from j5_macro.vision.api import Frame, Match, ToolkitFactory, VisionToolkit
+from j5_macro.vision.selection import Selection
 
 SCREENSHOT_DIR = "j5-macro"
 """Default screenshots go in this directory of the system's temporary directory."""
@@ -602,7 +603,15 @@ class Authoring:
                 label = f"found: score {score:.3f}"
             else:
                 label = f"not found: best score {score:.3f} (threshold {payload.threshold:g})"
-            overlay.show_match(frame, match.bbox, match.found, label, payload.show_ms)
+            if match.matches is None:
+                overlay.show_match(frame, match.bbox, match.found, label, payload.show_ms)
+                return result
+            count = len(match.matches)
+            label = f"{count} match{'' if count == 1 else 'es'}; {label}"
+            others = [m.bbox for m in match.matches
+                      if m.bbox is not None and m.bbox != match.bbox]
+            overlay.show_match(frame, match.bbox, match.found, label, payload.show_ms,
+                               others=others)
             return result
 
         return self.interactive(command, work)
@@ -615,9 +624,13 @@ class Authoring:
                             wait=lambda _s: None, check_stop=lambda: None,
                             log=lambda _l, _m: None, paused=lambda: 0.0)
         window = None if payload.window is None else {"title": payload.window.title}
+        # ``all`` searches as a step with ``pick: best`` does: the same best match, plus
+        # every match in reading order.
+        select = Selection(pick="best") if payload.all else None
         with step_errors():
             match = bound.find(payload.image, threshold=payload.threshold,
-                               scale=payload.scale, region=payload.region, window=window)
+                               scale=payload.scale, region=payload.region, window=window,
+                               select=select)
         event = events[-1]
         fields: dict[str, Any] = {
             "found": match.found, "score": event["best_score"], "region": event["region"],
@@ -632,7 +645,22 @@ class Authoring:
             fields["window"] = payload.window.title if named is None else named.title
             if match.bbox is not None:
                 fields["window_bbox"] = relative(match.bbox, match.frame)
+        if match.matches is not None:
+            fields["matches"] = [_match_fields(m, match.frame if payload.window else None)
+                                 for m in match.matches]
         return FindImageResult(**fields).to_json(), match
+
+
+def _match_fields(match: Match, frame: Rect | None) -> dict[str, Any]:
+    """One of the ``matches`` of ``find_image``: ``score``, ``bbox``, ``center`` and,
+    for a window search, ``window_bbox``."""
+    assert match.bbox is not None  # every match found has a location
+    fields: dict[str, Any] = {"score": round(float(match.score), 4),
+                              "bbox": rect_list(match.bbox),
+                              "center": list(match.bbox.center)}
+    if frame is not None:
+        fields["window_bbox"] = relative(match.bbox, frame)
+    return fields
 
 
 def install(server: EngineServer, store: ScriptStore, manager: RunManager,

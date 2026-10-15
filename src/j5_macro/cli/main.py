@@ -257,6 +257,9 @@ def _authoring_parsers(sub: Any) -> None:
                            "green when found, red with the score when not")
     find.add_argument("--show-ms", metavar="MS", type=int, default=3000,
                       help="how long --show shows it (default 3000)")
+    find.add_argument("--all", action="store_true",
+                      help="also list every match, in reading order (as nth counts them); "
+                           "--show outlines the others in yellow")
     find.add_argument("--json", action="store_true", help="print the engine's answer")
 
 
@@ -606,7 +609,7 @@ def _authoring(args: argparse.Namespace, cmd: list[str], io: Output) -> int:
     find = authoring.FindOptions(
         script=args.script, window=args.window, region=args.region,
         threshold=args.threshold, scale=args.scale, display_scale=args.display_scale,
-        show=args.show, show_ms=args.show_ms, as_json=args.json)
+        show=args.show, show_ms=args.show_ms, as_json=args.json, all=args.all)
     return commands.run_sync(authoring.find(cmd, args.image, find, io=io))
 
 
