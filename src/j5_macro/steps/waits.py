@@ -31,8 +31,10 @@ from j5_macro.steps.images import (
 from j5_macro.steps.input_steps import (
     AREA_RESULT,
     DRY_RESULT,
+    MATCHES_RESULT,
     REGION,
     SCALE,
+    SELECTION,
     THRESHOLD,
     WINDOW,
     check_image_options,
@@ -215,12 +217,16 @@ WAIT_IMAGE_IN = StepType(StepSpec(
     name="wait_image_in",
     doc="Wait until an image is visible on screen.",
     shorthand="image",
-    params=(IMAGE, _timeout_param("image_not_found"), THRESHOLD, REGION, WINDOW, SCALE),
+    params=(IMAGE, _timeout_param("image_not_found"), THRESHOLD, REGION, WINDOW, SCALE,
+            *SELECTION),
     result=(
         ResultField(name="found", type="boolean",
                     doc="Whether the image was found (always true outside dry runs)."),
-        ResultField(name="score", type="number", doc="Best match score, from 0 to 1."),
+        ResultField(name="score", type="number",
+                    doc="Match score, from 0 to 1: the best, or the chosen match's with "
+                        "pick, nth, after or before."),
         *AREA_RESULT,
+        MATCHES_RESULT,
         *DRY_RESULT[:2],
     ),
 ), wait_image_in)
@@ -229,8 +235,11 @@ WAIT_IMAGE_OUT = StepType(StepSpec(
     name="wait_image_out",
     doc="Wait until an image is no longer visible on screen.",
     shorthand="image",
-    params=(IMAGE, _timeout_param("still_visible"), THRESHOLD, REGION, WINDOW, SCALE),
-    result=(*GONE_RESULT, *DRY_RESULT, *DRY_MATCH),
+    params=(IMAGE, _timeout_param("still_visible"), THRESHOLD, REGION, WINDOW, SCALE,
+            *SELECTION),
+    result=(*GONE_RESULT, *DRY_RESULT, *DRY_MATCH,
+            ResultField(name="matches", type="list", optional=True,
+                        doc=f"Dry runs: {MATCHES_RESULT.doc}")),
 ), wait_image_out)
 
 WAIT_WINDOW_IN = StepType(StepSpec(

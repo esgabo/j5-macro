@@ -208,12 +208,31 @@ both `x` and `y`.
 | `threshold` | number | `0.9` | Minimum image match score, from 0 to 1 |
 | `scale` | number | `1` | Extra factor the template is resized by, on top of the [display scale](#display-scale) (image targets only) |
 | `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only; relative to `window` when given), or [next to a kept result](#images) |
+| `pick`, `nth` | see below | - | Which match to take when the image appears more than once (image targets only; see [Choosing among matches](#choosing-among-matches)) |
+| `after`, `before` | image or kept result | - | Only matches after (or before) this anchor in reading order (image targets only; see [Choosing among matches](#choosing-among-matches)) |
+| `hover` | mapping | - | `{image, timeout?}`: rest on the target until it shows this hovered look, then click (see below) |
+| `dwell` | duration | - | Rest on the target this long before pressing, e.g. `300ms` |
 
 ```yaml
 - id: open_file_menu
   click: {image: img/file_menu.png, threshold: 0.85}
 - id: open_context_menu
   click: {window: {title: Mousepad}, x: 200, y: 150, button: right}
+```
+
+**Hovering first.** Some menus only take a click once the pointer rests on an item and
+it changes colour. `hover` moves onto the target, waits for the hovered look, then
+clicks without moving again; it fails with `image_not_found` when the look does not
+appear within its `timeout` (2 s by default; the step's common `timeout` does not
+change it). The hovered image is searched around the target (twice its size) unless
+`hover` has its own `region` or `window`; it also takes `threshold` and `scale`.
+`dwell` simply rests before pressing (after `hover` when both are given).
+
+```yaml
+- id: export_excel
+  click: {image: "#excel", hover: {image: "#excel_hovered", timeout: 2s}}
+- id: slow_button
+  click: {image: "#ok", dwell: 300ms±20%}
 ```
 
 ### move
@@ -230,6 +249,7 @@ Moves the pointer to an image, a kept image result or `x`/`y`, without clicking.
 | `threshold` | number | `0.9` | Minimum image match score |
 | `scale` | number | `1` | Extra template scale (image targets only) |
 | `region` | `[x, y, width, height]` or mapping | - | Area to search in (image targets only) |
+| `pick`, `nth`, `after`, `before` | | - | Choose among several matches (see [Choosing among matches](#choosing-among-matches)) |
 
 ```yaml
 - id: hover_tooltip
@@ -244,7 +264,7 @@ Presses a button at one point, moves to another and releases it.
 
 | Parameter | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `from` | mapping | required | Start point: `{x, y, window?}`, `{image, threshold?, scale?, region?, window?}` or `{at}`, each with an optional `offset` |
+| `from` | mapping | required | Start point: `{x, y, window?}`, `{image, threshold?, scale?, region?, window?, pick?, nth?, after?, before?}` or `{at}`, each with an optional `offset` |
 | `to` | mapping | required | End point, same forms as `from` |
 | `button` | `left`, `right`, `middle` | `left` | Mouse button |
 
@@ -364,6 +384,7 @@ The image waits take the same parameters:
 | `region` | `[x, y, width, height]` or `{at, ...}` | - | Area to search in (relative to `window` when given), or [next to a kept result](#images) |
 | `window` | mapping | - | `{title: ...}`: search only in that window |
 | `scale` | number | `1` | Extra template scale, on top of the [display scale](#display-scale) |
+| `pick`, `nth`, `after`, `before` | | - | Choose among several matches (see [Choosing among matches](#choosing-among-matches)); `wait_image_out` then waits until no match is where they ask |
 
 With a `window`, the window is looked up again on every check, and a window that is not
 there yet counts as "not found yet": `wait_image_in: {image: "#menu", window: {title:
@@ -703,10 +724,73 @@ off.
 - **Scale.** j5 resizes templates by the [display scale](#display-scale) ratio itself.
   `scale` (greater than 0; 1 by default) is an extra factor on top of it. On an `x`/`y`
   target any `scale` other than 1 is an error.
+- **Several matches.** When the image appears more than once, j5 takes the best match
+  unless `pick`, `nth`, `after` or `before` say which one (see below).
 - **Captures.** When a search fails, the run saves a capture of the searched area with
   the best candidate outlined in red, in the run's `captures/` directory.
 - Image searches need the `vision` extra (`pip install -e ".[vision]"`); without it they
   fail with `capability_missing`.
+
+### Choosing among matches
+
+When the same image appears more than once (two identical **Download** buttons, one
+above a table and one below it), these parameters of an image target (`click`, `move`,
+`drag` points, `wait_image_in`, `wait_image_out`, `image_visible`) say which match to
+take. j5 then finds every match at or above `threshold` and sorts them in *reading
+order*: rows from top to bottom, each row from left to right.
+
+| Parameter | Meaning |
+| --- | --- |
+| `after: <anchor>` | Only matches after the anchor: in a row below it, or in its row to its right |
+| `before: <anchor>` | Only matches before the anchor; with `after`, the matches between the two |
+| `pick` | `first` or `last` in reading order, the `top`, `bottom`, `left` or `right`-most match, or the `best` score |
+| `nth` | The n-th match in reading order: `1` is the first, `-1` the last (not with `pick`) |
+
+An anchor is an image (a path or `"#name"`), searched in the same area as the target
+(with the target's `threshold` and `scale`), or an image result kept with `as`
+(`"${header}"`), placed where it is now. Without `pick` or `nth`, `after` takes the
+first match after its anchor and `before` the last one before it: the nearest.
+
+Anchors are optional, but **an anchor you give must be found**. When it is not on
+screen, the search is a miss: the step fails with `image_not_found` (the message names
+the anchor), or keeps polling while it waits. j5 never falls back to ignoring the
+anchor, since that could click the very match the anchor was meant to rule out. To use
+an anchor only when it is there, branch on it:
+
+```yaml
+- if:
+    when: {image_visible: "#movements_header"}
+    then:
+      - click: {image: "#download", after: "#movements_header"}
+    else:
+      - click: {image: "#download"}
+```
+
+An image anchor uses its best match. When the anchor itself appears more than once,
+choose it first and pass the kept result:
+
+```yaml
+- wait_image_in: {image: "#movements_header", window: {title: "${win}"}, pick: last}
+  as: header
+- click: {image: "#download", window: {title: "${win}"}, after: "${header}"}
+```
+
+```yaml
+- id: download_movements          # the Download button below the movements table
+  click: {image: "#download", window: {title: "${win}"}, after: "#movements_header"}
+- id: last_row_menu
+  click: {image: "#row_menu", pick: last}
+- id: all_rows
+  wait_image_in: {image: "#row_menu", pick: first}
+  as: rows                        # rows.matches lists every match, in reading order
+- log: "${len(rows.matches)} rows"
+```
+
+The result lists every match in `matches` (each with `score`, `bbox` and `center`, plus
+`window_bbox` with a `window`), so a script can choose by a condition too; `pick: best`
+keeps the usual best match and only adds `matches`. When no match is where they ask,
+the step fails with `image_not_found`, and the message says why (`2 matches, none after
+#movements_header`).
 
 ### Embedded images
 
@@ -876,8 +960,9 @@ when:
   image_visible: {image: img/error.png, threshold: 0.8, region: [0, 0, 400, 300], window: {title: App}}
 ```
 
-The mapping form accepts `image`, `threshold`, `scale`, `region` and `window`. Write a
-constant condition as a string (`while: "true"`): a bare YAML `true` is not an
+The mapping form accepts `image`, `threshold`, `scale`, `region`, `window`, and `pick`,
+`nth`, `after` and `before` (see [Choosing among matches](#choosing-among-matches)).
+Write a constant condition as a string (`while: "true"`): a bare YAML `true` is not an
 expression and fails validation (`while: expected an expression or a single predefined
 condition`).
 

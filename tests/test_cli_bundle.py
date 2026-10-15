@@ -216,3 +216,22 @@ def test_a_copied_embedded_script_runs_from_anywhere(
     assert not failures
     templates = {e["payload"]["template"] for e in events if e["type"] == "image_search"}
     assert templates <= {"#pattern"}
+
+
+def test_pack_embeds_anchors_and_hovered_looks(
+        project: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    project.write_text("""\
+steps:
+  - wait_image_in: img/dialog.png
+    as: dialog
+  - click: {image: img/save button.png, after: img/dialog.png,
+            hover: {image: img/copy/dialog.png}}
+  - click: {image: img/save button.png, before: "${dialog}"}
+""", encoding="utf-8")
+    bundle = tmp_path / "bundle.yaml"
+    assert main(["pack", str(project), "-o", str(bundle)]) == 0
+    assert "5 image parameters rewritten" in capsys.readouterr().err
+    text = bundle.read_text(encoding="utf-8")
+    assert 'after: "#dialog"' in text and 'hover: {image: "#dialog_2"}' in text
+    assert 'before: "${dialog}"' in text
+    assert main(["validate", str(bundle)]) == 0

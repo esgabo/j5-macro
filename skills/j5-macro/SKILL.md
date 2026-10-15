@@ -233,7 +233,8 @@ outlined in red: `screenshot` is relative to the run's directory, which
 | Symptom | What to do |
 | --- | --- |
 | `image_not_found` (best score given) | Open the failure capture. Score 0.8–0.9: same thing, slightly different pixels: recapture in the run's state or lower `threshold` a little (0.85). Score low: wrong window, obscured, not there yet (raise `timeout`), or a different theme/scale: re-screenshot and recapture. Test with `j5 find`. |
-| Matches the wrong place | Make the template more distinctive (more context, `--padding`), add `window` or `region` (`region: {at: "${label}", offset: [3w, 0], size: [4w, 1.5h]}`). |
+| Matches the wrong place | Make the template more distinctive (more context, `--padding`), add `window` or `region` (`region: {at: "${label}", offset: [3w, 0], size: [4w, 1.5h]}`). The same image appears more than once: choose with `after`/`before` an anchor (`after: "#table_header"`), `pick` (`first`, `last`, `top`...) or `nth`. |
+| `image_not_found` "after/before ... not found" | The anchor is missing; anchors are never ignored. Fix the anchor (it must be inside the searched area), or branch with `if` + `image_visible` on it. "N matches, none after ...": the matches are not where the anchor says. |
 | `window_not_found` | `j5 windows`: is it open, visible, titled as you think (case-sensitive substring)? Still opening: add `wait_window_in: {title: ..., timeout: 20s}` before, or give the image step a longer `timeout` (image waits wait for their window). |
 | `still_visible` | A `wait_image_out`/`wait_window_out` timed out: the spinner or dialog is still there. Raise `timeout`, or check the template matches only the thing that goes away (`j5 find`). |
 | `unknown step type ...; did you mean ...?` | The step type was renamed: use the suggested name (the image wait is `wait_image_in`; its opposite `wait_image_out`). |

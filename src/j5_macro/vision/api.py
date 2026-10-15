@@ -19,9 +19,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from j5_macro.backends.base import Rect, WindowInfo
+
+if TYPE_CHECKING:
+    from j5_macro.vision.selection import Selection
 
 DEFAULT_THRESHOLD = 0.9
 """Minimum match score of image searches when a step gives no ``threshold``."""
@@ -80,6 +83,13 @@ class Match:
     capture: str | None = None
     """The capture saved for this attempt, relative to the run's directory (set by
     ``StepVision`` under the run's ``captures`` policy), for ``step_failed``."""
+    matches: tuple[Match, ...] | None = None
+    """A search that chose among several matches (``pick``, ``nth``, ``after``,
+    ``before``): every match at or above the threshold, in reading order (set by
+    ``StepVision``); None for a search of the best match."""
+    note: str | None = None
+    """Why a search that chose among several matches found none, for messages
+    (``2 matches, none after #header``)."""
 
 
 class Capturer(Protocol):
@@ -102,6 +112,10 @@ Locator = Callable[[Template, Frame, float, float], Match]
 """``locate(template, frame, threshold, scale) -> Match``: best location of the
 template, scaled by ``scale``, in the frame."""
 
+AllLocator = Callable[[Template, Frame, float, float], list[Match]]
+"""``locate_all(template, frame, threshold, scale) -> [Match]``: every location at or
+above the threshold, best first, never overlapping."""
+
 ImageSaver = Callable[[Frame, Path, Rect | None], None]
 """Writes a frame as PNG, optionally outlining a rectangle (desktop coordinates)."""
 
@@ -114,6 +128,9 @@ class VisionToolkit:
     save_image: ImageSaver
     decode_template: TemplateDecoder | None = None
     """Loads embedded images; None for a toolkit that only reads files."""
+    locate_all: AllLocator | None = None
+    """Finds every match, for searches that choose among several; None for a toolkit
+    that only finds the best one."""
 
 
 ToolkitFactory = Callable[[], VisionToolkit]
@@ -130,35 +147,42 @@ class StepVision(Protocol):
     def find(self, image: str, *, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
-             failing: Callable[[Match], bool] | None = None) -> Match:
-        """One search (one ``image_search`` event). ``image`` is relative to the script's
-        directory, or ``#name`` for an image embedded in the script; ``region`` is
-        ``[x, y, w, h]``, relative to ``window`` when given, or ``{at, offset?, size?}``
-        next to a stored image result. The match's ``frame`` is the client area of
-        ``window``, when given. ``failing(match)`` says whether the step fails with this
-        match (a strict dry run), so its capture is saved (``Match.capture``).
-        Raises StepError: ``template_missing``, ``window_not_found``,
-        ``capability_missing`` (no vision)."""
+             failing: Callable[[Match], bool] | None = None,
+             select: Selection | None = None) -> Match:
+        """One search (one ``image_search`` event, plus one per image anchor of
+        ``select``). ``image`` is relative to the script's directory, or ``#name`` for
+        an image embedded in the script; ``region`` is ``[x, y, w, h]``, relative to
+        ``window`` when given, or ``{at, offset?, size?}`` next to a stored image result.
+        The match's ``frame`` is the client area of ``window``, when given.
+        ``failing(match)`` says whether the step fails with this match (a strict dry
+        run), so its capture is saved (``Match.capture``). ``select`` chooses among
+        every match instead of taking the best (:mod:`j5_macro.vision.selection`);
+        the match then carries ``matches``. Raises StepError: ``template_missing``,
+        ``window_not_found``, ``capability_missing`` (no vision, or a toolkit without
+        ``locate_all`` for ``select``)."""
         ...
 
     def wait(self, image: str, *, timeout: float, threshold: float = DEFAULT_THRESHOLD,
              scale: float = DEFAULT_SCALE, region: list[int] | dict[str, Any] | None = None,
              window: dict[str, Any] | None = None,
-             interval: float = DEFAULT_INTERVAL) -> Match:
+             interval: float = DEFAULT_INTERVAL, select: Selection | None = None,
+             own_timeout: bool = False) -> Match:
         """Search until found or ``timeout`` seconds pass (interruptible like any wait;
         a single attempt in dry runs). Raises StepError ``image_not_found`` with
         ``details.best_score`` when it times out. The step's common ``timeout`` field,
-        when set, replaces ``timeout``; ``timeout=0`` makes a single attempt that fails
-        when the image is not found. While waiting (a timeout above 0), a missing
-        ``window`` is "not found yet": ``window_not_found`` (with ``details.timeout``)
-        only when it never appeared."""
+        when set, replaces ``timeout`` unless ``own_timeout``; ``timeout=0`` makes a
+        single attempt that fails when the image is not found. While waiting (a timeout
+        above 0), a missing ``window`` is "not found yet": ``window_not_found`` (with
+        ``details.timeout``) only when it never appeared. ``select`` chooses among
+        several matches, as in :meth:`find`."""
         ...
 
     def wait_gone(self, image: str, *, timeout: float,
                   threshold: float = DEFAULT_THRESHOLD, scale: float = DEFAULT_SCALE,
                   region: list[int] | dict[str, Any] | None = None,
                   window: dict[str, Any] | None = None,
-                  interval: float = DEFAULT_INTERVAL) -> float:
+                  interval: float = DEFAULT_INTERVAL,
+                  select: Selection | None = None) -> float:
         """Search until the image is not found, outside dry runs; returns the unpaused
         seconds waited. A missing ``window`` is "not gone yet". Raises StepError
         ``still_visible`` on timeout (``window_not_found`` when the window never

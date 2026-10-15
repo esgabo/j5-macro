@@ -40,13 +40,13 @@ Short forms: `type: "text"`, `key: ctrl+s`, `wait_image_in: img/ok.png` (also
 
 | Step | Parameters (default) | Result (what `as` keeps) |
 | --- | --- | --- |
-| `click` | one of `image` / `at` / `x`+`y`; `window`, `button` (`left`/`right`/`middle`), `clicks` (1), `offset`, `threshold` (0.9), `scale` (1), `region` | `x`, `y`, `button`, `clicks`; image/`at` targets add `bbox`, `center`, `window?`, `window_bbox?`; image targets `image`, `score`; `x`/`y` in a window adds `window`, `window_area` |
-| `move` | as `click` without `button`/`clicks` | `x`, `y` + the same target fields |
-| `drag` | `from`, `to` (each `{x, y, window?}`, `{image, threshold?, scale?, region?, window?}` or `{at}`, each with `offset?`), `button` | `from`, `to`, `button`, target fields prefixed `from_`/`to_` |
+| `click` | one of `image` / `at` / `x`+`y`; `window`, `button` (`left`/`right`/`middle`), `clicks` (1), `offset`, `threshold` (0.9), `scale` (1), `region`, `pick`/`nth`, `after`, `before`, `hover` (`{image, timeout (2s)}`), `dwell` | `x`, `y`, `button`, `clicks`; image/`at` targets add `bbox`, `center`, `window?`, `window_bbox?`; image targets `image`, `score`, `matches?`; `x`/`y` in a window adds `window`, `window_area`; `hover?`, `dwell?` |
+| `move` | as `click` without `button`/`clicks`/`hover`/`dwell` | `x`, `y` + the same target fields |
+| `drag` | `from`, `to` (each `{x, y, window?}`, `{image, threshold?, scale?, region?, window?, pick?, nth?, after?, before?}` or `{at}`, each with `offset?`), `button` | `from`, `to`, `button`, target fields prefixed `from_`/`to_` |
 | `scroll` | `dx` (0), `dy` (0), in notches; positive = right/down; acts where the pointer is | `dx`, `dy` |
 | `type` | `text` (required), `keyboard` (profile override) | `chars` (never the text) |
 | `key` | `press` (required, e.g. `ctrl+shift+s`), `hold` | `press`, `hold?` |
-| `wait_image_in` | `image` (required), `timeout` (10s), `threshold` (0.9), `region`, `window`, `scale` (1); waits until the image is visible, else `image_not_found` | `found`, `score`, `bbox`, `center`, `window?`, `window_bbox?` |
+| `wait_image_in` | `image` (required), `timeout` (10s), `threshold` (0.9), `region`, `window`, `scale` (1), `pick`/`nth`, `after`, `before`; waits until the image is visible, else `image_not_found` | `found`, `score`, `bbox`, `center`, `window?`, `window_bbox?`, `matches?` |
 | `wait_image_out` | as `wait_image_in`; waits until the image is no longer visible, else `still_visible` | `gone` (true), `waited_ms` |
 | `wait_window_in` | `title` (required, substring, case-sensitive), `timeout` (10s); waits until such a window is visible, else `window_not_found` | `window` (full title), `bbox` (client area) |
 | `wait_window_out` | `title` (required), `timeout` (10s); waits until no visible window matches, else `still_visible` | `gone` (true), `waited_ms` |
@@ -85,6 +85,18 @@ null` without), so later steps that use them still check.
   `0.5w`, `-2h`, `1.5h` (no spaces). `w`/`h` on `x`/`y` targets is an error.
 - `region: [x, y, w, h]` (relative to `window` when given), or next to a kept result:
   `region: {at: "${label}", offset: [2.5w, 0], size: [4w, 1.5h]}`.
+- Same image several times: `pick: first|last|top|bottom|left|right|best` or `nth: N`
+  (reading order: rows top to bottom, each left to right; 1 first, -1 last), and
+  `after:`/`before:` an anchor (an image searched in the same area, or a kept result
+  `"${hdr}"`): `click: {image: "#download", after: "#table_header"}` takes the first
+  match after it. The result adds `matches` (all, in reading order). Anchors are
+  optional, but one that is given must be found: a missing anchor is a miss
+  (`image_not_found` naming it), never ignored. Use the anchor only when present with
+  `if: {when: {image_visible: "#hdr"}, then: [...], else: [...]}`. An image anchor is
+  its best match; to anchor on a specific one, keep it (`wait_image_in` + `pick`/`nth`
+  + `as: hdr`) and use `after: "${hdr}"`.
+- `click: {..., hover: {image: "#item_hovered", timeout: 2s}}` moves onto the target,
+  waits for its hovered look, then clicks; `dwell: 300ms` rests before pressing.
 - Matching: normalized cross-correlation, score 0..1, found when `score >= threshold`.
   PNG pixels with alpha < 128 are ignored. Flat-colour templates never match.
 - Scale: templates are resized by `display_scale / capture_scale` (times `scale`). Pixel
