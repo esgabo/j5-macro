@@ -387,9 +387,12 @@ def test_find_image_all_lists_every_match_in_reading_order(engine: Engine, toolk
                                                           overlay: ScriptedOverlay,
                                                           tmp_path: Path) -> None:
     cv2.imwrite(str(tmp_path / "icon.png"), region_of(ICON))
-    # A second copy, outside the window and below it.
+    # A second, slightly altered copy, outside the window and below it: it still matches,
+    # but less well, so the best match does not depend on floating-point noise.
+    copy = region_of(ICON).copy()
+    copy[0, :3] = 0  # scores about 0.98
     pixels = toolkit.capturer.pixels
-    pixels[250:250 + ICON.height, 20:20 + ICON.width] = region_of(ICON)
+    pixels[250:250 + ICON.height, 20:20 + ICON.width] = copy
     image = str(tmp_path / "icon.png")
     plain = engine.ok("find_image", {"image": image})
     assert "matches" not in plain
@@ -397,7 +400,7 @@ def test_find_image_all_lists_every_match_in_reading_order(engine: Engine, toolk
     assert result["found"] is True and result["bbox"] == plain["bbox"]
     assert [m["bbox"] for m in result["matches"]] == [[150, 120, 24, 16], [20, 250, 24, 16]]
     assert result["matches"][1]["center"] == [32, 258]
-    assert result["matches"][1]["score"] > 0.99
+    assert 0.9 <= result["matches"][1]["score"] < result["matches"][0]["score"]
     in_window = engine.ok("find_image", {"image": image, "all": True,
                                          "window": {"title": "Notes"}})
     assert in_window["matches"] == [{"score": in_window["score"],
