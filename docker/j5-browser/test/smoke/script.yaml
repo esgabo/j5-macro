@@ -1,0 +1,50 @@
+# j5-browser smoke test: finds an image in Chromium, types and copies text, clicks to
+# download a file, and leaves its results in /out. Run by test/run-tests.sh with
+# START_URL=file:///job/page.html and J5_ALLOW_EXEC=1.
+version: 1
+name: j5-browser smoke test
+params:
+  greeting: {description: Text to type into the page}
+  token: {secret: true, description: A secret that must never reach the output}
+steps:
+  - id: wait_page
+    wait_window_in: {title: j5 smoke page, timeout: 30s}
+  - id: find_pattern
+    wait_image_in: {image: img/pattern.png, timeout: 15s}
+    as: pattern
+
+  # The text field is 80 px below the image's top-left corner (page.html).
+  - id: focus_text
+    click: {at: "${pattern}", offset: [0, 80]}
+  - id: write
+    type: "${greeting}"
+  - id: select_all
+    key: ctrl+a
+  - id: copy
+    key: ctrl+c
+  # Chromium fills the clipboard a moment after ctrl+c: retry until xclip gets the text.
+  - id: save_clipboard
+    exec:
+      command: >-
+        for i in $(seq 1 50); do
+        xclip -o -selection clipboard > /out/clipboard.txt 2>/dev/null && exit 0; sleep 0.1;
+        done; exit 1
+      shell: true
+      wait: true
+      timeout: 10s
+
+  - id: download
+    click: {at: "${pattern}"}
+  - id: wait_download
+    exec:
+      command: >-
+        for i in $(seq 1 100); do [ -f /out/downloads/smoke.txt ] && exit 0; sleep 0.1;
+        done; exit 1
+      shell: true
+      wait: true
+      timeout: 20s
+
+  - id: screenshot
+    exec: {command: [j5, screenshot, -o, /out/screen.png], wait: true, timeout: 20s}
+  - id: report
+    log: "done; the token was ${token}"

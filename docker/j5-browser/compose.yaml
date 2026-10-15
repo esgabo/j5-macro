@@ -1,0 +1,44 @@
+# j5-browser with Docker Compose. From this folder:
+#
+#   VNC_PASSWORD=choose-one docker compose up author     # desktop at http://localhost:6901
+#   docker compose run --rm job                          # run ./job/script.yaml, results in ./out
+#
+# Copy this file next to your own job folder to use it elsewhere; set J5_IMAGE to use a
+# published image instead of building it. See docs/container.md.
+name: j5-browser
+
+x-common: &common
+  image: ${J5_IMAGE:-j5-browser}
+  build:
+    context: ../..
+    dockerfile: docker/j5-browser/Dockerfile
+  shm_size: 1g
+  # Run as your own user so the files in ./out are yours: J5_UID=$(id -u) J5_GID=$(id -g)
+  user: "${J5_UID:-1000}:${J5_GID:-1000}"
+  volumes:
+    - ${J5_JOB_DIR:-./job}:/job
+    - ${J5_OUT_DIR:-./out}:/out
+
+services:
+  # The desktop, kept up to write and debug scripts. Open http://localhost:6901 (user j5),
+  # then run j5 on it: docker compose exec author j5 capture --window Chromium ...
+  author:
+    <<: *common
+    command: author
+    ports:
+      - "127.0.0.1:${VNC_PORT:-6901}:6901"
+    environment:
+      VNC_PASSWORD: ${VNC_PASSWORD:-}   # required: the entrypoint refuses to start without it
+      START_URL: ${START_URL:-about:blank}
+
+  # One job: runs /job/script.yaml, writes the results to /out and exits with j5's code.
+  job:
+    <<: *common
+    profiles: [job]
+    command: run
+    environment:
+      START_URL: ${START_URL:-about:blank}
+      J5_FAST: ${J5_FAST:-0}
+      J5_ALLOW_EXEC: ${J5_ALLOW_EXEC:-0}
+      J5_PARAM_ENV: ${J5_PARAM_ENV:-}
+      JOB_TIMEOUT: ${JOB_TIMEOUT:-10m}

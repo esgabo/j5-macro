@@ -154,7 +154,8 @@ Things an agent should know:
 - **The emergency stop belongs to the human.** `ctrl+alt+shift+q`, or pushing the mouse
   into a screen corner, stops any run (exit code 3).
 - **It needs a desktop session.** On Linux, an X11 session with `DISPLAY` set; on a
-  server, a virtual display with `xvfb-run`.
+  server, a virtual display with `xvfb-run`, or the [j5-browser container](container.md),
+  which brings its own display and Chromium.
 
 ## Driving the engine directly
 

@@ -7,16 +7,22 @@ virtual desktop; a region with nothing left after clipping is a ``ValueError``.
 
 mss instances are not shareable between threads (X11 connections and Windows device
 contexts belong to the thread that created them), so each thread lazily gets its own.
+
+On Linux, mss 10's default XCB backend refuses some X servers that it could capture,
+such as KasmVNC's Xvnc, which lists the root window's depth twice; mss's Xlib backend
+captures them, so it is the fallback when the default backend cannot start.
 """
 
 from __future__ import annotations
 
 import contextlib
+import sys
 import threading
 from typing import Any
 
 import mss
 import numpy as np
+from mss.exception import ScreenShotError
 
 from j5_macro.backends.base import Rect
 from j5_macro.vision.api import Frame
@@ -25,8 +31,15 @@ from j5_macro.vision.api import Frame
 def _new_mss() -> Any:
     factory = getattr(mss, "MSS", None)  # mss >= 10; mss.mss() is deprecated there
     if factory is None:  # pragma: no cover - mss 9
-        factory = mss.mss
-    return factory()
+        return mss.mss()
+    try:
+        return factory()
+    except ScreenShotError:
+        if not sys.platform.startswith("linux"):
+            raise
+        with contextlib.suppress(Exception):
+            return factory(backend="xlib")
+        raise
 
 
 def clip_region(region: Rect, bounds: Rect) -> Rect:

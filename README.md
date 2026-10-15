@@ -57,7 +57,8 @@ $ j5 run report.yaml --param 'customer=ACME #42'
 - **Automatable and GUI-ready.** Exit codes and JSON events for scripts, CI and AI agents.
   A headless engine speaks a JSON-lines protocol that the CLI, the debugger and a future
   GUI all use, including commands to list, edit and watch scripts and to review past
-  runs.
+  runs. A container image, [j5-browser](docs/container.md), runs a script against
+  Chromium on demand and hands back the files it produced.
 
 ## Status
 

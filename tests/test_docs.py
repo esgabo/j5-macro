@@ -109,6 +109,15 @@ def test_examples_validate(script: Path) -> None:
     assert result.ok, [e.message for e in result.errors]
 
 
+@pytest.mark.parametrize("script", sorted((ROOT / "docker").rglob("script.yaml")),
+                         ids=lambda p: p.relative_to(ROOT / "docker").as_posix())
+def test_container_test_jobs_validate(script: Path) -> None:
+    registry = default_registry()
+    result = load_script(script.read_text(encoding="utf-8"), lookup=registry.spec,
+                         check=registry.check_params, source_path=str(script))
+    assert result.ok, [e.message for e in result.errors]
+
+
 def test_smoke_template_is_what_the_target_draws() -> None:
     """examples/smoke/img/pattern.png is regenerated with
     ``python examples/smoke/target.py --write-template examples/smoke/img/pattern.png``."""
