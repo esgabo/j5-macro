@@ -89,7 +89,12 @@ null` without), so later steps that use them still check.
   (reading order: rows top to bottom, each left to right; 1 first, -1 last), and
   `after:`/`before:` an anchor (an image searched in the same area, or a kept result
   `"${hdr}"`): `click: {image: "#download", after: "#table_header"}` takes the first
-  match after it. The result adds `matches` (all, in reading order).
+  match after it. The result adds `matches` (all, in reading order). Anchors are
+  optional, but one that is given must be found: a missing anchor is a miss
+  (`image_not_found` naming it), never ignored. Use the anchor only when present with
+  `if: {when: {image_visible: "#hdr"}, then: [...], else: [...]}`. An image anchor is
+  its best match; to anchor on a specific one, keep it (`wait_image_in` + `pick`/`nth`
+  + `as: hdr`) and use `after: "${hdr}"`.
 - `click: {..., hover: {image: "#item_hovered", timeout: 2s}}` moves onto the target,
   waits for its hovered look, then clicks; `dwell: 300ms` rests before pressing.
 - Matching: normalized cross-correlation, score 0..1, found when `score >= threshold`.

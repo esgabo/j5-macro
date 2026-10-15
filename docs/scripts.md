@@ -746,10 +746,34 @@ order*: rows from top to bottom, each row from left to right.
 | `pick` | `first` or `last` in reading order, the `top`, `bottom`, `left` or `right`-most match, or the `best` score |
 | `nth` | The n-th match in reading order: `1` is the first, `-1` the last (not with `pick`) |
 
-An anchor is an image (a path or `"#name"`), searched in the same area as the target,
-or an image result kept with `as` (`"${header}"`), placed where it is now. Without
-`pick` or `nth`, `after` takes the first match after its anchor and `before` the last
-one before it: the nearest.
+An anchor is an image (a path or `"#name"`), searched in the same area as the target
+(with the target's `threshold` and `scale`), or an image result kept with `as`
+(`"${header}"`), placed where it is now. Without `pick` or `nth`, `after` takes the
+first match after its anchor and `before` the last one before it: the nearest.
+
+Anchors are optional, but **an anchor you give must be found**. When it is not on
+screen, the search is a miss: the step fails with `image_not_found` (the message names
+the anchor), or keeps polling while it waits. j5 never falls back to ignoring the
+anchor, since that could click the very match the anchor was meant to rule out. To use
+an anchor only when it is there, branch on it:
+
+```yaml
+- if:
+    when: {image_visible: "#movements_header"}
+    then:
+      - click: {image: "#download", after: "#movements_header"}
+    else:
+      - click: {image: "#download"}
+```
+
+An image anchor uses its best match. When the anchor itself appears more than once,
+choose it first and pass the kept result:
+
+```yaml
+- wait_image_in: {image: "#movements_header", window: {title: "${win}"}, pick: last}
+  as: header
+- click: {image: "#download", window: {title: "${win}"}, after: "${header}"}
+```
 
 ```yaml
 - id: download_movements          # the Download button below the movements table
