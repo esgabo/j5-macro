@@ -10,7 +10,17 @@ set -euo pipefail
 image=${1:-j5-browser}
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+cleanup() {
+  local status=$?
+  # The results are owned by the users the containers ran as: delete them as root, in a
+  # container, when the host user cannot.
+  rm -rf "$work" 2>/dev/null \
+    || docker run --rm --user 0 -v "$work:/work" --entrypoint sh "$image" -c 'rm -rf /work/*' \
+      >/dev/null 2>&1 || true
+  rm -rf "$work" 2>/dev/null || true
+  exit "$status"
+}
+trap cleanup EXIT
 failures=0
 
 pass() { echo "ok    $*"; }
