@@ -133,6 +133,10 @@ It then automates the container's own virtual display, not your desktop. To auto
 real desktop the process must reach that desktop's X server (`DISPLAY` and its
 authorization), which is how j5's own end-to-end tests run.
 
+For browser jobs there is a ready image, `j5-browser`: j5 with Chromium on a KasmVNC
+display, which runs one script, leaves its results in a folder and exits, or shows its
+desktop in a web browser to write scripts. See [container.md](container.md).
+
 ## Uninstall
 
 ```console

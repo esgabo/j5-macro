@@ -1,0 +1,6 @@
+# j5-browser timeout test: sleeps longer than the JOB_TIMEOUT the test sets.
+version: 1
+name: j5-browser timeout test
+steps:
+  - id: too_long
+    sleep: 120s

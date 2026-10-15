@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Openbox for j5-browser: every window maximised and without decorations, so windows
+     always open in the same place at the same size; no desktop menu, keyboard shortcuts
+     or workspaces that a script could trigger by accident. -->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+  </focus>
+  <placement>
+    <policy>Smart</policy>
+  </placement>
+  <theme>
+    <titleLayout></titleLayout>
+  </theme>
+  <desktops>
+    <number>1</number>
+  </desktops>
+  <keyboard></keyboard>
+  <mouse>
+    <context name="Root"></context>
+  </mouse>
+  <applications>
+    <application class="*" type="normal">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+    </application>
+  </applications>
+</openbox_config>

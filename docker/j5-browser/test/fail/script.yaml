@@ -1,0 +1,7 @@
+# j5-browser failure test: waits for an image that is never on screen, so the run fails
+# with image_not_found and leaves a capture of the screen in /out/runs.
+version: 1
+name: j5-browser failure test
+steps:
+  - id: wait_absent
+    wait_image_in: {image: img/absent.png, timeout: 2s}

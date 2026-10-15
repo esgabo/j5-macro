@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Starts Chromium the same way every time, so screens and image templates match from
+# run to run: a fresh profile, a fixed window and scale, no first-run or sign-in prompts.
+# Managed policies (/etc/chromium/policies/managed/j5.json) send downloads to
+# $OUT_DIR/downloads without asking.
+#
+#   j5-chromium [URL...]        a j5 script can also start it with an exec step
+#
+# CHROMIUM_KIOSK=1         full screen, no tabs or address bar
+# CHROMIUM_PROFILE=DIR     keep the profile (logins, cookies) in DIR instead of a new one
+# CHROMIUM_SANDBOX=auto    auto (default): keep Chromium's sandbox when the container
+#                          allows user namespaces, else run without it; 1: always; 0: never
+# CHROMIUM_FLAGS="..."     extra flags, split on spaces
+set -euo pipefail
+
+geometry=${GEOMETRY:-1280x800}
+profile=${CHROMIUM_PROFILE:-}
+if [[ -z "$profile" ]]; then
+  profile=$(mktemp -d /tmp/chromium-profile.XXXXXX)
+fi
+
+# shellcheck disable=SC2054  # the commas are inside --disable-features' value
+flags=(
+  --user-data-dir="$profile"
+  --no-first-run
+  --no-default-browser-check
+  --disable-dev-shm-usage
+  --disable-gpu
+  --force-device-scale-factor=1
+  --password-store=basic
+  --lang=en-US
+  --window-position=0,0
+  --window-size="${geometry/x/,}"
+  --start-maximized
+  --disable-features=Translate,MediaRouter,OptimizationHints,DownloadBubble
+  --disable-session-crashed-bubble
+)
+
+case "${CHROMIUM_SANDBOX:-auto}" in
+  1) ;;
+  0) flags+=(--no-sandbox) ;;
+  *)
+    # Chromium's sandbox needs unprivileged user namespaces, which Docker's default
+    # seccomp profile may block. A throwaway one-job container is an acceptable place to
+    # run without it; the policies hide the warning bar that would shift the page.
+    if ! unshare --user --map-root-user true 2>/dev/null; then
+      echo "j5-chromium: user namespaces unavailable, starting Chromium without its sandbox" >&2
+      flags+=(--no-sandbox)
+    fi
+    ;;
+esac
+
+[[ "${CHROMIUM_KIOSK:-0}" == 1 ]] && flags+=(--kiosk)
+extra=()
+read -ra extra <<<"${CHROMIUM_FLAGS:-}"
+
+exec chromium "${flags[@]}" "${extra[@]}" "$@"

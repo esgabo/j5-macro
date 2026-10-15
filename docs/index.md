@@ -21,6 +21,7 @@ works and how it is built.
 | [Command-line reference](cli.md) | Look up every `j5` command, option, exit code and environment variable |
 | [Debugging](debugging.md) | Step through scripts in the terminal (`j5 run --step`) or in VS Code |
 | [Running from scripts, CI and agents](automation.md) | Run j5 unattended: exit codes, JSON output, params, no prompts |
+| [The j5-browser container](container.md) | Run scripts against Chromium in a throwaway container, from n8n, cron or CI, and get files back |
 | [How it works](how-it-works.md) | Understand a run, the human-like mouse and keyboard, image search, safety, run history |
 
 ## How j5 is built

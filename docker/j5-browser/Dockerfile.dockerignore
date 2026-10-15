@@ -1,0 +1,10 @@
+# The build context is the repository root; the image needs only j5's sources and this
+# folder's rootfs.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src
+!docker/j5-browser/rootfs
+**/__pycache__
+**/*.pyc

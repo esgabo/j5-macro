@@ -1,0 +1,27 @@
+<!doctype html>
+<!-- The page the smoke test drives: a text field, an image to find and click, and a
+     download triggered by that click. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>j5 smoke page</title>
+<style>
+  body { margin: 0; background: #fff; font: 16px sans-serif; }
+  #pattern { position: absolute; left: 40px; top: 40px; image-rendering: pixelated; cursor: pointer; }
+  #text { position: absolute; left: 40px; top: 120px; width: 300px; height: 28px; font: 16px monospace; }
+</style>
+</head>
+<body>
+<img id="pattern" src="img/pattern.png" width="48" height="48" alt="">
+<input id="text" type="text">
+<script>
+  document.getElementById("pattern").addEventListener("click", () => {
+    const blob = new Blob(["downloaded by j5\n"], {type: "text/plain"});
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "smoke.txt";
+    link.click();
+  });
+</script>
+</body>
+</html>

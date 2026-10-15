@@ -1,0 +1,22 @@
+{
+  "DownloadDirectory": "/out/downloads",
+  "PromptForDownloadLocation": false,
+  "AlwaysOpenPdfExternally": true,
+  "DownloadRestrictions": 0,
+  "PasswordManagerEnabled": false,
+  "AutofillAddressEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "TranslateEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "BrowserSignin": 0,
+  "SyncDisabled": true,
+  "MetricsReportingEnabled": false,
+  "PromotionsEnabled": false,
+  "BackgroundModeEnabled": false,
+  "HideFirstRunExperience": true,
+  "CommandLineFlagSecurityWarningsEnabled": false,
+  "BookmarkBarEnabled": false,
+  "ShowHomeButton": false,
+  "DefaultNotificationsSetting": 2,
+  "DefaultGeolocationSetting": 2
+}

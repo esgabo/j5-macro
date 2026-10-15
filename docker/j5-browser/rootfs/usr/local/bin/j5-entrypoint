@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# j5-browser's entrypoint: starts the virtual desktop (KasmVNC's X server, openbox and
+# Chromium), then does what the first argument says:
+#
+#   run      (default) run the j5 job in /job, write its results to /out and exit with
+#            j5's exit code
+#   author   keep the desktop up, viewable in a web browser, to write and debug scripts
+#   shell    an interactive shell on the running desktop
+#   <cmd>    any other command, run on the desktop, e.g. `j5 windows --json`
+#
+# Every setting is an environment variable; docs/container.md lists them.
+set -euo pipefail
+
+OUT_DIR=/out   # fixed: Chromium's download policy points into it
+JOB_DIR=${JOB_DIR:-/job}
+GEOMETRY=${GEOMETRY:-1280x800}
+VNC_PORT=${VNC_PORT:-6901}
+JOB_TIMEOUT=${JOB_TIMEOUT:-10m}
+START_BROWSER=${START_BROWSER:-1}
+
+log() { echo "j5-browser: $*" >&2; }
+
+# Exit code for problems before j5 starts, the same as j5's "could not be started".
+SETUP_FAILED=2
+
+# The home directory may not be writable when the container runs as another user
+# (docker run --user): give that user a temporary one.
+if [[ ! -w "${HOME:-/nonexistent}" ]]; then
+  HOME=$(mktemp -d /tmp/home.XXXXXX)
+  export HOME
+fi
+
+pids=()
+cleanup() {
+  local pid
+  for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+  wait 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# --- The display -----------------------------------------------------------------------
+
+start_display() {
+  local interface=$1 auth_args=()
+  if [[ -n "${VNC_PASSWORD:-}" ]]; then
+    printf '%s\n%s\n' "$VNC_PASSWORD" "$VNC_PASSWORD" \
+      | kasmvncpasswd -u "${VNC_USER:-j5}" -w "$HOME/.kasmpasswd" >/dev/null
+    auth_args=(-KasmPasswordFile "$HOME/.kasmpasswd")
+  else
+    auth_args=(-DisableBasicAuth)
+  fi
+  mkdir -p "$HOME/.vnc"
+  # -SecurityTypes None: no VNC password on top of the web server's basic auth, which
+  # is the only way in (there is no raw VNC port). -publicIP: the address is only used
+  # for KasmVNC's optional UDP transport; giving one stops it querying STUN servers on
+  # the internet at every start.
+  Xvnc "$DISPLAY" \
+    -geometry "$GEOMETRY" -depth 24 \
+    -interface "$interface" -websocketPort "$VNC_PORT" \
+    -httpd /usr/share/kasmvnc/www -sslOnly 0 \
+    -SecurityTypes None "${auth_args[@]}" \
+    -publicIP "${VNC_PUBLIC_IP:-127.0.0.1}" \
+    -AlwaysShared -FrameRate "${VNC_FRAME_RATE:-24}" \
+    -quiet \
+    >"$HOME/.vnc/xvnc.log" 2>&1 &
+  pids+=($!)
+
+  local _
+  for _ in $(seq 1 100); do
+    if xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; then
+      break
+    fi
+    if ! kill -0 "${pids[-1]}" 2>/dev/null; then
+      log "the X server did not start:"
+      cat "$HOME/.vnc/xvnc.log" >&2
+      exit "$SETUP_FAILED"
+    fi
+    sleep 0.1
+  done
+  local extensions
+  extensions=$(xdpyinfo -display "$DISPLAY" -queryExtensions 2>/dev/null || true)
+  if [[ "$extensions" != *XTEST* ]]; then
+    log "the X server on $DISPLAY has no XTEST extension; j5 cannot send input"
+    exit "$SETUP_FAILED"
+  fi
+
+  openbox >"$HOME/.vnc/openbox.log" 2>&1 &
+  pids+=($!)
+
+  if [[ "$START_BROWSER" == 1 ]]; then
+    if [[ "${CHROMIUM_SANDBOX:-auto}" == auto ]] \
+        && ! unshare --user --map-root-user true 2>/dev/null; then
+      log "user namespaces are not available: Chromium runs without its sandbox"
+    fi
+    j5-chromium "${START_URL:-about:blank}" >"$HOME/.vnc/chromium.log" 2>&1 &
+    pids+=($!)
+  fi
+}
+
+# --- run: one job ----------------------------------------------------------------------
+
+j5_args() {
+  # The options of `j5 run`, from the environment, one argument per line.
+  local params=${J5_PARAMS_FILE:-$JOB_DIR/params.yaml}
+  echo run
+  echo --json
+  [[ "${J5_FAST:-0}" == 1 ]] && echo --fast
+  [[ "${J5_ALLOW_EXEC:-0}" == 1 ]] && echo --allow-exec
+  [[ -n "${J5_SEED:-}" ]] && printf '%s\n' --seed "$J5_SEED"
+  [[ -n "${J5_DISPLAY_SCALE:-}" ]] && printf '%s\n' --display-scale "$J5_DISPLAY_SCALE"
+  [[ -f "$params" ]] && printf '%s\n' --params-file "$params"
+  # J5_PARAM_ENV="password=SITE_PASSWORD,token=API_TOKEN": params from variables.
+  local pair
+  IFS=',' read -ra pairs <<<"${J5_PARAM_ENV:-}"
+  for pair in "${pairs[@]}"; do
+    pair=${pair// /}
+    [[ -n "$pair" ]] && printf '%s\n' --param-env "$pair"
+  done
+  return 0
+}
+
+write_result() {
+  # /out/result.json: the exit code, j5's run_finished status and the files produced.
+  local code=$1 started=$2
+  python3 - "$OUT_DIR" "$code" "$started" <<'PY'
+import json, os, sys
+from datetime import datetime, timezone
+
+out, code, started = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+status = reason = None
+try:
+    with open(os.path.join(out, "events.jsonl"), encoding="utf-8") as events:
+        for line in events:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("type") == "run_finished":
+                payload = event.get("payload") or {}
+                status, reason = payload.get("status"), payload.get("reason")
+except OSError:
+    pass
+if code == 124:
+    status, reason = "timeout", "the job ran longer than JOB_TIMEOUT"
+own = {"events.jsonl", "j5.log", "result.json"}
+files = []
+for root, dirs, names in os.walk(out):
+    rel_root = os.path.relpath(root, out)
+    if rel_root == ".":
+        dirs[:] = [d for d in dirs if d != "runs"]
+    for name in names:
+        rel = os.path.normpath(os.path.join(rel_root, name))
+        if rel not in own and not name.endswith((".crdownload", ".tmp")):
+            files.append(rel)
+result = {
+    "exit_code": code,
+    "status": status,
+    "reason": reason,
+    "started": started,
+    "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "files": sorted(files),
+}
+with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
+    json.dump(result, f, indent=2)
+    f.write("\n")
+PY
+}
+
+run_job() {
+  local script=${J5_SCRIPT:-$JOB_DIR/script.yaml}
+  if [[ ! -w "$OUT_DIR" ]]; then
+    log "$OUT_DIR is not writable by uid $(id -u); mount a writable folder there"
+    exit "$SETUP_FAILED"
+  fi
+  if [[ ! -f "$script" ]]; then
+    log "no script at $script; mount the job folder at $JOB_DIR"
+    exit "$SETUP_FAILED"
+  fi
+  mkdir -p "$OUT_DIR/downloads"
+
+  local started
+  started=$(date -u +%Y-%m-%dT%H:%M:%S+00:00)
+  start_display "${VNC_INTERFACE:-$([[ -n "${VNC_PASSWORD:-}" ]] && echo 0.0.0.0 || echo 127.0.0.1)}"
+
+  local args=() extra=()
+  mapfile -t args < <(j5_args)
+  # Extra options for `j5 run`, split on spaces: J5_ARGS="--var retries=5".
+  read -ra extra <<<"${J5_ARGS:-}"
+  args+=("${extra[@]}" "$script")
+
+  local code=0
+  # timeout stops a run that takes too long. Like docker stop below, it interrupts j5
+  # with SIGINT (Ctrl+C), which ends the run cleanly: held keys released, the run saved
+  # with its run_finished event. It is killed if it has not ended 10 s later.
+  timeout --signal=INT --kill-after=10s "$JOB_TIMEOUT" j5 "${args[@]}" \
+    </dev/null >"$OUT_DIR/events.jsonl" 2>"$OUT_DIR/j5.log" &
+  local j5_pid=$!
+  trap 'kill -INT "$j5_pid" 2>/dev/null || true' TERM INT
+  wait "$j5_pid" || code=$?
+  # wait returns early when a trapped signal arrives: wait for j5 itself to end.
+  while kill -0 "$j5_pid" 2>/dev/null; do wait "$j5_pid" || code=$?; done
+  trap - TERM INT
+  if [[ $code -eq 124 || $code -eq 137 ]]; then
+    log "the job ran longer than JOB_TIMEOUT=$JOB_TIMEOUT and was stopped"
+    echo "j5-browser: stopped after JOB_TIMEOUT=$JOB_TIMEOUT" >>"$OUT_DIR/j5.log"
+    code=124
+  fi
+  write_result "$code" "$started"
+  return "$code"
+}
+
+# --- Modes -----------------------------------------------------------------------------
+
+mode=${1:-run}
+[[ $# -gt 0 ]] && shift
+
+case "$mode" in
+  run)
+    code=0
+    run_job || code=$?
+    exit "$code"
+    ;;
+  author)
+    if [[ -z "${VNC_PASSWORD:-}" && "${VNC_NO_AUTH:-0}" != 1 ]]; then
+      log "set VNC_PASSWORD (or VNC_NO_AUTH=1 on a private network) to open the desktop"
+      exit "$SETUP_FAILED"
+    fi
+    start_display "${VNC_INTERFACE:-0.0.0.0}"
+    log "desktop ready: http://localhost:${VNC_PORT}/ (user ${VNC_USER:-j5})"
+    log "run j5 on it with: docker exec -it <container> j5 ..."
+    wait "${pids[0]}"
+    ;;
+  shell)
+    start_display "${VNC_INTERFACE:-127.0.0.1}"
+    bash -l
+    ;;
+  *)
+    start_display "${VNC_INTERFACE:-127.0.0.1}"
+    code=0
+    "$mode" "$@" || code=$?
+    exit "$code"
+    ;;
+esac

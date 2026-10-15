@@ -1,0 +1,30 @@
+name: Container
+
+# Builds the j5-browser image and runs its end-to-end tests (docker/j5-browser/test).
+on:
+  push:
+    branches: [main]
+    paths: [docker/**, src/**, pyproject.toml, .github/workflows/container.yml]
+  pull_request:
+    paths: [docker/**, src/**, pyproject.toml, .github/workflows/container.yml]
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  j5-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/j5-browser/Dockerfile
+          load: true
+          tags: j5-browser:test
+          cache-from: type=gha,scope=j5-browser
+          cache-to: type=gha,mode=max,scope=j5-browser
+      - run: docker/j5-browser/test/run-tests.sh j5-browser:test
